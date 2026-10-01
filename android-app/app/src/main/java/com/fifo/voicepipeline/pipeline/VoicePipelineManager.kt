@@ -276,7 +276,7 @@ class VoicePipelineManager(
             vad.reset()
             _rmsLevel.value = 0.0
             _statusMessage.value = "Micrófono silenciado (Mute)"
-            updateEspDisplay(state = "MUTED", transcript = "Mic silenciado")
+            updateEspDisplay(state = "MUTED", transcript = "", response = "")
         } else {
             Log.i(TAG, "Micrófono REACTIVADO por el usuario")
             if (_micSource.value == MicSource.PHONE) {
@@ -286,7 +286,7 @@ class VoicePipelineManager(
                 nativeRecognizer?.startContinuousListening()
             }
             _statusMessage.value = if (_isAwake.value) "Fifo despierto — te escucho" else "Fifo durmiendo · Di 'Fifo' para despertar"
-            updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
+            updateEspDisplay(state = if (_isAwake.value) "ESCUCHANDO" else "DURMIENDO", transcript = "", response = "")
         }
     }
 
@@ -371,10 +371,12 @@ class VoicePipelineManager(
      * Despierta a Fifo manualmente (por ejemplo, al tocar la pantalla).
      */
     fun wakeUpManually() {
+        _isMicMuted.value = false
         _isAwake.value = true
         _state.value = PipelineState.IDLE
         _statusMessage.value = "Fifo despierto — te escucho"
-        updateEspDisplay(state = "ESCUCHANDO")
+        nativeRecognizer?.startContinuousListening()
+        updateEspDisplay(state = "ESCUCHANDO", transcript = "", response = "")
         resetAutoSleepTimer()
     }
 
@@ -385,8 +387,8 @@ class VoicePipelineManager(
         autoSleepJob?.cancel()
         _isAwake.value = false
         _state.value = PipelineState.SLEEPING
-        _statusMessage.value = "Fifo durmiendo · Di 'Fifo' para despertar"
-        updateEspDisplay(state = "DURMIENDO")
+        _statusMessage.value = if (_isMicMuted.value) "Micrófono silenciado (Mute)" else "Fifo durmiendo · Di 'Fifo' para despertar"
+        updateEspDisplay(state = if (_isMicMuted.value) "MUTED" else "DURMIENDO", transcript = "", response = "")
     }
 
     /**
@@ -477,10 +479,11 @@ class VoicePipelineManager(
                 }
 
                 // Despertar a Fifo
+                _isMicMuted.value = false
                 _isAwake.value = true
                 resetAutoSleepTimer()
                 _statusMessage.value = "¡Fifo despierto!"
-                updateEspDisplay(state = "ESCUCHANDO")
+                updateEspDisplay(state = "ESCUCHANDO", transcript = "", response = "")
 
                 val query = extractQuery(rawText)
                 if (query.isBlank() || query.length < 3) {

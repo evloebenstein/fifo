@@ -92,8 +92,9 @@ public:
             if (uIdx >= 0) {
                 uIdx += 8;
                 int uEnd = msg.indexOf('"', uIdx);
-                if (uEnd > uIdx) {
+                if (uEnd >= uIdx) {
                     String u = msg.substring(uIdx, uEnd);
+                    memset(_service->_displayData->userText, 0, sizeof(_service->_displayData->userText));
                     strncpy(_service->_displayData->userText, u.c_str(), sizeof(_service->_displayData->userText) - 1);
                 }
             }
@@ -102,8 +103,9 @@ public:
             if (aIdx >= 0) {
                 aIdx += 6;
                 int aEnd = msg.indexOf('"', aIdx);
-                if (aEnd > aIdx) {
+                if (aEnd >= aIdx) {
                     String a = msg.substring(aIdx, aEnd);
+                    memset(_service->_displayData->aiText, 0, sizeof(_service->_displayData->aiText));
                     strncpy(_service->_displayData->aiText, a.c_str(), sizeof(_service->_displayData->aiText) - 1);
                 }
             }

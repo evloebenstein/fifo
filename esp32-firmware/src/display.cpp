@@ -67,8 +67,16 @@ void Display::update(const DisplayData& data) {
         int w = _u8g2.getStrWidth(msg);
         _u8g2.drawStr((128 - w) / 2, 62, msg);
     } else {
-        const char* textToShow = (strlen(data.aiText) > 0) ? data.aiText : data.userText;
-        drawBottomStatus(data.state, textToShow);
+        if (strcmp(data.state, "MUTED") == 0) {
+            drawBottomStatus(data.state, "");
+        } else if (strcmp(data.state, "ESCUCHANDO") == 0 && (strcmp(data.userText, "Mic silenciado") == 0 || strlen(data.userText) == 0)) {
+            drawBottomStatus(data.state, "");
+        } else if (strcmp(data.state, "LISTO") == 0 && (strcmp(data.userText, "Mic silenciado") == 0 || strlen(data.userText) == 0)) {
+            drawBottomStatus(data.state, "");
+        } else {
+            const char* textToShow = (strlen(data.aiText) > 0) ? data.aiText : data.userText;
+            drawBottomStatus(data.state, textToShow);
+        }
     }
 
     _u8g2.sendBuffer();

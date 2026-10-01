@@ -113,7 +113,10 @@ fun MainScreen(
                             FifoTab.HOME -> {
                                 HomeScreen(
                                     userName = userName,
-                                    onStartVoiceChat = { isVoiceSheetOpen = true },
+                                    onStartVoiceChat = {
+                                        onWakeUp()
+                                        isVoiceSheetOpen = true
+                                    },
                                     onOpenBreathingExercise = { isBreathingOpen = true },
                                     isMicMuted = isMicMuted,
                                     onToggleMicMute = onToggleMicMute
