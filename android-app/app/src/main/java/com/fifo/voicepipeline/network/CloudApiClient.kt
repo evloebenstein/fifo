@@ -23,7 +23,7 @@ import java.nio.ByteOrder
  * Soporta streaming para minimizar latencia.
  */
 class CloudApiClient(
-    private val anthropicApiKey: String,
+    var anthropicApiKey: String,
     var openAiApiKey: String = ""
 ) {
     companion object {
@@ -170,6 +170,54 @@ Responde en el mismo idioma que te hablen."""
         } catch (e: Exception) {
             Log.e(TAG, "Error llamando a Claude: ${e.message}", e)
             "Hubo un error de conexión con el servidor. Intenta de nuevo."
+        }
+    }
+
+    /**
+     * Prueba la validez de la clave de Claude realizando una consulta mínima de prueba.
+     * Retorna Pair(éxito, mensaje descriptivo).
+     */
+    suspend fun testAnthropicConnection(overrideKey: String? = null): Pair<Boolean, String> {
+        val key = (overrideKey ?: anthropicApiKey).trim()
+        if (key.isEmpty()) {
+            return Pair(false, "La clave de Claude no puede estar vacía.")
+        }
+        if (!key.startsWith("sk-ant-")) {
+            return Pair(false, "La clave debe comenzar con 'sk-ant-'.")
+        }
+
+        val testBody = """
+        {
+            "model": "$CLAUDE_MODEL",
+            "max_tokens": 10,
+            "messages": [{"role": "user", "content": "Hola"}]
+        }
+        """.trimIndent()
+
+        val request = Request.Builder()
+            .url(ANTHROPIC_URL)
+            .header("x-api-key", key)
+            .header("anthropic-version", ANTHROPIC_VERSION)
+            .header("content-type", "application/json")
+            .post(testBody.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        return try {
+            val response = httpClient.newCall(request).executeSuspend()
+            val body = response.body?.string() ?: ""
+            if (response.isSuccessful) {
+                Pair(true, "¡Conexión exitosa con Claude!")
+            } else {
+                val errorMsg = try {
+                    val json = JsonParser.parseString(body).asJsonObject
+                    json.getAsJsonObject("error")?.get("message")?.asString ?: "Error ${response.code}"
+                } catch (e: Exception) {
+                    "Error HTTP ${response.code}"
+                }
+                Pair(false, "Claude rechazó la clave ($errorMsg)")
+            }
+        } catch (e: Exception) {
+            Pair(false, "Fallo de red: ${e.message}")
         }
     }
 

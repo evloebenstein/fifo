@@ -28,12 +28,18 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class VoicePipelineManager(
     private val context: Context,
-    private val anthropicApiKey: String,
-    private val openAiApiKey: String = ""
+    initialAnthropicApiKey: String,
+    initialOpenAiApiKey: String = ""
 ) {
     companion object {
         private const val TAG = "VoicePipeline"
     }
+
+    var anthropicApiKey: String = initialAnthropicApiKey
+        private set
+
+    var openAiApiKey: String = initialOpenAiApiKey
+        private set
 
     // ── Estado observable (para la UI) ──────────────
     private val _state = MutableStateFlow(PipelineState.DISCONNECTED)
@@ -42,7 +48,7 @@ class VoicePipelineManager(
     private val _isAwake = MutableStateFlow(false)
     val isAwake: StateFlow<Boolean> = _isAwake.asStateFlow()
 
-    private val _micSource = MutableStateFlow(MicSource.ESP32)
+    private val _micSource = MutableStateFlow(MicSource.PHONE)
     val micSource: StateFlow<MicSource> = _micSource.asStateFlow()
 
     private val _transcription = MutableStateFlow("")
@@ -59,6 +65,9 @@ class VoicePipelineManager(
 
     // Temporizador de auto-sueño para Fifo (25 segundos de inactividad)
     private var autoSleepJob: Job? = null
+
+    // Reconocedor de voz nativo de Google (100% GRATIS, no requiere claves de API)
+    private var nativeRecognizer: NativeSpeechRecognizer? = null
 
     // ── Componentes internos de audio y BLE ──────────
     private val bleClient = BleVoiceClient(
@@ -77,10 +86,7 @@ class VoicePipelineManager(
                 updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
             } else {
                 Log.i(TAG, "ESP32-S3 desconectado de BLE")
-                if (_micSource.value == MicSource.ESP32) {
-                    _state.value = PipelineState.DISCONNECTED
-                    _statusMessage.value = "Fifo desconectado — buscando Bluetooth..."
-                }
+                _statusMessage.value = "Fifo desconectado — reconectando por Bluetooth..."
                 vad.reset()
                 pcmBuffer.clear()
             }
@@ -107,10 +113,11 @@ class VoicePipelineManager(
      * Inicia el pipeline completo:
      * - Conexión Bluetooth automática con el ESP32-S3
      * - Sistema de salida por parlante del celular
-     * - Cliente de APIs de nube (Claude / Whisper)
+     * - Cliente de APIs de nube (Claude Haiku 4.5)
+     * - Reconocedor de voz nativo de Google (0 claves requeridas)
      */
     fun start() {
-        Log.i(TAG, "Iniciando pipeline de voz FIFO (100% BLE)...")
+        Log.i(TAG, "Iniciando pipeline de voz FIFO (100% BLE + Claude)...")
 
         cloudClient = CloudApiClient(
             anthropicApiKey = anthropicApiKey,
@@ -134,20 +141,51 @@ class VoicePipelineManager(
                     _statusMessage.value = if (_isAwake.value) "Listo — habla cuando quieras" else "Fifo durmiendo · Di 'Fifo' para despertar"
                     updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
                     vad.reset()
+
+                    // Reanudar la escucha de voz nativa tras terminar de hablar
+                    nativeRecognizer?.startContinuousListening()
                 }
             },
             onError = { err ->
                 Log.e(TAG, "Error TTS nativo: $err")
+                nativeRecognizer?.startContinuousListening()
             }
         )
 
+        // Iniciar reconocedor de voz nativo de Google (100% gratuito, sin claves)
+        nativeRecognizer = NativeSpeechRecognizer(
+            context = context,
+            onReady = {
+                if (_state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
+                    _statusMessage.value = if (_isAwake.value) "Escuchando... Di tu pregunta" else "Fifo durmiendo · Di 'Fifo' para despertar"
+                }
+            },
+            onRmsChanged = { level ->
+                _rmsLevel.value = level.toDouble()
+                if (_state.value == PipelineState.LISTENING) {
+                    updateEspDisplay(state = "ESCUCHANDO", level = level)
+                }
+            },
+            onPartialResult = { partial ->
+                _transcription.value = partial
+                if (_isAwake.value && _state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
+                    _state.value = PipelineState.LISTENING
+                    updateEspDisplay(state = "ESCUCHANDO")
+                }
+            },
+            onResult = { text ->
+                processUserText(text)
+            },
+            onError = { code, msg ->
+                Log.d(TAG, "SpeechRecognizer: $msg ($code)")
+            }
+        )
+
+        // Iniciar escucha continua de voz
+        nativeRecognizer?.startContinuousListening()
+
         // Iniciar escaneo y conexión BLE con el ESP32-S3
         connectBle()
-
-        // Si la fuente inicial es el celular, iniciar captura interna
-        if (_micSource.value == MicSource.PHONE) {
-            startPhoneMic()
-        }
     }
 
     /**
@@ -201,6 +239,8 @@ class VoicePipelineManager(
     fun stop() {
         Log.i(TAG, "Deteniendo pipeline...")
         scope.cancel()
+        nativeRecognizer?.release()
+        nativeRecognizer = null
         phoneMicRecorder.stop()
         phoneMicRecorder.release()
         audioPlayer.release()
@@ -317,11 +357,80 @@ class VoicePipelineManager(
     }
 
     /**
-     * Permite actualizar dinámicamente la clave para STT (OpenAI o Groq).
+     * Permite actualizar dinámicamente la clave para Claude (Anthropic).
+     */
+    fun setAnthropicApiKey(key: String) {
+        val trimmed = key.trim()
+        anthropicApiKey = trimmed
+        cloudClient.anthropicApiKey = trimmed
+        Log.i(TAG, "Nueva API key para Claude configurada: ${trimmed.take(12)}...")
+    }
+
+    /**
+     * Prueba la conexión con Claude con la clave actual o una clave específica.
+     */
+    suspend fun testClaudeConnection(overrideKey: String? = null): Pair<Boolean, String> {
+        return cloudClient.testAnthropicConnection(overrideKey)
+    }
+
+    /**
+     * Permite actualizar dinámicamente la clave para STT (OpenAI o Groq) opcional.
      */
     fun setOpenAiApiKey(key: String) {
         cloudClient.openAiApiKey = key.trim()
-        Log.i(TAG, "Nueva API key para STT configurada: ${key.take(8)}...")
+        Log.i(TAG, "Nueva API key para STT opcional configurada: ${key.take(8)}...")
+    }
+
+    /**
+     * Procesa texto obtenido por el reconocimiento de voz nativo de Google (100% gratis, sin claves).
+     */
+    private fun processUserText(rawText: String) {
+        if (rawText.isBlank()) return
+        Log.i(TAG, "Texto reconocido (Google Voice): $rawText")
+        _transcription.value = rawText
+
+        val textLower = rawText.lowercase().trim()
+        val hasWakeWord = textLower.contains("fifo") || textLower.contains("fito") || textLower.contains("feefo")
+
+        scope.launch {
+            if (!_isAwake.value) {
+                // Fifo está durmiendo: SOLO despierta si dijeron FIFO
+                if (!hasWakeWord) {
+                    Log.d(TAG, "Audio ignorado: Fifo durmiendo y no se oyó 'Fifo'. Oído: $rawText")
+                    _state.value = PipelineState.SLEEPING
+                    updateEspDisplay(state = "DURMIENDO")
+                    return@launch
+                }
+
+                // Despertar a Fifo
+                _isAwake.value = true
+                resetAutoSleepTimer()
+                _statusMessage.value = "¡Fifo despierto!"
+                updateEspDisplay(state = "ESCUCHANDO")
+
+                val query = extractQuery(rawText)
+                if (query.isBlank() || query.length < 3) {
+                    speakResponseChunk("¡Hola! Te escucho.")
+                    return@launch
+                }
+
+                consultClaudeAndRespond(query)
+            } else {
+                // Fifo ya estaba despierto
+                resetAutoSleepTimer()
+                val isSleepCmd = textLower.contains("duérmete") || textLower.contains("a dormir") ||
+                        textLower.contains("buenas noches") || textLower.contains("descansa")
+
+                if (isSleepCmd) {
+                    speakResponseChunk("Hasta luego, que descanses.")
+                    goToSleep()
+                    return@launch
+                }
+
+                val query = extractQuery(rawText).ifBlank { rawText }
+                consultClaudeAndRespond(query)
+            }
+        }
     }
 
     // ═════════════════════════════════════════════════
@@ -345,17 +454,23 @@ class VoicePipelineManager(
             updateEspDisplay(state = "PENSANDO")
 
             try {
+                // Si no hay clave de Whisper/Groq, no insistir con voz de error
+                if (cloudClient.openAiApiKey.isBlank()) {
+                    Log.d(TAG, "Audio de ESP32 omitido: no hay clave Whisper configurada. Se usa reconocimiento de voz nativo de Google.")
+                    _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
+                    updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
+                    return@launch
+                }
+
                 // 1. STT Whisper con timeout estricto de 10s
                 val transcript = withTimeoutOrNull(10000L) {
                     cloudClient.transcribe(wavAudio)
                 } ?: "[TIMEOUT_STT]"
 
                 if (transcript == "[KEY_STT_FALTANTE]") {
-                    val msg = "Para escuchar tu voz necesito una clave de Whisper o Groq en ajustes."
-                    _statusMessage.value = msg
+                    Log.d(TAG, "Clave STT no presente para ESP32.")
                     _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
                     updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
-                    speakResponseChunk(msg)
                     return@launch
                 }
 
@@ -443,6 +558,9 @@ class VoicePipelineManager(
     private fun speakResponseChunk(text: String) {
         if (text.isBlank()) return
 
+        // Pausar escucha continua para evitar que Fifo escuche su propia voz (eco)
+        nativeRecognizer?.stop()
+
         scope.launch {
             _state.value = PipelineState.SPEAKING
             _statusMessage.value = "Hablando..."
@@ -460,6 +578,7 @@ class VoicePipelineManager(
                         _statusMessage.value = if (_isAwake.value) "Listo — habla cuando quieras" else "Fifo durmiendo · Di 'Fifo'"
                         updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
                         vad.reset()
+                        nativeRecognizer?.startContinuousListening()
                     }
                 } else {
                     androidTtsSpeaker?.speak(text)

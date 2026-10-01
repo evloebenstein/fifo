@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.fifo.voicepipeline.ui.components.FifoFace
 import com.fifo.voicepipeline.ui.theme.FifoColors
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -33,8 +34,9 @@ fun ProfileScreen(
     isAwake: Boolean = false,
     onWakeUp: () -> Unit = {},
     onSleep: () -> Unit = {},
-    currentSttKey: String = "",
-    onSaveSttKey: (String) -> Unit = {},
+    currentClaudeKey: String = "",
+    onSaveClaudeKey: (String) -> Unit = {},
+    onTestClaudeKey: (suspend (String) -> Pair<Boolean, String>)? = null,
     modifier: Modifier = Modifier
 ) {
     var isSettingsOpen by remember { mutableStateOf(false) }
@@ -317,58 +319,133 @@ fun ProfileScreen(
 
                     Divider(color = Color(0xFFF8FAFC))
 
-                    // Configuración de API Key para STT (Whisper / Groq)
-                    var sttInput by remember { mutableStateOf(currentSttKey) }
+                    // ── Configuración de Cerebro de IA: Claude (Anthropic) ──
+                    var claudeInput by remember { mutableStateOf(currentClaudeKey) }
                     var keySavedSuccess by remember { mutableStateOf(false) }
+                    var isTestingKey by remember { mutableStateOf(false) }
+                    var testResultText by remember { mutableStateOf<String?>(null) }
+                    var testResultSuccess by remember { mutableStateOf(false) }
+                    val coroutineScope = rememberCoroutineScope()
 
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 18.dp, vertical = 12.dp)
+                            .padding(horizontal = 18.dp, vertical = 14.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Key, contentDescription = null, tint = FifoColors.NavyPrimary, modifier = Modifier.size(18.dp))
+                            Icon(Icons.Default.Key, contentDescription = null, tint = FifoColors.NavyPrimary, modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Clave de Voz STT (Whisper / Groq)", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
+                            Text("Cerebro Claude (Anthropic API)", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = FifoColors.LightTextPrimary)
                         }
-                        Spacer(modifier = Modifier.height(4.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "Claude Haiku 4.5 ya está activo. Para transcribir tu voz ingresa tu clave gratuita de Groq (gsk_...) o de OpenAI.",
-                            fontSize = 11.sp,
-                            color = FifoColors.LightTextSecondary
+                            text = "Ingresa tu clave de Claude (sk-ant-...). El reconocimiento de voz funciona gratis con Google de forma nativa sin requerir ninguna otra clave.",
+                            fontSize = 12.sp,
+                            color = FifoColors.LightTextSecondary,
+                            lineHeight = 16.sp
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
                         OutlinedTextField(
-                            value = sttInput,
+                            value = claudeInput,
                             onValueChange = {
-                                sttInput = it
+                                claudeInput = it
                                 keySavedSuccess = false
+                                testResultText = null
                             },
-                            placeholder = { Text("gsk_... o sk-...", fontSize = 12.sp) },
+                            placeholder = { Text("sk-ant-api03-...", fontSize = 12.sp) },
                             singleLine = true,
                             textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp),
                             modifier = Modifier.fillMaxWidth()
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
+
+                        if (keySavedSuccess) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("✓ Clave guardada correctamente", fontSize = 12.sp, color = FifoColors.StatusListening, fontWeight = FontWeight.SemiBold)
+                        }
+
+                        if (testResultText != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = testResultText!!,
+                                fontSize = 12.sp,
+                                color = if (testResultSuccess) FifoColors.StatusListening else Color(0xFFEF4444),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            if (keySavedSuccess) {
-                                Text("¡Guardado!", fontSize = 11.sp, color = FifoColors.StatusListening, fontWeight = FontWeight.Bold)
-                                Spacer(modifier = Modifier.width(8.dp))
+                            // Botón Probar Conexión con Claude
+                            OutlinedButton(
+                                onClick = {
+                                    val keyToTest = claudeInput.trim()
+                                    if (keyToTest.isBlank()) {
+                                        testResultText = "Ingresa tu clave de Claude primero."
+                                        testResultSuccess = false
+                                        return@OutlinedButton
+                                    }
+                                    isTestingKey = true
+                                    testResultText = null
+                                    coroutineScope.launch {
+                                        val result = onTestClaudeKey?.invoke(keyToTest) ?: Pair(false, "Prueba no disponible")
+                                        isTestingKey = false
+                                        testResultSuccess = result.first
+                                        testResultText = result.second
+                                    }
+                                },
+                                enabled = !isTestingKey,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                if (isTestingKey) {
+                                    CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Probando...", fontSize = 11.sp)
+                                } else {
+                                    Text("Probar Claude", fontSize = 11.sp)
+                                }
                             }
+
+                            // Botón Guardar Clave
                             Button(
                                 onClick = {
-                                    onSaveSttKey(sttInput.trim())
+                                    val cleaned = claudeInput.trim()
+                                    onSaveClaudeKey(cleaned)
                                     keySavedSuccess = true
                                 },
                                 shape = RoundedCornerShape(10.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = FifoColors.NavyPrimary),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp)
+                                modifier = Modifier.weight(1f),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
                             ) {
-                                Text("Guardar Clave", fontSize = 12.sp)
+                                Text("Guardar Clave", fontSize = 11.sp)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        Surface(
+                            color = Color(0xFFF1F5F9),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.MicNone, contentDescription = null, tint = FifoColors.NavyPrimary, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Motor de voz: Reconocimiento nativo de Google (Gratis · Cero claves extras)",
+                                    fontSize = 11.sp,
+                                    color = FifoColors.LightTextSecondary
+                                )
                             }
                         }
                     }

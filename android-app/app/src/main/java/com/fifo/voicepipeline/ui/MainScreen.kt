@@ -48,8 +48,9 @@ fun MainScreen(
     isAwake: Boolean = false,
     onWakeUp: () -> Unit = {},
     onSleep: () -> Unit = {},
-    currentSttKey: String = "",
-    onSaveSttKey: (String) -> Unit = {}
+    currentClaudeKey: String = "",
+    onSaveClaudeKey: (String) -> Unit = {},
+    onTestClaudeKey: (suspend (String) -> Pair<Boolean, String>)? = null
 ) {
     var currentFlowScreen by remember { mutableStateOf(AppFlowScreen.MAIN_APP) }
     var currentTab by remember { mutableStateOf(FifoTab.HOME) }
@@ -129,8 +130,9 @@ fun MainScreen(
                                     isAwake = isAwake,
                                     onWakeUp = onWakeUp,
                                     onSleep = onSleep,
-                                    currentSttKey = currentSttKey,
-                                    onSaveSttKey = onSaveSttKey
+                                    currentClaudeKey = currentClaudeKey,
+                                    onSaveClaudeKey = onSaveClaudeKey,
+                                    onTestClaudeKey = onTestClaudeKey
                                 )
                             }
                         }

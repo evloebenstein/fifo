@@ -78,18 +78,19 @@ class MainActivity : ComponentActivity() {
 
         // ── Obtener API keys desde SharedPreferences o BuildConfig ────
         val prefs = getSharedPreferences("fifo_prefs", MODE_PRIVATE)
+        val savedClaudeKey = prefs.getString("anthropic_api_key", "") ?: ""
+        val anthropicKey = savedClaudeKey.ifEmpty {
+            BuildConfig.ANTHROPIC_API_KEY.ifEmpty { DEFAULT_ANTHROPIC_KEY }
+        }
+
         val savedSttKey = prefs.getString("stt_api_key", "") ?: ""
         val openAiKey = savedSttKey.ifEmpty { BuildConfig.OPENAI_API_KEY }
-
-        val anthropicKey = BuildConfig.ANTHROPIC_API_KEY.ifEmpty {
-            DEFAULT_ANTHROPIC_KEY
-        }
 
         // ── Inicializar pipeline ────────────────────
         pipeline = VoicePipelineManager(
             context = applicationContext,
-            anthropicApiKey = anthropicKey,
-            openAiApiKey = openAiKey
+            initialAnthropicApiKey = anthropicKey,
+            initialOpenAiApiKey = openAiKey
         )
 
         // ── UI ──────────────────────────────────────
@@ -105,7 +106,7 @@ class MainActivity : ComponentActivity() {
             val bleState by pipeline.bleConnectionState.collectAsState()
             val isBleConnected = bleState is BleConnectionState.Connected
 
-            var currentSttKey by remember { mutableStateOf(openAiKey) }
+            var currentClaudeKey by remember { mutableStateOf(anthropicKey) }
 
             MainScreen(
                 state = state,
@@ -118,12 +119,15 @@ class MainActivity : ComponentActivity() {
                 isAwake = isAwake,
                 onWakeUp = { pipeline.wakeUpManually() },
                 onSleep = { pipeline.goToSleep() },
-                currentSttKey = currentSttKey,
-                onSaveSttKey = { newKey ->
-                    prefs.edit().putString("stt_api_key", newKey).apply()
-                    currentSttKey = newKey
-                    pipeline.setOpenAiApiKey(newKey)
-                    Toast.makeText(this, "Clave STT guardada y actualizada", Toast.LENGTH_SHORT).show()
+                currentClaudeKey = currentClaudeKey,
+                onSaveClaudeKey = { newKey ->
+                    prefs.edit().putString("anthropic_api_key", newKey).apply()
+                    currentClaudeKey = newKey
+                    pipeline.setAnthropicApiKey(newKey)
+                    Toast.makeText(this, "Clave de Claude guardada y activada", Toast.LENGTH_SHORT).show()
+                },
+                onTestClaudeKey = { keyToTest ->
+                    pipeline.testClaudeConnection(keyToTest)
                 },
                 onConnectBle = {
                     checkAndRequestBlePermissions()
