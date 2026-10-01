@@ -12,7 +12,7 @@
     <!-- Foreground service para mantener a Fifo activo en segundo plano 24/7 -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Micrófono del celular para fallback -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
@@ -44,7 +44,7 @@
         <service
             android:name=".service.FifoVoiceService"
             android:exported="false"
-            android:foregroundServiceType="connectedDevice|microphone" />
+            android:foregroundServiceType="connectedDevice" />
 
         <activity
             android:name=".MainActivity"

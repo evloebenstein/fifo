@@ -31,6 +31,12 @@ class NativeSpeechRecognizer(
         private const val TAG = "NativeSpeechRecognizer"
     }
 
+    private val callbackReady = onReady
+    private val callbackRmsChanged = onRmsChanged
+    private val callbackPartialResult = onPartialResult
+    private val callbackResult = onResult
+    private val callbackError = onError
+
     private var speechRecognizer: SpeechRecognizer? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var isListening = false
@@ -113,7 +119,7 @@ class NativeSpeechRecognizer(
         return object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
                 isListening = true
-                onReady()
+                callbackReady()
             }
 
             override fun onBeginningOfSpeech() {
@@ -122,7 +128,7 @@ class NativeSpeechRecognizer(
 
             override fun onRmsChanged(rmsdB: Float) {
                 val normalized = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
-                onRmsChanged(normalized)
+                callbackRmsChanged(normalized)
             }
 
             override fun onBufferReceived(buffer: ByteArray?) {}
@@ -145,7 +151,7 @@ class NativeSpeechRecognizer(
                     else -> "Error de reconocimiento ($error)"
                 }
                 Log.d(TAG, "SpeechRecognizer onError: $errorMsg ($error)")
-                onError(error, errorMsg)
+                callbackError(error, errorMsg)
 
                 // Si está en modo continuo, reiniciar tras breve pausa
                 if (shouldKeepListening) {
@@ -160,7 +166,7 @@ class NativeSpeechRecognizer(
                 Log.i(TAG, "Texto reconocido por Google: $text")
 
                 if (text.isNotBlank()) {
-                    onResult(text)
+                    callbackResult(text)
                 }
 
                 // Reiniciar escucha continua si corresponde
@@ -173,7 +179,7 @@ class NativeSpeechRecognizer(
                 val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 val text = matches?.firstOrNull() ?: ""
                 if (text.isNotBlank()) {
-                    onPartialResult(text)
+                    callbackPartialResult(text)
                 }
             }
 

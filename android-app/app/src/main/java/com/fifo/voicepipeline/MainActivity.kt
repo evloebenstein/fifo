@@ -73,8 +73,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // ── Iniciar Foreground Service para ejecución continua 24/7 ──
-        FifoVoiceService.start(applicationContext)
+        // ── Iniciar Foreground Service para ejecución continua 24/7 de forma segura ──
+        try {
+            FifoVoiceService.start(applicationContext)
+        } catch (e: Exception) {
+            Log.e(TAG, "No se pudo iniciar FifoVoiceService: ${e.message}")
+        }
 
         // ── Obtener API keys desde SharedPreferences o BuildConfig ────
         val prefs = getSharedPreferences("fifo_prefs", MODE_PRIVATE)
@@ -150,6 +154,10 @@ class MainActivity : ComponentActivity() {
     private fun checkAndRequestBlePermissions() {
         val permissions = mutableListOf<String>()
 
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            permissions.add(Manifest.permission.RECORD_AUDIO)
+        }
+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
                 permissions.add(Manifest.permission.BLUETOOTH_SCAN)
@@ -160,6 +168,12 @@ class MainActivity : ComponentActivity() {
         } else {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                 permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
 

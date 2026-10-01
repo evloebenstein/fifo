@@ -46,12 +46,29 @@ class FifoVoiceService : Service() {
         Log.i(TAG, "Iniciando FifoVoiceService para ejecución continua en segundo plano")
 
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification("FIFO está activo · Di 'Fifo' para hablar"))
+        try {
+            val notification = buildNotification("FIFO está activo · Di 'Fifo' para hablar")
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error iniciando startForeground: ${e.message}", e)
+        }
 
         // WakeLock parcial para evitar que la CPU se duerma al apagar la pantalla
-        val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
-        wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fifo:continuous_mic_wakelock")
-        wakeLock?.acquire(24 * 60 * 60 * 1000L) // 24 horas máx
+        try {
+            val powerManager = getSystemService(Context.POWER_SERVICE) as? PowerManager
+            wakeLock = powerManager?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "fifo:continuous_mic_wakelock")
+            wakeLock?.acquire(24 * 60 * 60 * 1000L) // 24 horas máx
+        } catch (e: Exception) {
+            Log.e(TAG, "Error adquiriendo WakeLock: ${e.message}")
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
