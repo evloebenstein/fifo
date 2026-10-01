@@ -344,13 +344,27 @@ class VoicePipelineManager(
     }
 
     /**
-     * Extrae la consulta eliminando prefijos de activación como "Fifo", "Hola Fifo", etc.
+     * Lista de palabras clave y aproximaciones fonéticas cuando hay música o ruido de fondo.
+     */
+    private fun isWakeWord(text: String): Boolean {
+        val lower = text.lowercase().trim()
+        val wakeWords = listOf(
+            "fifo", "fifa", "fito", "feefo", "fido", "vivo", "filo", "fijo",
+            "pipo", "kiko", "sifo", "fio", "chifo", "tito", "hipo"
+        )
+        return wakeWords.any { word ->
+            lower.contains(Regex("\\b$word\\b")) ||
+            (lower.length <= 6 && lower.contains(word)) ||
+            lower.startsWith(word) || lower.endsWith(word)
+        }
+    }
+
+    /**
+     * Extrae la consulta eliminando prefijos de activación como "Fifo", "Hola Fifo", "Fifa", etc.
      */
     private fun extractQuery(text: String): String {
-        return text.replace(Regex("(?i)\\b(hola|oye|hey|che|ok)\\s+fifo\\b"), "")
-            .replace(Regex("(?i)\\bfifo\\b"), "")
-            .replace(Regex("(?i)\\bfito\\b"), "")
-            .replace(Regex("(?i)\\bfeefo\\b"), "")
+        return text.replace(Regex("(?i)\\b(hola|oye|hey|che|ok|bueno|dime|saludos)\\s+(fifo|fifa|fito|feefo|fido|vivo|filo|fijo|pipo|kiko|sifo|fio|tito|hipo)\\b"), "")
+            .replace(Regex("(?i)\\b(fifo|fifa|fito|feefo|fido|vivo|filo|fijo|pipo|kiko|sifo|fio|tito|hipo)\\b"), "")
             .trim()
             .trimStart(',', '.', ':', ';', '!', '?', ' ')
             .trim()
@@ -390,13 +404,13 @@ class VoicePipelineManager(
         _transcription.value = rawText
 
         val textLower = rawText.lowercase().trim()
-        val hasWakeWord = textLower.contains("fifo") || textLower.contains("fito") || textLower.contains("feefo")
+        val hasWakeWord = isWakeWord(textLower)
 
         scope.launch {
             if (!_isAwake.value) {
-                // Fifo está durmiendo: SOLO despierta si dijeron FIFO
+                // Fifo está durmiendo: SOLO despierta si dijeron FIFO (o variante acústica con música de fondo)
                 if (!hasWakeWord) {
-                    Log.d(TAG, "Audio ignorado: Fifo durmiendo y no se oyó 'Fifo'. Oído: $rawText")
+                    Log.d(TAG, "Audio ignorado: Fifo durmiendo y no se oyó 'Fifo' (o variante). Oído: $rawText")
                     _state.value = PipelineState.SLEEPING
                     updateEspDisplay(state = "DURMIENDO")
                     return@launch
@@ -410,7 +424,7 @@ class VoicePipelineManager(
 
                 val query = extractQuery(rawText)
                 if (query.isBlank() || query.length < 3) {
-                    speakResponseChunk("¡Hola! Te escucho.")
+                    speakResponseChunk("¡Hola! Qué alegría saludarle. ¿Cómo se encuentra hoy?")
                     return@launch
                 }
 
@@ -419,10 +433,11 @@ class VoicePipelineManager(
                 // Fifo ya estaba despierto
                 resetAutoSleepTimer()
                 val isSleepCmd = textLower.contains("duérmete") || textLower.contains("a dormir") ||
-                        textLower.contains("buenas noches") || textLower.contains("descansa")
+                        textLower.contains("buenas noches") || textLower.contains("descansa") ||
+                        textLower.contains("adiós") || textLower.contains("hasta luego")
 
                 if (isSleepCmd) {
-                    speakResponseChunk("Hasta luego, que descanses.")
+                    speakResponseChunk("Hasta luego, que tenga un excelente descanso.")
                     goToSleep()
                     return@launch
                 }
@@ -484,10 +499,10 @@ class VoicePipelineManager(
 
                 _transcription.value = transcript
                 val textLower = transcript.lowercase().trim()
-                val hasWakeWord = textLower.contains("fifo") || textLower.contains("fito") || textLower.contains("feefo")
+                val hasWakeWord = isWakeWord(textLower)
 
                 if (!_isAwake.value) {
-                    // Fifo estaba durmiendo: SOLO despierta si dijeron FIFO
+                    // Fifo estaba durmiendo: SOLO despierta si dijeron FIFO (o variante acústica con música)
                     if (!hasWakeWord) {
                         Log.d(TAG, "Audio ignorado: Fifo está durmiendo y no se detectó 'Fifo'. Oído: $transcript")
                         _state.value = PipelineState.SLEEPING
@@ -503,7 +518,7 @@ class VoicePipelineManager(
 
                     val query = extractQuery(transcript)
                     if (query.isBlank() || query.length < 3) {
-                        speakResponseChunk("¡Hola! Te escucho.")
+                        speakResponseChunk("¡Hola! Qué alegría saludarle. ¿Cómo se encuentra hoy?")
                         return@launch
                     }
 
@@ -513,10 +528,11 @@ class VoicePipelineManager(
                     // Fifo ya estaba despierto
                     resetAutoSleepTimer()
                     val isSleepCmd = textLower.contains("duérmete") || textLower.contains("a dormir") ||
-                            textLower.contains("buenas noches") || textLower.contains("descansa")
+                            textLower.contains("buenas noches") || textLower.contains("descansa") ||
+                            textLower.contains("adiós") || textLower.contains("hasta luego")
 
                     if (isSleepCmd) {
-                        speakResponseChunk("Hasta luego, que descanses.")
+                        speakResponseChunk("Hasta luego, que tenga un excelente descanso.")
                         goToSleep()
                         return@launch
                     }

@@ -93,7 +93,10 @@ class NativeSpeechRecognizer(
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-ES")
                 putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1000L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
+                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1800L)
                 putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
             }
 
@@ -161,25 +164,36 @@ class NativeSpeechRecognizer(
 
             override fun onResults(results: Bundle?) {
                 isListening = false
-                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                val text = matches?.firstOrNull() ?: ""
-                Log.i(TAG, "Texto reconocido por Google: $text")
+                val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: arrayListOf()
+                Log.i(TAG, "Candidatos reconocidos por Google: $matches")
 
-                if (text.isNotBlank()) {
-                    callbackResult(text)
+                // Si entre las interpretaciones acústicas aparece "fifo", "fifa", "fito", etc., priorizarla
+                val wakeWords = listOf("fifo", "fifa", "fito", "feefo", "fido", "vivo", "filo", "fijo", "pipo", "kiko", "sifo", "fio")
+                val bestMatch = matches.firstOrNull { candidate ->
+                    val lower = candidate.lowercase()
+                    wakeWords.any { lower.contains(it) }
+                } ?: matches.firstOrNull() ?: ""
+
+                if (bestMatch.isNotBlank()) {
+                    callbackResult(bestMatch)
                 }
 
                 // Reiniciar escucha continua si corresponde
                 if (shouldKeepListening) {
-                    restartAfterDelay(400L)
+                    restartAfterDelay(350L)
                 }
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
-                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-                val text = matches?.firstOrNull() ?: ""
-                if (text.isNotBlank()) {
-                    callbackPartialResult(text)
+                val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: arrayListOf()
+                val wakeWords = listOf("fifo", "fifa", "fito", "feefo")
+                val bestPartial = matches.firstOrNull { candidate ->
+                    val lower = candidate.lowercase()
+                    wakeWords.any { lower.contains(it) }
+                } ?: matches.firstOrNull() ?: ""
+
+                if (bestPartial.isNotBlank()) {
+                    callbackPartialResult(bestPartial)
                 }
             }
 
