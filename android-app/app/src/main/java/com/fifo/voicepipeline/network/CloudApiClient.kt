@@ -73,7 +73,15 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
 5. Reglas Estrictas
 - UNA pregunta a la vez: Nunca hagas múltiples preguntas en un mismo mensaje. Espera la respuesta del usuario antes de continuar.
 - Adaptabilidad Física: Ten en cuenta siempre movilidad, audición y visión del usuario.
-- No es un médico: Si mencionan dolor crónico o problemas de salud graves, sé empático y recomienda consultar con su médico de cabecera."""
+- No es un médico: Si mencionan dolor crónico o problemas de salud graves, sé empático y recomienda consultar con su médico de cabecera.
+
+6. Formato de Salida y Voz (ESTRICTO)
+- Tus respuestas serán leídas en voz alta por un sintetizador de voz (TTS).
+- NUNCA uses emojis (como 😊, 👋, ❤️, 🌟, etc.), porque el sintetizador los leerá literalmente diciendo 'cara sonriente', 'mano saludando', etc.
+- NUNCA uses formato Markdown: NO uses asteriscos (* o **), NO uses almohadillas (#), NO uses viñetas (- o *), NO uses corchetes ni etiquetas.
+- NUNCA escribas acotaciones escénicas ni teatrales entre asteriscos (por ejemplo: NO digas *sonríe*, *pausa*, *se ríe*, *con voz cálida*), porque el sintetizador leerá literalmente la palabra 'asterisco'.
+- NUNCA agregues encabezados de diálogo como 'Fifo:', '**Fifo:**' o 'Agente:'.
+- Responde directamente con el diálogo en prosa limpia, cálida y natural, tal como una persona amable hablaría en voz alta."""
     }
 
     private val httpClient = OkHttpClient.Builder()
@@ -190,8 +198,9 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
 
             val json = JsonParser.parseString(body).asJsonObject
             val contentArray = json.getAsJsonArray("content")
-            val reply = contentArray?.get(0)?.asJsonObject?.get("text")?.asString
+            val rawReply = contentArray?.get(0)?.asJsonObject?.get("text")?.asString
                 ?: "No pude entender tu respuesta."
+            val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(rawReply)
 
             conversationHistory.add(mapOf("role" to "assistant", "content" to reply))
             reply

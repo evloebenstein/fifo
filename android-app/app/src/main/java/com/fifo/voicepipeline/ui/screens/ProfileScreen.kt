@@ -37,6 +37,8 @@ fun ProfileScreen(
     currentClaudeKey: String = "",
     onSaveClaudeKey: (String) -> Unit = {},
     onTestClaudeKey: (suspend (String) -> Pair<Boolean, String>)? = null,
+    isMicMuted: Boolean = false,
+    onToggleMicMute: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var isSettingsOpen by remember { mutableStateOf(false) }
@@ -312,6 +314,51 @@ fun ProfileScreen(
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = if (isAwake) FifoColors.NavyPrimary else FifoColors.StatusListening,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+
+                    Divider(color = Color(0xFFF8FAFC))
+
+                    // ── Control de Silencio de Micrófono (Mute) ──
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onToggleMicMute() }
+                            .padding(horizontal = 18.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = if (isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                            contentDescription = null,
+                            tint = if (isMicMuted) FifoColors.StatusError else FifoColors.NavyPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Micrófono",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = FifoColors.LightTextPrimary
+                            )
+                            Text(
+                                text = if (isMicMuted) "Silenciado (Mute) · Fifo no escucha" else "Activo · Escuchando",
+                                fontSize = 11.sp,
+                                color = if (isMicMuted) FifoColors.StatusError else FifoColors.StatusListening
+                            )
+                        }
+                        Surface(
+                            onClick = { onToggleMicMute() },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (isMicMuted) Color(0xFFFEE2E2) else FifoColors.NavyPrimary.copy(alpha = 0.08f)
+                        ) {
+                            Text(
+                                text = if (isMicMuted) "Activar" else "Silenciar",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isMicMuted) Color(0xFFDC2626) else FifoColors.NavyPrimary,
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
                             )
                         }

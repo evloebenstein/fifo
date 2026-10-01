@@ -13,6 +13,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Mic
+import androidx.compose.material.icons.filled.MicOff
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Wifi
@@ -44,7 +45,9 @@ fun VoiceInteractionSheet(
     onDismiss: () -> Unit,
     onSelectMicSource: (MicSource) -> Unit,
     onConnectBle: () -> Unit,
-    onClearConversation: () -> Unit
+    onClearConversation: () -> Unit,
+    isMicMuted: Boolean = false,
+    onToggleMicMute: () -> Unit = {}
 ) {
     Dialog(
         onDismissRequest = onDismiss,
@@ -71,7 +74,7 @@ fun VoiceInteractionSheet(
                         .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    // Barra superior: Manija + Botón Cerrar
+                    // Barra superior: Estado Mic + Botón Mute + Botón Cerrar
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -79,42 +82,66 @@ fun VoiceInteractionSheet(
                     ) {
                         // Badge de fuente de micrófono activa
                         Surface(
-                            color = FifoColors.DarkInputBg,
+                            color = if (isMicMuted) Color(0xFFEF4444).copy(alpha = 0.2f) else FifoColors.DarkInputBg,
                             shape = RoundedCornerShape(16.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.DarkInputBorder)
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isMicMuted) Color(0xFFEF4444) else FifoColors.DarkInputBorder
+                            )
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
-                                    imageVector = if (micSource == MicSource.ESP32) Icons.Default.Mic else Icons.Default.PhoneAndroid,
+                                    imageVector = if (isMicMuted) Icons.Default.MicOff else (if (micSource == MicSource.ESP32) Icons.Default.Mic else Icons.Default.PhoneAndroid),
                                     contentDescription = null,
-                                    tint = FifoColors.BlueAccent,
+                                    tint = if (isMicMuted) Color(0xFFEF4444) else FifoColors.BlueAccent,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = if (micSource == MicSource.ESP32) "Mic ESP32 (UCC)" else "Mic Celular",
+                                    text = if (isMicMuted) "Mic Silenciado" else (if (micSource == MicSource.ESP32) "Mic ESP32 (UCC)" else "Mic Celular"),
                                     fontSize = 11.sp,
-                                    color = FifoColors.BlueAccent,
+                                    color = if (isMicMuted) Color(0xFFEF4444) else FifoColors.BlueAccent,
                                     fontWeight = FontWeight.Medium
                                 )
                             }
                         }
 
-                        IconButton(
-                            onClick = onDismiss,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .background(FifoColors.DarkInputBg, CircleShape)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Cerrar",
-                                tint = Color.White,
-                                modifier = Modifier.size(18.dp)
-                            )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            IconButton(
+                                onClick = onToggleMicMute,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(
+                                        if (isMicMuted) Color(0xFFEF4444).copy(alpha = 0.25f) else FifoColors.DarkInputBg,
+                                        CircleShape
+                                    )
+                            ) {
+                                Icon(
+                                    imageVector = if (isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                                    contentDescription = if (isMicMuted) "Activar micrófono" else "Silenciar micrófono",
+                                    tint = if (isMicMuted) Color(0xFFEF4444) else FifoColors.BlueAccent,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(8.dp))
+
+                            IconButton(
+                                onClick = onDismiss,
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .background(FifoColors.DarkInputBg, CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Cerrar",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
 
@@ -123,15 +150,17 @@ fun VoiceInteractionSheet(
                     // Rostro de Fifo animado reaccionando a la voz
                     FifoFace(
                         size = 130.dp,
-                        state = state,
+                        state = if (isMicMuted) PipelineState.SLEEPING else state,
                         isDarkTheme = true,
-                        rmsLevel = rmsLevel
+                        rmsLevel = if (isMicMuted) 0f else rmsLevel
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
 
                     // Estado del pipeline (Badge interactivo)
-                    val (statusText, statusBg, statusColor) = when (state) {
+                    val (statusText, statusBg, statusColor) = if (isMicMuted) {
+                        Triple("Micrófono Silenciado (Mute)", Color(0xFFEF4444).copy(alpha = 0.2f), Color(0xFFEF4444))
+                    } else when (state) {
                         PipelineState.LISTENING -> Triple("Escuchando...", FifoColors.StatusListening.copy(alpha = 0.2f), FifoColors.StatusListening)
                         PipelineState.PROCESSING -> Triple("Fifo está pensando...", FifoColors.StatusProcessing.copy(alpha = 0.2f), FifoColors.StatusProcessing)
                         PipelineState.SPEAKING -> Triple("Fifo te responde...", FifoColors.StatusSpeaking.copy(alpha = 0.2f), FifoColors.StatusSpeaking)
@@ -155,7 +184,41 @@ fun VoiceInteractionSheet(
                         )
                     }
 
-                    Spacer(modifier = Modifier.height(20.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Botón destacado para mutear / activar micrófono
+                    Surface(
+                        onClick = onToggleMicMute,
+                        shape = RoundedCornerShape(20.dp),
+                        color = if (isMicMuted) Color(0xFFEF4444).copy(alpha = 0.22f) else FifoColors.DarkInputBg,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (isMicMuted) Color(0xFFEF4444) else FifoColors.DarkInputBorder
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 16.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                                contentDescription = null,
+                                tint = if (isMicMuted) Color(0xFFEF4444) else FifoColors.BlueAccent,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = if (isMicMuted) "Micrófono Silenciado · Toca para activar" else "Micrófono Activo · Toca para silenciar",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (isMicMuted) Color(0xFFFCA5A5) else Color.White
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
 
                     // Selector rápido de micrófono (Pestañas ESP32 / Celular)
                     Row(

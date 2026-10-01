@@ -88,8 +88,11 @@ class AndroidTtsSpeaker(
     fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_ADD) {
         if (!isInitialized || tts == null || text.isBlank()) return
 
+        val cleanText = TextSanitizer.cleanForSpeech(text)
+        if (cleanText.isBlank()) return
+
         val utteranceId = "$UTTERANCE_PREFIX${++utteranceCounter}"
-        tts?.speak(text, queueMode, null, utteranceId)
+        tts?.speak(cleanText, queueMode, null, utteranceId)
     }
 
     /**

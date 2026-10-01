@@ -63,6 +63,9 @@ class VoicePipelineManager(
     private val _rmsLevel = MutableStateFlow(0.0)
     val rmsLevel: StateFlow<Double> = _rmsLevel.asStateFlow()
 
+    private val _isMicMuted = MutableStateFlow(false)
+    val isMicMuted: StateFlow<Boolean> = _isMicMuted.asStateFlow()
+
     // Temporizador de auto-sueño para Fifo (25 segundos de inactividad)
     private var autoSleepJob: Job? = null
 
@@ -138,17 +141,27 @@ class VoicePipelineManager(
             onDone = {
                 if (_state.value == PipelineState.SPEAKING) {
                     _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
-                    _statusMessage.value = if (_isAwake.value) "Listo — habla cuando quieras" else "Fifo durmiendo · Di 'Fifo' para despertar"
-                    updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
+                    _statusMessage.value = if (_isMicMuted.value) {
+                        "Micrófono silenciado (Mute)"
+                    } else if (_isAwake.value) {
+                        "Listo — habla cuando quieras"
+                    } else {
+                        "Fifo durmiendo · Di 'Fifo' para despertar"
+                    }
+                    updateEspDisplay(state = if (_isMicMuted.value) "MUTED" else (if (_isAwake.value) "LISTO" else "DURMIENDO"))
                     vad.reset()
 
-                    // Reanudar la escucha de voz nativa tras terminar de hablar
-                    nativeRecognizer?.startContinuousListening()
+                    // Reanudar la escucha de voz nativa tras terminar de hablar solo si no está muteado
+                    if (!_isMicMuted.value) {
+                        nativeRecognizer?.startContinuousListening()
+                    }
                 }
             },
             onError = { err ->
                 Log.e(TAG, "Error TTS nativo: $err")
-                nativeRecognizer?.startContinuousListening()
+                if (!_isMicMuted.value) {
+                    nativeRecognizer?.startContinuousListening()
+                }
             }
         )
 
@@ -156,17 +169,22 @@ class VoicePipelineManager(
         nativeRecognizer = NativeSpeechRecognizer(
             context = context,
             onReady = {
-                if (_state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
+                if (!_isMicMuted.value && _state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
                     _statusMessage.value = if (_isAwake.value) "Escuchando... Di tu pregunta" else "Fifo durmiendo · Di 'Fifo' para despertar"
                 }
             },
             onRmsChanged = { level ->
+                if (_isMicMuted.value) {
+                    _rmsLevel.value = 0.0
+                    return@NativeSpeechRecognizer
+                }
                 _rmsLevel.value = level.toDouble()
                 if (_state.value == PipelineState.LISTENING) {
                     updateEspDisplay(state = "ESCUCHANDO", level = level)
                 }
             },
             onPartialResult = { partial ->
+                if (_isMicMuted.value) return@NativeSpeechRecognizer
                 _transcription.value = partial
                 if (_isAwake.value && _state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
                     _state.value = PipelineState.LISTENING
@@ -174,6 +192,7 @@ class VoicePipelineManager(
                 }
             },
             onResult = { text ->
+                if (_isMicMuted.value) return@NativeSpeechRecognizer
                 processUserText(text)
             },
             onError = { code, msg ->
@@ -181,8 +200,10 @@ class VoicePipelineManager(
             }
         )
 
-        // Iniciar escucha continua de voz
-        nativeRecognizer?.startContinuousListening()
+        // Iniciar escucha continua de voz si no está silenciado
+        if (!_isMicMuted.value) {
+            nativeRecognizer?.startContinuousListening()
+        }
 
         // Iniciar escaneo y conexión BLE con el ESP32-S3
         connectBle()
@@ -234,6 +255,42 @@ class VoicePipelineManager(
     }
 
     /**
+     * Alterna el estado de silencio (mute) del micrófono.
+     */
+    fun toggleMicMute() {
+        setMicMuted(!_isMicMuted.value)
+    }
+
+    /**
+     * Silencia o activa el micrófono en tiempo real.
+     * Cuando está silenciado, desactiva la captura de audio en el celular y en el ESP32,
+     * detiene el reconocedor de voz de Google y actualiza la pantalla del robot a MUTED.
+     */
+    fun setMicMuted(muted: Boolean) {
+        _isMicMuted.value = muted
+        if (muted) {
+            Log.i(TAG, "Micrófono SILENCIADO por el usuario")
+            nativeRecognizer?.stop()
+            phoneMicRecorder.stop()
+            pcmBuffer.clear()
+            vad.reset()
+            _rmsLevel.value = 0.0
+            _statusMessage.value = "Micrófono silenciado (Mute)"
+            updateEspDisplay(state = "MUTED", transcript = "Mic silenciado")
+        } else {
+            Log.i(TAG, "Micrófono REACTIVADO por el usuario")
+            if (_micSource.value == MicSource.PHONE) {
+                startPhoneMic()
+            }
+            if (_state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
+                nativeRecognizer?.startContinuousListening()
+            }
+            _statusMessage.value = if (_isAwake.value) "Fifo despierto — te escucho" else "Fifo durmiendo · Di 'Fifo' para despertar"
+            updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
+        }
+    }
+
+    /**
      * Detiene todo el pipeline y libera hardware y recursos.
      */
     fun stop() {
@@ -259,6 +316,9 @@ class VoicePipelineManager(
      * Procesa cada chunk PCM entrante (del ESP32 o del celular).
      */
     private fun handleIncomingAudio(pcmData: ByteArray, source: MicSource) {
+        // Si el micrófono está silenciado, ignorar cualquier audio entrante
+        if (_isMicMuted.value) return
+
         // Ignorar audio si no coincide con la fuente activa
         if (source != _micSource.value) return
 
@@ -562,9 +622,10 @@ class VoicePipelineManager(
             cloudClient.chat(query)
         } ?: "Disculpa, la respuesta de Claude tardó demasiado tiempo. Intenta de nuevo."
 
-        _aiResponse.value = reply
+        val cleanReply = TextSanitizer.cleanForSpeech(reply)
+        _aiResponse.value = cleanReply
         _statusMessage.value = "Respondiendo..."
-        speakResponseChunk(reply)
+        speakResponseChunk(cleanReply)
         resetAutoSleepTimer()
     }
 
@@ -572,7 +633,8 @@ class VoicePipelineManager(
      * Reproduce un fragmento de texto por el parlante del celular.
      */
     private fun speakResponseChunk(text: String) {
-        if (text.isBlank()) return
+        val cleanText = TextSanitizer.cleanForSpeech(text)
+        if (cleanText.isBlank()) return
 
         // Pausar escucha continua para evitar que Fifo escuche su propia voz (eco)
         nativeRecognizer?.stop()
@@ -580,27 +642,35 @@ class VoicePipelineManager(
         scope.launch {
             _state.value = PipelineState.SPEAKING
             _statusMessage.value = "Hablando..."
-            updateEspDisplay(state = "HABLANDO", response = text)
+            updateEspDisplay(state = "HABLANDO", response = cleanText)
 
             val openAiKey = cloudClient.openAiApiKey
             if (openAiKey.isNotEmpty() && !openAiKey.startsWith("gsk_")) {
                 val pcmAudio = withTimeoutOrNull(8000L) {
-                    cloudClient.textToSpeech(text)
+                    cloudClient.textToSpeech(cleanText)
                 }
                 if (pcmAudio != null) {
                     audioPlayer.write(pcmAudio)
                     if (_state.value == PipelineState.SPEAKING) {
                         _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
-                        _statusMessage.value = if (_isAwake.value) "Listo — habla cuando quieras" else "Fifo durmiendo · Di 'Fifo'"
-                        updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
+                        _statusMessage.value = if (_isMicMuted.value) {
+                            "Micrófono silenciado (Mute)"
+                        } else if (_isAwake.value) {
+                            "Listo — habla cuando quieras"
+                        } else {
+                            "Fifo durmiendo · Di 'Fifo'"
+                        }
+                        updateEspDisplay(state = if (_isMicMuted.value) "MUTED" else (if (_isAwake.value) "LISTO" else "DURMIENDO"))
                         vad.reset()
-                        nativeRecognizer?.startContinuousListening()
+                        if (!_isMicMuted.value) {
+                            nativeRecognizer?.startContinuousListening()
+                        }
                     }
                 } else {
-                    androidTtsSpeaker?.speak(text)
+                    androidTtsSpeaker?.speak(cleanText)
                 }
             } else {
-                androidTtsSpeaker?.speak(text)
+                androidTtsSpeaker?.speak(cleanText)
             }
         }
     }

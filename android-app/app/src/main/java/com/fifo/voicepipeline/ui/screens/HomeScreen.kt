@@ -30,6 +30,8 @@ fun HomeScreen(
     userName: String,
     onStartVoiceChat: () -> Unit,
     onOpenBreathingExercise: () -> Unit,
+    isMicMuted: Boolean = false,
+    onToggleMicMute: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedMood by remember { mutableStateOf<String?>("Bien") }
@@ -43,7 +45,7 @@ fun HomeScreen(
     ) {
         Spacer(modifier = Modifier.height(24.dp))
 
-        // ── Top Header: Saludo y Notificaciones ───
+        // ── Top Header: Saludo y Notificaciones + Botón Mute ───
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -63,19 +65,45 @@ fun HomeScreen(
                 )
             }
 
-            Surface(
-                shape = CircleShape,
-                color = Color.White,
-                border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.LightCardBorder),
-                modifier = Modifier.size(42.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Outlined.Notifications,
-                        contentDescription = "Notificaciones",
-                        tint = FifoColors.LightTextPrimary,
-                        modifier = Modifier.size(20.dp)
-                    )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // Botón interactivo para silenciar/activar micrófono
+                Surface(
+                    shape = CircleShape,
+                    color = if (isMicMuted) Color(0xFFFEE2E2) else Color.White,
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.5.dp,
+                        if (isMicMuted) Color(0xFFDC2626) else FifoColors.LightCardBorder
+                    ),
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clickable { onToggleMicMute() }
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = if (isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                            contentDescription = if (isMicMuted) "Micrófono silenciado - Toca para activar" else "Micrófono activo - Toca para silenciar",
+                            tint = if (isMicMuted) Color(0xFFDC2626) else FifoColors.NavyPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Surface(
+                    shape = CircleShape,
+                    color = Color.White,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.LightCardBorder),
+                    modifier = Modifier.size(42.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Outlined.Notifications,
+                            contentDescription = "Notificaciones",
+                            tint = FifoColors.LightTextPrimary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
                 }
             }
         }
@@ -129,6 +157,37 @@ fun HomeScreen(
                             size = 76.dp,
                             isDarkTheme = false
                         )
+                    }
+                }
+
+                if (isMicMuted) {
+                    Spacer(modifier = Modifier.height(14.dp))
+                    Surface(
+                        color = Color(0xFFFEE2E2),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFCA5A5)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onToggleMicMute() }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MicOff,
+                                contentDescription = null,
+                                tint = Color(0xFFDC2626),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Micrófono en silencio · Toca aquí para activarlo",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFDC2626)
+                            )
+                        }
                     }
                 }
 

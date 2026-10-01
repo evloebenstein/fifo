@@ -92,7 +92,7 @@ void Display::drawFifoFace(const char* state, float audioLevel, unsigned long no
     bool isListening = (strcmp(state, "ESCUCHANDO") == 0);
     bool isSpeaking  = (strcmp(state, "HABLANDO") == 0);
     bool isThinking  = (strcmp(state, "PENSANDO") == 0);
-    bool isSleeping  = (strcmp(state, "DURMIENDO") == 0);
+    bool isSleeping  = (strcmp(state, "DURMIENDO") == 0 || strcmp(state, "MUTED") == 0);
 
     // 1. Antena / Asa superior de Fifo (centrada en x=64, y=11..14)
     _u8g2.drawRFrame(57, 11, 14, 4, 1);
@@ -262,6 +262,7 @@ void Display::drawBottomStatus(const char* state, const char* text) {
     else if (strcmp(state, "PENSANDO") == 0) label = "Pensando...";
     else if (strcmp(state, "DURMIENDO") == 0) label = "Durmiendo · Di 'Fifo'";
     else if (strcmp(state, "LISTO") == 0) label = "Listo - Habla con Fifo";
+    else if (strcmp(state, "MUTED") == 0) label = "Mic Silenciado (Mute)";
 
     if (strlen(text) > 0) {
         char buf[26];

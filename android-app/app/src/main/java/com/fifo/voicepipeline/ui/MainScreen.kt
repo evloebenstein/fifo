@@ -50,7 +50,9 @@ fun MainScreen(
     onSleep: () -> Unit = {},
     currentClaudeKey: String = "",
     onSaveClaudeKey: (String) -> Unit = {},
-    onTestClaudeKey: (suspend (String) -> Pair<Boolean, String>)? = null
+    onTestClaudeKey: (suspend (String) -> Pair<Boolean, String>)? = null,
+    isMicMuted: Boolean = false,
+    onToggleMicMute: () -> Unit = {}
 ) {
     var currentFlowScreen by remember { mutableStateOf(AppFlowScreen.MAIN_APP) }
     var currentTab by remember { mutableStateOf(FifoTab.HOME) }
@@ -112,7 +114,9 @@ fun MainScreen(
                                 HomeScreen(
                                     userName = userName,
                                     onStartVoiceChat = { isVoiceSheetOpen = true },
-                                    onOpenBreathingExercise = { isBreathingOpen = true }
+                                    onOpenBreathingExercise = { isBreathingOpen = true },
+                                    isMicMuted = isMicMuted,
+                                    onToggleMicMute = onToggleMicMute
                                 )
                             }
                             FifoTab.FRIENDS -> {
@@ -132,7 +136,9 @@ fun MainScreen(
                                     onSleep = onSleep,
                                     currentClaudeKey = currentClaudeKey,
                                     onSaveClaudeKey = onSaveClaudeKey,
-                                    onTestClaudeKey = onTestClaudeKey
+                                    onTestClaudeKey = onTestClaudeKey,
+                                    isMicMuted = isMicMuted,
+                                    onToggleMicMute = onToggleMicMute
                                 )
                             }
                         }
@@ -154,7 +160,9 @@ fun MainScreen(
                 onDismiss = { isVoiceSheetOpen = false },
                 onSelectMicSource = onSelectMicSource,
                 onConnectBle = onConnectBle,
-                onClearConversation = onClearConversation
+                onClearConversation = onClearConversation,
+                isMicMuted = isMicMuted,
+                onToggleMicMute = onToggleMicMute
             )
         }
 
