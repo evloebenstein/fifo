@@ -1,0 +1,5 @@
+## Ejemplo de configuración local
+# Copia este archivo como 'local.properties' y completa tus claves:
+ANTHROPIC_API_KEY=sk-ant-api03-tu-clave-claude-aqui
+OPENAI_API_KEY=gsk_tu-clave-groq-o-openai-aqui
+sdk.dir=C\:\\Users\\tu_usuario\\AppData\\Local\\Android\\Sdk

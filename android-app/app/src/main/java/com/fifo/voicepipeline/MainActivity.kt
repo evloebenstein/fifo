@@ -1,0 +1,196 @@
+package com.fifo.voicepipeline
+
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Bundle
+import android.util.Log
+import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.*
+import androidx.core.content.ContextCompat
+import com.fifo.voicepipeline.network.BleConnectionState
+import com.fifo.voicepipeline.pipeline.MicSource
+import com.fifo.voicepipeline.pipeline.VoicePipelineManager
+import com.fifo.voicepipeline.ui.MainScreen
+
+import com.fifo.voicepipeline.service.FifoVoiceService
+
+/**
+ * Activity principal de FIFO Voice Pipeline (100% BLE).
+ *
+ * Características:
+ * - Ejecución continua 24/7 en segundo plano mediante Foreground Service y WakeLock.
+ * - Modo reposo (DURMIENDO): Fifo descansa y solo se despierta al oír la palabra clave "FIFO".
+ * - Conexión directa y automática por Bluetooth Low Energy (BLE) con ESP32-S3-N16R8.
+ * - Streaming de audio analógico UCC en tiempo real vía notificaciones BLE.
+ * - Pantalla OLED SH1106 1.3" I2C sincronizada en tiempo real con rostro animado.
+ * - Salida de voz y respuestas de Claude por el parlante del celular.
+ */
+class MainActivity : ComponentActivity() {
+
+    companion object {
+        private const val TAG = "MainActivity"
+        private const val DEFAULT_ANTHROPIC_KEY = ""
+    }
+
+    private lateinit var pipeline: VoicePipelineManager
+
+    private val recordAudioPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        if (isGranted) {
+            pipeline.setMicSource(MicSource.PHONE)
+            Toast.makeText(this, "Micrófono del celular activado", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(
+                this,
+                "Se requiere permiso de audio para usar el micrófono del celular",
+                Toast.LENGTH_LONG
+            ).show()
+            pipeline.setMicSource(MicSource.ESP32)
+        }
+    }
+
+    private val blePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { permissions ->
+        val allGranted = permissions.values.all { it }
+        if (allGranted) {
+            Toast.makeText(this, "Buscando robot FIFO por Bluetooth...", Toast.LENGTH_SHORT).show()
+            pipeline.connectBle()
+        } else {
+            Toast.makeText(
+                this,
+                "Se requieren permisos de Bluetooth para conectar con FIFO",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+
+        // ── Iniciar Foreground Service para ejecución continua 24/7 ──
+        FifoVoiceService.start(applicationContext)
+
+        // ── Obtener API keys desde SharedPreferences o BuildConfig ────
+        val prefs = getSharedPreferences("fifo_prefs", MODE_PRIVATE)
+        val savedSttKey = prefs.getString("stt_api_key", "") ?: ""
+        val openAiKey = savedSttKey.ifEmpty { BuildConfig.OPENAI_API_KEY }
+
+        val anthropicKey = BuildConfig.ANTHROPIC_API_KEY.ifEmpty {
+            DEFAULT_ANTHROPIC_KEY
+        }
+
+        // ── Inicializar pipeline ────────────────────
+        pipeline = VoicePipelineManager(
+            context = applicationContext,
+            anthropicApiKey = anthropicKey,
+            openAiApiKey = openAiKey
+        )
+
+        // ── UI ──────────────────────────────────────
+        setContent {
+            val state by pipeline.state.collectAsState()
+            val isAwake by pipeline.isAwake.collectAsState()
+            val micSource by pipeline.micSource.collectAsState()
+            val status by pipeline.statusMessage.collectAsState()
+            val transcription by pipeline.transcription.collectAsState()
+            val aiResponse by pipeline.aiResponse.collectAsState()
+            val rmsLevel by pipeline.rmsLevel.collectAsState()
+
+            val bleState by pipeline.bleConnectionState.collectAsState()
+            val isBleConnected = bleState is BleConnectionState.Connected
+
+            var currentSttKey by remember { mutableStateOf(openAiKey) }
+
+            MainScreen(
+                state = state,
+                micSource = micSource,
+                statusMessage = status,
+                transcription = transcription,
+                aiResponse = aiResponse,
+                rmsLevel = rmsLevel,
+                isBleConnected = isBleConnected,
+                isAwake = isAwake,
+                onWakeUp = { pipeline.wakeUpManually() },
+                onSleep = { pipeline.goToSleep() },
+                currentSttKey = currentSttKey,
+                onSaveSttKey = { newKey ->
+                    prefs.edit().putString("stt_api_key", newKey).apply()
+                    currentSttKey = newKey
+                    pipeline.setOpenAiApiKey(newKey)
+                    Toast.makeText(this, "Clave STT guardada y actualizada", Toast.LENGTH_SHORT).show()
+                },
+                onConnectBle = {
+                    checkAndRequestBlePermissions()
+                },
+                onSelectMicSource = { requestedSource ->
+                    if (requestedSource == MicSource.PHONE) {
+                        requestPhoneMic()
+                    } else {
+                        pipeline.setMicSource(MicSource.ESP32)
+                    }
+                },
+                onClearConversation = { pipeline.clearConversation() }
+            )
+        }
+
+        // Solicitar permisos de Bluetooth y conectar al iniciar la app
+        checkAndRequestBlePermissions()
+    }
+
+    private fun checkAndRequestBlePermissions() {
+        val permissions = mutableListOf<String>()
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.BLUETOOTH_SCAN)
+            }
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.BLUETOOTH_CONNECT)
+            }
+        } else {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                permissions.add(Manifest.permission.ACCESS_FINE_LOCATION)
+            }
+        }
+
+        if (permissions.isEmpty()) {
+            pipeline.connectBle()
+        } else {
+            blePermissionLauncher.launch(permissions.toTypedArray())
+        }
+    }
+
+    private fun requestPhoneMic() {
+        val permission = Manifest.permission.RECORD_AUDIO
+        if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) {
+            pipeline.setMicSource(MicSource.PHONE)
+        } else {
+            recordAudioPermissionLauncher.launch(permission)
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        pipeline.start()
+    }
+
+    override fun onStop() {
+        super.onStop()
+        // NO detener el pipeline: Fifo se mantiene ejecutándose en segundo plano (24/7)
+        // gracias a FifoVoiceService con WakeLock parcial y BLE activo para escuchar "FIFO".
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        if (isFinishing) {
+            pipeline.stop()
+            FifoVoiceService.stop(applicationContext)
+        }
+    }
+}

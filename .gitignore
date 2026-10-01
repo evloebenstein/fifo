@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# ESP32 & PlatformIO
+.pio/
+**/.pio/
+.pioenvs/
+**/.pioenvs/
+.piolibdeps/
+**/.piolibdeps/
+.vscode/
+**/.vscode/
+
+# Android build outputs & caches
+*.iml
+**/*.iml
+.gradle/
+**/.gradle/
+.idea/
+**/.idea/
+build/
+**/build/
+captures/
+**/captures/
+*.apk
+**/*.apk
+*.ap_
+**/*.ap_
+*.aab
+**/*.aab
+
+# Local properties & secrets (NUNCA subir a GitHub)
+local.properties
+**/local.properties
+.env
+**/.env
+**/.env.*
+secrets.*
+**/secrets.*
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
