@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
@@ -14,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.fifo.voicepipeline.pipeline.PipelineState
@@ -36,17 +38,17 @@ fun FifoFace(
 ) {
     val infiniteTransition = rememberInfiniteTransition(label = "fifo_anim")
 
-    // Pulso suave de respiración adaptado al estado
+    // Pulso suave de respiración adaptado al estado (1.0f estático si no habla/escucha)
     val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.98f,
+        initialValue = 1.00f,
         targetValue = when (state) {
-            PipelineState.SPEAKING, PipelineState.LISTENING -> 1.04f
-            PipelineState.SLEEPING -> 1.01f
+            PipelineState.SPEAKING -> 1.03f
+            PipelineState.LISTENING -> 1.02f
             else -> 1.00f
         },
         animationSpec = infiniteRepeatable(
             animation = tween(
-                durationMillis = if (state == PipelineState.SLEEPING) 1600 else 750,
+                durationMillis = 900,
                 easing = FastOutSlowInEasing
             ),
             repeatMode = RepeatMode.Reverse
@@ -147,8 +149,18 @@ fun FifoFace(
     val bodyFillColor = if (isDarkTheme) Color(0xFFC7E4F9).copy(alpha = 0.15f) else Color(0xFFDCEBFA)
     val eyeColor = strokeColor
 
-    Box(modifier = modifier.size(size * pulseScale)) {
-        Canvas(modifier = Modifier.matchParentSize()) {
+    Box(
+        modifier = modifier.size(size),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(
+            modifier = Modifier
+                .matchParentSize()
+                .graphicsLayer {
+                    scaleX = pulseScale
+                    scaleY = pulseScale
+                }
+        ) {
             val w = size.toPx()
             val h = size.toPx()
             val strokeWidth = w * 0.05f

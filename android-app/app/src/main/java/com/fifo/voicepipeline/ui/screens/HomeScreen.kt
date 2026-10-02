@@ -142,7 +142,7 @@ fun HomeScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = if (isBleConnected) "Tu Fifo está conectado" else "Conecte a Fifo",
+                            text = if (isBleConnected) "Tu Fifo está conectado" else "Prende a tu Fifo",
                             fontSize = 24.sp,
                             lineHeight = 30.sp,
                             fontWeight = FontWeight.Bold,
@@ -155,7 +155,7 @@ fun HomeScreen(
                             text = if (isBleConnected)
                                 "¿No lo tienes cerca? Habla con él desde aquí en tu celular o dile 'Fifo' a su micrófono."
                             else
-                                "Vincule su robot por Bluetooth para comenzar a conversar y acompañarle.",
+                                "Enciende el robot y dale click al botón para que te acompañe hoy.",
                             fontSize = 14.sp,
                             lineHeight = 20.sp,
                             color = FifoColors.NavyPrimary.copy(alpha = 0.90f)

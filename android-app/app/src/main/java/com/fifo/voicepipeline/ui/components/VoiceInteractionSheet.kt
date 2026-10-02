@@ -117,8 +117,8 @@ fun VoiceInteractionSheet(
                         Spacer(modifier = Modifier.height(28.dp))
 
                         Text(
-                            text = "Conecte a Fifo a su celular",
-                            fontSize = 22.sp,
+                            text = "Prende a tu Fifo",
+                            fontSize = 24.sp,
                             fontWeight = FontWeight.Bold,
                             color = Color.White,
                             textAlign = TextAlign.Center
@@ -127,7 +127,7 @@ fun VoiceInteractionSheet(
                         Spacer(modifier = Modifier.height(10.dp))
 
                         Text(
-                            text = "Encienda su robot Fifo cerca de usted y toque el botón para comenzar a conversar.",
+                            text = "Enciende el robot cerca de ti y dale click al botón para comenzar a conversar.",
                             fontSize = 15.sp,
                             color = FifoColors.DarkBadgeText,
                             textAlign = TextAlign.Center,
@@ -157,7 +157,7 @@ fun VoiceInteractionSheet(
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
                                 Text(
-                                    text = "Buscando robot Fifo...",
+                                    text = "Buscando a tu Fifo...",
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -169,7 +169,7 @@ fun VoiceInteractionSheet(
                                 )
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Text(
-                                    text = "Conectar Fifo por Bluetooth",
+                                    text = "Conectar con Fifo",
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Bold
                                 )
