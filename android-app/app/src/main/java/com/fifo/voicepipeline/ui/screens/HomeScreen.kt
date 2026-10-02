@@ -22,6 +22,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.fifo.voicepipeline.pipeline.PipelineState
 import com.fifo.voicepipeline.ui.components.FifoFace
 import com.fifo.voicepipeline.ui.theme.FifoColors
 
@@ -32,6 +33,8 @@ fun HomeScreen(
     onOpenBreathingExercise: () -> Unit,
     isMicMuted: Boolean = false,
     onToggleMicMute: () -> Unit = {},
+    isBleConnected: Boolean = false,
+    onConnectBle: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedMood by remember { mutableStateOf<String?>("Bien") }
@@ -70,23 +73,35 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Botón táctil grande (48dp) para silenciar/activar micrófono
+                // Botón táctil grande (48dp): Si está desconectado muestra estado Bluetooth; si está conectado, silenciar/activar micrófono
                 Surface(
                     shape = CircleShape,
-                    color = if (isMicMuted) Color(0xFFFEE2E2) else Color.White,
+                    color = if (!isBleConnected) Color(0xFFFEF3C7)
+                    else if (isMicMuted) Color(0xFFFEE2E2)
+                    else Color.White,
                     border = androidx.compose.foundation.BorderStroke(
                         1.5.dp,
-                        if (isMicMuted) Color(0xFFDC2626) else FifoColors.LightCardBorder
+                        if (!isBleConnected) Color(0xFFF59E0B)
+                        else if (isMicMuted) Color(0xFFDC2626)
+                        else FifoColors.LightCardBorder
                     ),
                     modifier = Modifier
                         .size(48.dp)
-                        .clickable { onToggleMicMute() }
+                        .clickable {
+                            if (!isBleConnected) onStartVoiceChat() else onToggleMicMute()
+                        }
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
-                            imageVector = if (isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                            contentDescription = if (isMicMuted) "Micrófono silenciado. Toque para activar" else "Micrófono activo. Toque para silenciar",
-                            tint = if (isMicMuted) Color(0xFFDC2626) else FifoColors.NavyPrimary,
+                            imageVector = if (!isBleConnected) Icons.Default.Bluetooth
+                            else if (isMicMuted) Icons.Default.MicOff
+                            else Icons.Default.Mic,
+                            contentDescription = if (!isBleConnected) "Fifo desconectado. Toque para conectar"
+                            else if (isMicMuted) "Micrófono silenciado. Toque para activar"
+                            else "Micrófono activo. Toque para silenciar",
+                            tint = if (!isBleConnected) Color(0xFFD97706)
+                            else if (isMicMuted) Color(0xFFDC2626)
+                            else FifoColors.NavyPrimary,
                             modifier = Modifier.size(22.dp)
                         )
                     }
@@ -113,7 +128,7 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(22.dp))
 
-        // ── HERO CARD: "¿Qué tiene en mente?" (Compañero Fifo) ───
+        // ── HERO CARD: Dinámica según conexión ("Conecte a Fifo" o "Tu Fifo está conectado") ───
         Surface(
             color = FifoColors.HeroBlueCard,
             shape = RoundedCornerShape(28.dp),
@@ -127,7 +142,7 @@ fun HomeScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "¿Qué tiene en mente?",
+                            text = if (isBleConnected) "Tu Fifo está conectado" else "Conecte a Fifo",
                             fontSize = 24.sp,
                             lineHeight = 30.sp,
                             fontWeight = FontWeight.Bold,
@@ -137,7 +152,10 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(10.dp))
 
                         Text(
-                            text = "Le escucho con paciencia. Podemos conversar de su día o simplemente compartir un rato juntos.",
+                            text = if (isBleConnected)
+                                "¿No lo tienes cerca? Habla con él desde aquí en tu celular o dile 'Fifo' a su micrófono."
+                            else
+                                "Vincule su robot por Bluetooth para comenzar a conversar y acompañarle.",
                             fontSize = 14.sp,
                             lineHeight = 20.sp,
                             color = FifoColors.NavyPrimary.copy(alpha = 0.90f)
@@ -148,12 +166,14 @@ fun HomeScreen(
                     Box(modifier = Modifier.padding(start = 14.dp)) {
                         FifoFace(
                             size = 80.dp,
-                            isDarkTheme = false
+                            isDarkTheme = false,
+                            state = if (!isBleConnected) PipelineState.DISCONNECTED else PipelineState.IDLE
                         )
                     }
                 }
 
-                if (isMicMuted) {
+                // Banner de micrófono silenciado SOLO si está conectado
+                if (isBleConnected && isMicMuted) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Surface(
                         color = Color(0xFFFEE2E2),
@@ -186,7 +206,7 @@ fun HomeScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // BOTÓN PRINCIPAL DE VOZ (56dp para accesibilidad senior óptima)
+                // BOTÓN PRINCIPAL: "Conectar con Fifo" o "Hablar con Fifo"
                 Button(
                     onClick = onStartVoiceChat,
                     shape = RoundedCornerShape(22.dp),
@@ -203,17 +223,27 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "Hablar con Fifo",
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Icon(
-                            imageVector = Icons.Default.ArrowForward,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp)
-                        )
+                        if (!isBleConnected) {
+                            Icon(Icons.Default.Bluetooth, contentDescription = null, modifier = Modifier.size(20.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Conectar con Fifo",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else {
+                            Text(
+                                text = "Hablar con Fifo",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Icon(
+                                imageVector = Icons.Default.ArrowForward,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }

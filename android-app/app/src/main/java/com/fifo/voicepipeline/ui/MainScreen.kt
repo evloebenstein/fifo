@@ -42,6 +42,7 @@ fun MainScreen(
     aiResponse: String,
     rmsLevel: Double,
     isBleConnected: Boolean,
+    isBleConnecting: Boolean = false,
     onConnectBle: () -> Unit,
     onTalkFromPhone: () -> Unit = {},
     onClearConversation: () -> Unit,
@@ -119,7 +120,9 @@ fun MainScreen(
                                     },
                                     onOpenBreathingExercise = { isBreathingOpen = true },
                                     isMicMuted = isMicMuted,
-                                    onToggleMicMute = onToggleMicMute
+                                    onToggleMicMute = onToggleMicMute,
+                                    isBleConnected = isBleConnected,
+                                    onConnectBle = onConnectBle
                                 )
                             }
                             FifoTab.FRIENDS -> {
@@ -160,6 +163,7 @@ fun MainScreen(
                 aiResponse = aiResponse,
                 rmsLevel = rmsLevel.toFloat(),
                 isBleConnected = isBleConnected,
+                isBleConnecting = isBleConnecting,
                 onDismiss = { isVoiceSheetOpen = false },
                 onTalkFromPhone = onTalkFromPhone,
                 onConnectBle = onConnectBle,

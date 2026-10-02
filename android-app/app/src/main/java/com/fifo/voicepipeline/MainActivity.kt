@@ -111,6 +111,7 @@ class MainActivity : ComponentActivity() {
 
             val bleState by pipeline.bleConnectionState.collectAsState()
             val isBleConnected = bleState is BleConnectionState.Connected
+            val isBleConnecting = bleState is BleConnectionState.Connecting || bleState is BleConnectionState.Scanning
             val isMicMuted by pipeline.isMicMuted.collectAsState()
 
             var currentClaudeKey by remember { mutableStateOf(anthropicKey) }
@@ -123,6 +124,7 @@ class MainActivity : ComponentActivity() {
                 aiResponse = aiResponse,
                 rmsLevel = rmsLevel,
                 isBleConnected = isBleConnected,
+                isBleConnecting = isBleConnecting,
                 isAwake = isAwake,
                 isMicMuted = isMicMuted,
                 onToggleMicMute = { pipeline.toggleMicMute() },
