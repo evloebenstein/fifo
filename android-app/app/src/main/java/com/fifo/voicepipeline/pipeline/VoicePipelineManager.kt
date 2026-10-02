@@ -48,7 +48,7 @@ class VoicePipelineManager(
     private val _isAwake = MutableStateFlow(false)
     val isAwake: StateFlow<Boolean> = _isAwake.asStateFlow()
 
-    private val _micSource = MutableStateFlow(MicSource.PHONE)
+    private val _micSource = MutableStateFlow(MicSource.ESP32)
     val micSource: StateFlow<MicSource> = _micSource.asStateFlow()
 
     private val _transcription = MutableStateFlow("")
@@ -57,7 +57,7 @@ class VoicePipelineManager(
     private val _aiResponse = MutableStateFlow("")
     val aiResponse: StateFlow<String> = _aiResponse.asStateFlow()
 
-    private val _statusMessage = MutableStateFlow("Iniciando Bluetooth...")
+    private val _statusMessage = MutableStateFlow("Fifo desconectado · Conecte por Bluetooth")
     val statusMessage: StateFlow<String> = _statusMessage.asStateFlow()
 
     private val _rmsLevel = MutableStateFlow(0.0)
@@ -80,16 +80,15 @@ class VoicePipelineManager(
         onConnectionChanged = { connected ->
             if (connected) {
                 Log.i(TAG, "ESP32-S3 conectado por BLE!")
-                if (_state.value == PipelineState.DISCONNECTED) {
-                    _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
-                }
-                _statusMessage.value = if (_isAwake.value) "Fifo despierto — te escucho" else "Fifo durmiendo · Di 'Fifo' para despertar"
+                _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
+                _statusMessage.value = if (_isAwake.value) "Fifo despierto — le escucho" else "Fifo en reposo · Diga 'Fifo' para despertar"
                 vad.reset()
                 pcmBuffer.clear()
                 updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
             } else {
                 Log.i(TAG, "ESP32-S3 desconectado de BLE")
-                _statusMessage.value = "Fifo desconectado — reconectando por Bluetooth..."
+                _state.value = PipelineState.DISCONNECTED
+                _statusMessage.value = "Fifo desconectado · Conecte por Bluetooth"
                 vad.reset()
                 pcmBuffer.clear()
             }
@@ -140,13 +139,24 @@ class VoicePipelineManager(
             },
             onDone = {
                 if (_state.value == PipelineState.SPEAKING) {
-                    _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
-                    _statusMessage.value = if (_isMicMuted.value) {
-                        "Micrófono silenciado (Mute)"
-                    } else if (_isAwake.value) {
-                        "Listo — habla cuando quieras"
+                    // Si se usó temporalmente el micrófono del teléfono, volver al micrófono de Fifo
+                    if (_micSource.value == MicSource.PHONE && bleClient.isConnected) {
+                        phoneMicRecorder.stop()
+                        _micSource.value = MicSource.ESP32
+                    }
+
+                    if (!bleClient.isConnected && _micSource.value == MicSource.ESP32) {
+                        _state.value = PipelineState.DISCONNECTED
+                        _statusMessage.value = "Fifo desconectado · Conecte por Bluetooth"
                     } else {
-                        "Fifo durmiendo · Di 'Fifo' para despertar"
+                        _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
+                        _statusMessage.value = if (_isMicMuted.value) {
+                            "Micrófono silenciado (Mute)"
+                        } else if (_isAwake.value) {
+                            "Listo — habla cuando quieras"
+                        } else {
+                            "Fifo en reposo · Diga 'Fifo' para despertar"
+                        }
                     }
                     updateEspDisplay(state = if (_isMicMuted.value) "MUTED" else (if (_isAwake.value) "LISTO" else "DURMIENDO"))
                     vad.reset()
@@ -252,6 +262,23 @@ class VoicePipelineManager(
         if (!started) {
             _statusMessage.value = "Permiso de micrófono no concedido o error"
         }
+    }
+
+    /**
+     * Permite al usuario hablar directamente a Fifo a través del micrófono del celular.
+     */
+    fun talkFromPhone() {
+        if (_isMicMuted.value) {
+            _isMicMuted.value = false
+        }
+        _isAwake.value = true
+        _micSource.value = MicSource.PHONE
+        _state.value = PipelineState.LISTENING
+        _statusMessage.value = "Escuchando por el celular... hable ahora"
+        resetAutoSleepTimer()
+        startPhoneMic()
+        nativeRecognizer?.startContinuousListening()
+        updateEspDisplay(state = "ESCUCHANDO")
     }
 
     /**

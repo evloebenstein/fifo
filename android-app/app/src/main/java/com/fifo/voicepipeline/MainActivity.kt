@@ -42,15 +42,14 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            pipeline.setMicSource(MicSource.PHONE)
-            Toast.makeText(this, "Micrófono del celular activado", Toast.LENGTH_SHORT).show()
+            pipeline.talkFromPhone()
+            Toast.makeText(this, "Escuchando por el celular...", Toast.LENGTH_SHORT).show()
         } else {
             Toast.makeText(
                 this,
-                "Se requiere permiso de audio para usar el micrófono del celular",
+                "Se requiere permiso de audio para hablar desde el celular",
                 Toast.LENGTH_LONG
             ).show()
-            pipeline.setMicSource(MicSource.ESP32)
         }
     }
 
@@ -79,6 +78,9 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "No se pudo iniciar FifoVoiceService: ${e.message}")
         }
+
+        // ── Solicitar ejecución sin restricciones de batería para escucha continua ──
+        checkBatteryOptimizations()
 
         // ── Obtener API keys desde SharedPreferences o BuildConfig ────
         val prefs = getSharedPreferences("fifo_prefs", MODE_PRIVATE)
@@ -139,12 +141,8 @@ class MainActivity : ComponentActivity() {
                 onConnectBle = {
                     checkAndRequestBlePermissions()
                 },
-                onSelectMicSource = { requestedSource ->
-                    if (requestedSource == MicSource.PHONE) {
-                        requestPhoneMic()
-                    } else {
-                        pipeline.setMicSource(MicSource.ESP32)
-                    }
+                onTalkFromPhone = {
+                    talkFromPhone()
                 },
                 onClearConversation = { pipeline.clearConversation() }
             )
@@ -187,12 +185,30 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun requestPhoneMic() {
+    private fun talkFromPhone() {
         val permission = Manifest.permission.RECORD_AUDIO
         if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED) {
-            pipeline.setMicSource(MicSource.PHONE)
+            pipeline.talkFromPhone()
         } else {
             recordAudioPermissionLauncher.launch(permission)
+        }
+    }
+
+    private fun checkBatteryOptimizations() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                val pm = getSystemService(POWER_SERVICE) as? android.os.PowerManager
+                if (pm != null && !pm.isIgnoringBatteryOptimizations(packageName)) {
+                    val intent = android.content.Intent(
+                        android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                    ).apply {
+                        data = android.net.Uri.parse("package:$packageName")
+                    }
+                    startActivity(intent)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "No se pudo solicitar ejecución sin restricciones de batería: ${e.message}")
+            }
         }
     }
 
