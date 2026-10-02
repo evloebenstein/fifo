@@ -5,6 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.MusicNote
@@ -57,17 +58,18 @@ fun FifoBottomNav(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center,
                 modifier = Modifier
-                    .clip(CircleShape)
+                    .clip(RoundedCornerShape(16.dp))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null
                     ) { onTabSelected(tab) }
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .defaultMinSize(minWidth = 64.dp, minHeight = 56.dp)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
                 // Indicador circular si está activo en "Principal" como en Figma
                 Box(
                     contentAlignment = Alignment.Center,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(38.dp)
                 ) {
                     if (isSelected && tab == FifoTab.HOME) {
                         Box(
@@ -80,7 +82,7 @@ fun FifoBottomNav(
                         imageVector = if (isSelected) tab.activeIcon else tab.inactiveIcon,
                         contentDescription = tab.title,
                         tint = color,
-                        modifier = Modifier.size(22.dp)
+                        modifier = Modifier.size(24.dp)
                     )
                 }
 
@@ -88,8 +90,8 @@ fun FifoBottomNav(
 
                 Text(
                     text = tab.title,
-                    fontSize = 11.sp,
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                    fontSize = 12.sp,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                     color = color
                 )
             }

@@ -45,28 +45,32 @@ fun HomeScreen(
     ) {
         Spacer(modifier = Modifier.height(24.dp))
 
-        // ── Top Header: Saludo y Notificaciones + Botón Mute ───
+        // ── Top Header: Saludo cálido y Accesos de Audio / Notificaciones ───
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Column {
+            Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = "Hola, $userName",
-                    fontSize = 24.sp,
+                    fontSize = 26.sp,
                     fontWeight = FontWeight.Bold,
                     color = FifoColors.LightTextPrimary
                 )
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Qué bueno verte por aquí.",
-                    fontSize = 13.sp,
+                    text = "Qué bueno tenerle por aquí hoy.",
+                    fontSize = 14.sp,
                     color = FifoColors.LightTextSecondary
                 )
             }
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Botón interactivo para silenciar/activar micrófono
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                // Botón táctil grande (48dp) para silenciar/activar micrófono
                 Surface(
                     shape = CircleShape,
                     color = if (isMicMuted) Color(0xFFFEE2E2) else Color.White,
@@ -75,48 +79,47 @@ fun HomeScreen(
                         if (isMicMuted) Color(0xFFDC2626) else FifoColors.LightCardBorder
                     ),
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(48.dp)
                         .clickable { onToggleMicMute() }
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = if (isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                            contentDescription = if (isMicMuted) "Micrófono silenciado - Toca para activar" else "Micrófono activo - Toca para silenciar",
+                            contentDescription = if (isMicMuted) "Micrófono silenciado. Toque para activar" else "Micrófono activo. Toque para silenciar",
                             tint = if (isMicMuted) Color(0xFFDC2626) else FifoColors.NavyPrimary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(8.dp))
-
+                // Botón notificaciones táctil grande (48dp)
                 Surface(
                     shape = CircleShape,
                     color = Color.White,
                     border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.LightCardBorder),
-                    modifier = Modifier.size(42.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Outlined.Notifications,
                             contentDescription = "Notificaciones",
                             tint = FifoColors.LightTextPrimary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(22.dp))
 
-        // ── HERO CARD: "¿Qué tienes en mente?" (Tarjeta celeste de Figma) ───
+        // ── HERO CARD: "¿Qué tiene en mente?" (Compañero Fifo) ───
         Surface(
             color = FifoColors.HeroBlueCard,
-            shape = RoundedCornerShape(26.dp),
+            shape = RoundedCornerShape(28.dp),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(22.dp)) {
+            Column(modifier = Modifier.padding(24.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -124,66 +127,56 @@ fun HomeScreen(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "+ AQUÍ PARA TI",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = FifoColors.NavyPrimary,
-                            letterSpacing = 1.sp
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Text(
-                            text = "¿Qué tienes\nen mente?",
-                            fontSize = 22.sp,
-                            lineHeight = 28.sp,
+                            text = "¿Qué tiene en mente?",
+                            fontSize = 24.sp,
+                            lineHeight = 30.sp,
                             fontWeight = FontWeight.Bold,
                             color = FifoColors.NavyPrimary
                         )
 
-                        Spacer(modifier = Modifier.height(8.dp))
+                        Spacer(modifier = Modifier.height(10.dp))
 
                         Text(
-                            text = "Te escucho. Podemos hablar de tu día o simplemente parar un rato juntos.",
-                            fontSize = 12.sp,
-                            lineHeight = 18.sp,
-                            color = FifoColors.NavyPrimary.copy(alpha = 0.8f)
+                            text = "Le escucho con paciencia. Podemos conversar de su día o simplemente compartir un rato juntos.",
+                            fontSize = 14.sp,
+                            lineHeight = 20.sp,
+                            color = FifoColors.NavyPrimary.copy(alpha = 0.90f)
                         )
                     }
 
-                    // Rostro de Fifo animado en la esquina derecha
-                    Box(modifier = Modifier.padding(start = 12.dp)) {
+                    // Rostro de Fifo animado y expresivo
+                    Box(modifier = Modifier.padding(start = 14.dp)) {
                         FifoFace(
-                            size = 76.dp,
+                            size = 80.dp,
                             isDarkTheme = false
                         )
                     }
                 }
 
                 if (isMicMuted) {
-                    Spacer(modifier = Modifier.height(14.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
                     Surface(
                         color = Color(0xFFFEE2E2),
-                        shape = RoundedCornerShape(14.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFFCA5A5)),
+                        shape = RoundedCornerShape(16.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFFCA5A5)),
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable { onToggleMicMute() }
                     ) {
                         Row(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Icon(
                                 imageVector = Icons.Default.MicOff,
                                 contentDescription = null,
                                 tint = Color(0xFFDC2626),
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(20.dp)
                             )
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                text = "Micrófono en silencio · Toca aquí para activarlo",
-                                fontSize = 12.sp,
+                                text = "El micrófono está en silencio · Toque aquí para activarlo",
+                                fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFFDC2626)
                             )
@@ -191,19 +184,19 @@ fun HomeScreen(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(20.dp))
 
-                // BOTÓN PRINCIPAL DE VOZ: "Hablar con Fifo ->"
+                // BOTÓN PRINCIPAL DE VOZ (56dp para accesibilidad senior óptima)
                 Button(
                     onClick = onStartVoiceChat,
-                    shape = RoundedCornerShape(20.dp),
+                    shape = RoundedCornerShape(22.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = FifoColors.NavyPrimary,
                         contentColor = Color.White
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(56.dp)
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -212,42 +205,42 @@ fun HomeScreen(
                     ) {
                         Text(
                             text = "Hablar con Fifo",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
                         Icon(
                             imageVector = Icons.Default.ArrowForward,
                             contentDescription = null,
-                            modifier = Modifier.size(16.dp)
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(26.dp))
 
-        // ── "¿Cómo te sientes hoy?" (Selector de estado de ánimo) ───
+        // ── "¿Cómo se siente hoy?" (Selector de estado de ánimo holgado) ───
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "¿Cómo te sientes hoy?",
-                fontSize = 16.sp,
+                text = "¿Cómo se siente hoy?",
+                fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = FifoColors.LightTextPrimary
             )
             Text(
-                text = "Tu momento",
-                fontSize = 11.sp,
+                text = "Su momento",
+                fontSize = 13.sp,
                 color = FifoColors.LightTextMuted
             )
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -263,24 +256,27 @@ fun HomeScreen(
                 val isSelected = selectedMood == id
                 Surface(
                     onClick = { selectedMood = id },
-                    shape = RoundedCornerShape(18.dp),
+                    shape = RoundedCornerShape(20.dp),
                     color = if (isSelected) FifoColors.BlueSoftPill else Color.White,
                     border = androidx.compose.foundation.BorderStroke(
-                        1.dp,
-                        if (isSelected) FifoColors.BlueAccentDark else FifoColors.LightCardBorder
+                        if (isSelected) 2.dp else 1.dp,
+                        if (isSelected) FifoColors.NavyPrimary else FifoColors.LightCardBorder
                     ),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .defaultMinSize(minHeight = 76.dp)
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        modifier = Modifier.padding(vertical = 14.dp, horizontal = 4.dp)
+                        verticalArrangement = Arrangement.Center,
+                        modifier = Modifier.padding(vertical = 14.dp, horizontal = 6.dp)
                     ) {
-                        Text(emoji, fontSize = 22.sp)
+                        Text(emoji, fontSize = 26.sp)
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = label,
-                            fontSize = 11.sp,
-                            fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                            fontSize = 13.sp,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                             color = if (isSelected) FifoColors.NavyPrimary else FifoColors.LightTextPrimary,
                             maxLines = 1
                         )
@@ -289,19 +285,19 @@ fun HomeScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(6.dp))
+        Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Sea como sea, está bien sentirlo.",
-            fontSize = 11.sp,
-            color = FifoColors.LightTextMuted
+            text = "Sea como sea, está muy bien sentirlo. Aquí estoy para acompañarle.",
+            fontSize = 13.sp,
+            color = FifoColors.LightTextSecondary
         )
 
-        Spacer(modifier = Modifier.height(20.dp))
+        Spacer(modifier = Modifier.height(24.dp))
 
-        // ── Tarjeta: "Baja el ritmo" (Respiración guiada) ───
+        // ── Tarjeta de Respiración: "Baja el ritmo" ───
         Surface(
             onClick = onOpenBreathingExercise,
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(22.dp),
             color = Color.White,
             border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.LightCardBorder),
             modifier = Modifier.fillMaxWidth()
@@ -313,51 +309,45 @@ fun HomeScreen(
                 Surface(
                     shape = CircleShape,
                     color = FifoColors.BlueSoftPill,
-                    modifier = Modifier.size(42.dp)
+                    modifier = Modifier.size(48.dp)
                 ) {
                     Box(contentAlignment = Alignment.Center) {
                         Icon(
                             imageVector = Icons.Outlined.Air,
                             contentDescription = null,
                             tint = FifoColors.NavyPrimary,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(24.dp)
                         )
                     }
                 }
 
-                Spacer(modifier = Modifier.width(14.dp))
+                Spacer(modifier = Modifier.width(16.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
-                        text = "UN RESPIRO PARA TI",
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = FifoColors.LightTextMuted,
-                        letterSpacing = 0.5.sp
-                    )
-                    Text(
                         text = "Baja el ritmo",
-                        fontSize = 15.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = FifoColors.LightTextPrimary
                     )
+                    Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "2 min · Respiración guiada",
-                        fontSize = 12.sp,
+                        text = "2 minutos de respiración guiada para relajarse",
+                        fontSize = 13.sp,
                         color = FifoColors.LightTextSecondary
                     )
                 }
 
                 Icon(
                     imageVector = Icons.Default.ChevronRight,
-                    contentDescription = null,
+                    contentDescription = "Abrir ejercicio de respiración",
                     tint = FifoColors.LightTextMuted,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(24.dp)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(26.dp))
 
         // ── Sección Recordatorios (badge "3 hoy") ───
         Row(
@@ -367,7 +357,7 @@ fun HomeScreen(
         ) {
             Text(
                 text = "Recordatorios",
-                fontSize = 16.sp,
+                fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = FifoColors.LightTextPrimary
             )
@@ -376,66 +366,66 @@ fun HomeScreen(
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text(
-                    text = "3 hoy",
-                    fontSize = 11.sp,
+                    text = "3 para hoy",
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = FifoColors.NavyPrimary,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(14.dp))
 
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             ReminderItem(
                 icon = Icons.Outlined.Schedule,
                 title = "Llamar a mamá",
-                subtitle = "10:30 · Hoy",
+                subtitle = "10:30 hrs · Hoy",
                 badgeText = "Hoy"
             )
             ReminderItem(
                 icon = Icons.Default.PhoneAndroid,
                 title = "Revisar agenda",
-                subtitle = "19:00 · Hoy",
+                subtitle = "19:00 hrs · Hoy",
                 badgeText = "Hoy"
             )
             ReminderItem(
                 icon = Icons.Outlined.Air,
-                title = "Respiración guiada",
+                title = "Respiración de calma",
                 subtitle = "Antes de dormir",
                 badgeText = "Rutina"
             )
         }
 
-        Spacer(modifier = Modifier.height(24.dp))
+        Spacer(modifier = Modifier.height(26.dp))
 
         // ── Sección: Resumen con Fifo ───
         Surface(
-            shape = RoundedCornerShape(22.dp),
-            color = FifoColors.HeroBlueCard.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(24.dp),
+            color = FifoColors.HeroBlueCard.copy(alpha = 0.55f),
             border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.HeroBlueBorder),
             modifier = Modifier.fillMaxWidth()
         ) {
-            Column(modifier = Modifier.padding(18.dp)) {
+            Column(modifier = Modifier.padding(20.dp)) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        FifoFace(size = 38.dp, isDarkTheme = false)
-                        Spacer(modifier = Modifier.width(10.dp))
+                        FifoFace(size = 42.dp, isDarkTheme = false)
+                        Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
                                 text = "Resumen con Fifo",
-                                fontSize = 15.sp,
+                                fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = FifoColors.NavyPrimary
                             )
                             Text(
-                                text = "Conversaciones anteriores",
-                                fontSize = 11.sp,
+                                text = "De nuestras conversaciones",
+                                fontSize = 13.sp,
                                 color = FifoColors.LightTextSecondary
                             )
                         }
@@ -443,14 +433,14 @@ fun HomeScreen(
 
                     Surface(
                         color = Color.White,
-                        shape = RoundedCornerShape(10.dp)
+                        shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(
-                            text = "2 puntos",
-                            fontSize = 10.sp,
+                            text = "2 notas",
+                            fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = FifoColors.NavyPrimary,
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
                 }
@@ -458,10 +448,10 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(14.dp))
 
                 Text(
-                    text = "Revisemos lo que hablamos con Fifo para que no tengas que repetirte.",
-                    fontSize = 12.sp,
+                    text = "Recordemos lo que conversamos para que no tenga que repetirse:",
+                    fontSize = 13.sp,
                     color = FifoColors.LightTextSecondary,
-                    lineHeight = 16.sp
+                    lineHeight = 18.sp
                 )
 
                 Spacer(modifier = Modifier.height(12.dp))
@@ -469,7 +459,7 @@ fun HomeScreen(
                 Row(verticalAlignment = Alignment.Top) {
                     Box(
                         modifier = Modifier
-                            .size(16.dp)
+                            .size(20.dp)
                             .background(FifoColors.BlueSoftPill, CircleShape)
                             .border(1.dp, FifoColors.NavyPrimary, CircleShape),
                         contentAlignment = Alignment.Center
@@ -478,24 +468,24 @@ fun HomeScreen(
                             imageVector = Icons.Default.Check,
                             contentDescription = null,
                             tint = FifoColors.NavyPrimary,
-                            modifier = Modifier.size(10.dp)
+                            modifier = Modifier.size(12.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "Hablaste de tu proyecto y te sentiste más tranquila al compartirlo.",
-                        fontSize = 12.sp,
+                        text = "Conversó sobre sus proyectos y se sintió con más energía y tranquilidad.",
+                        fontSize = 13.sp,
                         color = FifoColors.LightTextPrimary,
-                        lineHeight = 16.sp
+                        lineHeight = 18.sp
                     )
                 }
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Row(verticalAlignment = Alignment.Top) {
                     Box(
                         modifier = Modifier
-                            .size(16.dp)
+                            .size(20.dp)
                             .background(FifoColors.BlueSoftPill, CircleShape)
                             .border(1.dp, FifoColors.NavyPrimary, CircleShape),
                         contentAlignment = Alignment.Center
@@ -504,33 +494,35 @@ fun HomeScreen(
                             imageVector = Icons.Default.Check,
                             contentDescription = null,
                             tint = FifoColors.NavyPrimary,
-                            modifier = Modifier.size(10.dp)
+                            modifier = Modifier.size(12.dp)
                         )
                     }
-                    Spacer(modifier = Modifier.width(8.dp))
+                    Spacer(modifier = Modifier.width(10.dp))
                     Text(
-                        text = "Recordaste que Fifo te ayudó a priorizar tu agenda de hoy.",
-                        fontSize = 12.sp,
+                        text = "Fifo le ayudó a organizar y priorizar sus actividades de hoy con calma.",
+                        fontSize = 13.sp,
                         color = FifoColors.LightTextPrimary,
-                        lineHeight = 16.sp
+                        lineHeight = 18.sp
                     )
                 }
 
-                Spacer(modifier = Modifier.height(16.dp))
+                Spacer(modifier = Modifier.height(18.dp))
 
                 Button(
                     onClick = onStartVoiceChat,
-                    shape = RoundedCornerShape(16.dp),
+                    shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = FifoColors.NavyPrimary,
                         contentColor = Color.White
                     ),
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Ver conversaciones", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Text("Ver conversaciones anteriores", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                     }
                 }
             }
@@ -548,55 +540,59 @@ fun ReminderItem(
     badgeText: String
 ) {
     Surface(
-        shape = RoundedCornerShape(18.dp),
+        shape = RoundedCornerShape(20.dp),
         color = Color.White,
         border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.LightCardBorder),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = 64.dp)
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            modifier = Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Surface(
                 shape = CircleShape,
                 color = FifoColors.BlueSoftPill,
-                modifier = Modifier.size(36.dp)
+                modifier = Modifier.size(42.dp)
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
                         tint = FifoColors.NavyPrimary,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.width(12.dp))
+            Spacer(modifier = Modifier.width(14.dp))
 
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    fontSize = 14.sp,
+                    fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = FifoColors.LightTextPrimary
                 )
+                Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = subtitle,
-                    fontSize = 11.sp,
+                    fontSize = 13.sp,
                     color = FifoColors.LightTextSecondary
                 )
             }
 
             Surface(
                 color = Color(0xFFF1F5F9),
-                shape = RoundedCornerShape(8.dp)
+                shape = RoundedCornerShape(10.dp)
             ) {
                 Text(
                     text = badgeText,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
                     color = FifoColors.LightTextSecondary,
-                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )
             }
         }
