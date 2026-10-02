@@ -18,6 +18,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -73,37 +78,27 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Botón táctil grande (48dp): Si está desconectado muestra estado Bluetooth; si está conectado, silenciar/activar micrófono
-                Surface(
-                    shape = CircleShape,
-                    color = if (!isBleConnected) Color(0xFFFEF3C7)
-                    else if (isMicMuted) Color(0xFFFEE2E2)
-                    else Color.White,
-                    border = androidx.compose.foundation.BorderStroke(
-                        1.5.dp,
-                        if (!isBleConnected) Color(0xFFF59E0B)
-                        else if (isMicMuted) Color(0xFFDC2626)
-                        else FifoColors.LightCardBorder
-                    ),
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clickable {
-                            if (!isBleConnected) onStartVoiceChat() else onToggleMicMute()
+                // Si está conectado, botón táctil grande (48dp) para silenciar/activar micrófono. Si está desconectado, no mostramos botón de Bluetooth para evitar confusión.
+                if (isBleConnected) {
+                    Surface(
+                        shape = CircleShape,
+                        color = if (isMicMuted) Color(0xFFFEE2E2) else Color.White,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.5.dp,
+                            if (isMicMuted) Color(0xFFDC2626) else FifoColors.LightCardBorder
+                        ),
+                        modifier = Modifier
+                            .size(48.dp)
+                            .clickable { onToggleMicMute() }
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Icon(
+                                imageVector = if (isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                                contentDescription = if (isMicMuted) "Micrófono silenciado. Toque para activar" else "Micrófono activo. Toque para silenciar",
+                                tint = if (isMicMuted) Color(0xFFDC2626) else FifoColors.NavyPrimary,
+                                modifier = Modifier.size(22.dp)
+                            )
                         }
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = if (!isBleConnected) Icons.Default.Bluetooth
-                            else if (isMicMuted) Icons.Default.MicOff
-                            else Icons.Default.Mic,
-                            contentDescription = if (!isBleConnected) "Fifo desconectado. Toque para conectar"
-                            else if (isMicMuted) "Micrófono silenciado. Toque para activar"
-                            else "Micrófono activo. Toque para silenciar",
-                            tint = if (!isBleConnected) Color(0xFFD97706)
-                            else if (isMicMuted) Color(0xFFDC2626)
-                            else FifoColors.NavyPrimary,
-                            modifier = Modifier.size(22.dp)
-                        )
                     }
                 }
 
@@ -277,12 +272,12 @@ fun HomeScreen(
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             val moods = listOf(
-                Triple("Bien", "😊", "Bien"),
-                Triple("Regular", "😐", "Más o menos"),
-                Triple("Bajo", "☹️", "No muy bien")
+                Pair("Bien", "Bien"),
+                Pair("Regular", "Más o menos"),
+                Pair("Bajo", "No muy bien")
             )
 
-            moods.forEach { (id, emoji, label) ->
+            moods.forEach { (id, label) ->
                 val isSelected = selectedMood == id
                 Surface(
                     onClick = { selectedMood = id },
@@ -294,15 +289,15 @@ fun HomeScreen(
                     ),
                     modifier = Modifier
                         .weight(1f)
-                        .defaultMinSize(minHeight = 76.dp)
+                        .defaultMinSize(minHeight = 84.dp)
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center,
-                        modifier = Modifier.padding(vertical = 14.dp, horizontal = 6.dp)
+                        modifier = Modifier.padding(vertical = 14.dp, horizontal = 4.dp)
                     ) {
-                        Text(emoji, fontSize = 26.sp)
-                        Spacer(modifier = Modifier.height(6.dp))
+                        MoodFaceIcon(moodId = id, isSelected = isSelected)
+                        Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             text = label,
                             fontSize = 13.sp,
@@ -624,6 +619,125 @@ fun ReminderItem(
                     color = FifoColors.LightTextSecondary,
                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Icono vectorial armónico y sereno para el selector de estado de ánimo.
+ * Evita emojis crudos del sistema y mantiene coherencia de trazo y paleta terapéutica.
+ */
+@Composable
+private fun MoodFaceIcon(
+    moodId: String,
+    isSelected: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val accentColor = when (moodId) {
+        "Bien" -> if (isSelected) Color(0xFF0F766E) else Color(0xFF0D9488)
+        "Regular" -> if (isSelected) Color(0xFFB45309) else Color(0xFFD97706)
+        else -> if (isSelected) Color(0xFF4338CA) else Color(0xFF6366F1)
+    }
+    val circleBg = when (moodId) {
+        "Bien" -> if (isSelected) Color(0xFFCCFBF1) else Color(0xFFF0FDFA)
+        "Regular" -> if (isSelected) Color(0xFFFEF3C7) else Color(0xFFFFFBEB)
+        else -> if (isSelected) Color(0xFFE0E7FF) else Color(0xFFEEF2FF)
+    }
+    val circleBorder = when (moodId) {
+        "Bien" -> if (isSelected) Color(0xFF5EEAD4) else Color(0xFFCCFBF1)
+        "Regular" -> if (isSelected) Color(0xFFFCD34D) else Color(0xFFFEF3C7)
+        else -> if (isSelected) Color(0xFFA5B4FC) else Color(0xFFE0E7FF)
+    }
+
+    Box(
+        modifier = modifier
+            .size(38.dp)
+            .background(circleBg, CircleShape)
+            .border(1.dp, circleBorder, CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        Canvas(modifier = Modifier.size(26.dp)) {
+            val w = size.width
+            val h = size.height
+            val strokeW = 2.3.dp.toPx()
+
+            when (moodId) {
+                "Bien" -> {
+                    // Ojos felices curvados ^  ^
+                    drawArc(
+                        color = accentColor,
+                        startAngle = 180f,
+                        sweepAngle = 180f,
+                        useCenter = false,
+                        topLeft = Offset(w * 0.18f, h * 0.28f),
+                        size = Size(w * 0.26f, h * 0.22f),
+                        style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                    )
+                    drawArc(
+                        color = accentColor,
+                        startAngle = 180f,
+                        sweepAngle = 180f,
+                        useCenter = false,
+                        topLeft = Offset(w * 0.56f, h * 0.28f),
+                        size = Size(w * 0.26f, h * 0.22f),
+                        style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                    )
+                    // Sonrisa amplia y acogedora
+                    drawArc(
+                        color = accentColor,
+                        startAngle = 20f,
+                        sweepAngle = 140f,
+                        useCenter = false,
+                        topLeft = Offset(w * 0.24f, h * 0.38f),
+                        size = Size(w * 0.52f, h * 0.42f),
+                        style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                    )
+                }
+                "Regular" -> {
+                    // Ojos redondos tranquilos
+                    drawCircle(
+                        color = accentColor,
+                        radius = 2.4.dp.toPx(),
+                        center = Offset(w * 0.32f, h * 0.38f)
+                    )
+                    drawCircle(
+                        color = accentColor,
+                        radius = 2.4.dp.toPx(),
+                        center = Offset(w * 0.68f, h * 0.38f)
+                    )
+                    // Boca recta calmada
+                    drawLine(
+                        color = accentColor,
+                        start = Offset(w * 0.30f, h * 0.64f),
+                        end = Offset(w * 0.70f, h * 0.64f),
+                        strokeWidth = strokeW,
+                        cap = StrokeCap.Round
+                    )
+                }
+                else -> {
+                    // "Bajo": Ojos tiernos con cuidado y boca suavemente empática
+                    drawCircle(
+                        color = accentColor,
+                        radius = 2.4.dp.toPx(),
+                        center = Offset(w * 0.32f, h * 0.40f)
+                    )
+                    drawCircle(
+                        color = accentColor,
+                        radius = 2.4.dp.toPx(),
+                        center = Offset(w * 0.68f, h * 0.40f)
+                    )
+                    // Arco suave y empático pidiendo compañía
+                    drawArc(
+                        color = accentColor,
+                        startAngle = 200f,
+                        sweepAngle = 140f,
+                        useCenter = false,
+                        topLeft = Offset(w * 0.26f, h * 0.58f),
+                        size = Size(w * 0.48f, h * 0.30f),
+                        style = Stroke(width = strokeW, cap = StrokeCap.Round)
+                    )
+                }
             }
         }
     }
