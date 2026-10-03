@@ -52,6 +52,7 @@ private enum class ProfileTab {
 fun ProfileScreen(
     currentName: String,
     onLogout: () -> Unit,
+    onReopenSetup: () -> Unit = {},
     isBleConnected: Boolean = false,
     onConnectBle: () -> Unit = {},
     isAwake: Boolean = false,
@@ -71,7 +72,8 @@ fun ProfileScreen(
     var tasteToDelete by remember { mutableStateOf<FifoTasteStory?>(null) }
 
     // Datos del perfil
-    var name by remember { mutableStateOf(currentName.ifBlank { "Lucía" }) }
+    var name by remember { mutableStateOf(if (currentName.isNotBlank() && currentName != "Lucía") currentName else "Lucía González") }
+    var birthDate by remember { mutableStateOf("14 de Mayo, 1958") }
     var age by remember { mutableStateOf("68") }
     var gender by remember { mutableStateOf("Mujer") }
     var location by remember { mutableStateOf("Santiago, Chile") }
@@ -138,6 +140,15 @@ fun ProfileScreen(
     var tasteStories by remember {
         mutableStateOf(
             listOf(
+                FifoTasteStory(
+                    id = "t_bday",
+                    title = "Cumpleaños y orígenes familiares",
+                    subtitle = "Nacida el 14 de mayo de 1958 en Santiago",
+                    description = "Fifo recuerda con mucho cariño tu fecha de nacimiento (14 de mayo de 1958). Te gusta celebrar en familia recordando anécdotas de juventud y compartiendo una rica rebanada de tarta con café.",
+                    tags = listOf("#Cumpleaños", "#14DeMayo", "#1958", "#Familia", "#Tradición"),
+                    iconCategory = "heart",
+                    learnedFrom = "Configurado durante el setup inicial con Fifo"
+                ),
                 FifoTasteStory(
                     id = "t1",
                     title = "Nocturnos de Frédéric Chopin",
@@ -296,6 +307,45 @@ fun ProfileScreen(
                             )
                         }
                     }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Acceso al Asistente de configuración de Fifo
+            Surface(
+                onClick = onReopenSetup,
+                color = FifoColors.BlueSoftPill,
+                shape = RoundedCornerShape(18.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    FifoFace(size = 36.dp, isDarkTheme = false)
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Asistente de configuración de Fifo",
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = FifoColors.NavyPrimary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Preguntas sobre cumpleaños, identidad y primeros gustos.",
+                            fontSize = 12.sp,
+                            color = FifoColors.LightTextSecondary
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ArrowForward,
+                        contentDescription = null,
+                        tint = FifoColors.NavyPrimary,
+                        modifier = Modifier.size(18.dp)
+                    )
                 }
             }
 
@@ -804,7 +854,7 @@ fun ProfileScreen(
 
                     // Nombre y datos demográficos
                     Text(
-                        text = "$name González",
+                        text = name,
                         fontSize = 18.sp,
                         fontWeight = FontWeight.Bold,
                         color = FifoColors.LightTextPrimary
@@ -853,6 +903,37 @@ fun ProfileScreen(
                                 color = FifoColors.LightTextSecondary,
                                 modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                             )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Información extra y cumpleaños recordado por Fifo
+                    Surface(
+                        color = Color(0xFFF8FAFC),
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text("🎂", fontSize = 16.sp)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Column {
+                                Text(
+                                    text = "Cumpleaños: $birthDate",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = FifoColors.LightTextPrimary
+                                )
+                                Text(
+                                    text = "Fifo te saludará y recordará tus anécdotas en tu día especial",
+                                    fontSize = 11.sp,
+                                    color = FifoColors.LightTextSecondary
+                                )
+                            }
                         }
                     }
 
@@ -1553,6 +1634,7 @@ fun ProfileScreen(
     // ══════════════════════════════════════════════════════════
     if (isEditProfileOpen) {
         var editName by remember { mutableStateOf(name) }
+        var editBirthDate by remember { mutableStateOf(birthDate) }
         var editAge by remember { mutableStateOf(age) }
         var editGender by remember { mutableStateOf(gender) }
         var editInterests by remember { mutableStateOf(interests) }
@@ -1588,11 +1670,25 @@ fun ProfileScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Text("Nombre", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
+                    Text("Nombre completo", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
                     Spacer(modifier = Modifier.height(6.dp))
                     OutlinedTextField(
                         value = editName,
                         onValueChange = { editName = it },
+                        placeholder = { Text("Ej. Lucía González", color = FifoColors.LightTextMuted) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text("Fecha de nacimiento / Cumpleaños", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = editBirthDate,
+                        onValueChange = { editBirthDate = it },
+                        placeholder = { Text("Ej. 14 de Mayo, 1958", color = FifoColors.LightTextMuted) },
                         singleLine = true,
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -1617,7 +1713,7 @@ fun ProfileScreen(
                         }
 
                         Column(modifier = Modifier.weight(1f)) {
-                            Text("Género", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
+                            Text("Género / Identidad", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
                             Spacer(modifier = Modifier.height(6.dp))
                             OutlinedTextField(
                                 value = editGender,
@@ -1707,6 +1803,7 @@ fun ProfileScreen(
                     Button(
                         onClick = {
                             name = editName
+                            birthDate = editBirthDate
                             age = editAge
                             gender = editGender
                             interests = editInterests

@@ -57,7 +57,7 @@ fun MainScreen(
 ) {
     var currentFlowScreen by remember { mutableStateOf(AppFlowScreen.MAIN_APP) }
     var currentTab by remember { mutableStateOf(FifoTab.HOME) }
-    var userName by remember { mutableStateOf("Lucía") }
+    var userName by remember { mutableStateOf("Lucía González") }
 
     // Control de ventanas modales interactivas
     var isVoiceSheetOpen by remember { mutableStateOf(false) }
@@ -135,6 +135,7 @@ fun MainScreen(
                                 ProfileScreen(
                                     currentName = userName,
                                     onLogout = { currentFlowScreen = AppFlowScreen.WELCOME },
+                                    onReopenSetup = { currentFlowScreen = AppFlowScreen.ONBOARDING },
                                     isBleConnected = isBleConnected,
                                     onConnectBle = onConnectBle,
                                     isAwake = isAwake,
