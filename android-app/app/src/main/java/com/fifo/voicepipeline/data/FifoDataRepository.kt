@@ -387,4 +387,163 @@ object FifoDataRepository {
     fun removeMemory(id: String) {
         _memories.value = _memories.value.filterNot { it.id == id }
     }
+
+    // ══════════════════════════════════════════════════════════════
+    //  MEMORIA DE DOBLE CAPA: Fragmentos Livianos (on-device)
+    //  + Búsqueda de Contexto Profundo (server-side)
+    // ══════════════════════════════════════════════════════════════
+
+    // ── 8. Fragmentos Compactos de Conversaciones Pasadas ─────────
+    /**
+     * Almacenamiento local liviano de fragmentos compactos.
+     *
+     * ARQUITECTURA:
+     * - Servidor (Firestore/Supabase): Guarda la transcripción COMPLETA de cada
+     *   conversación con todos los detalles, turnos de voz y contexto íntegro.
+     * - Celular (aquí): Solo almacena estos fragmentos livianos con temas clave,
+     *   entidades nombradas, estado de ánimo y un resumen compacto de ≤150 palabras.
+     *
+     * VENTAJAS:
+     * 1. Latencia mínima: Claude recibe solo fragmentos compactos como contexto previo,
+     *    reduciendo el tamaño del payload y acelerando la respuesta.
+     * 2. Continuidad conversacional: Los temas clave y entidades evitan que Fifo se pierda
+     *    cuando el usuario menciona datos de nicho o temas pasados.
+     * 3. Si necesita más detalle → el skill `recall_past_context` busca la conversación
+     *    completa en el servidor y retorna solo los extractos relevantes.
+     */
+    private val _conversationFragments = MutableStateFlow(
+        listOf(
+            ConversationFragment(
+                id = "frag_01",
+                serverConversationId = "srv_conv_001",
+                keyTopics = listOf("orquídeas", "riego por inmersión", "balcón", "maceteros de greda"),
+                namedEntities = listOf("Lucía", "Fifo"),
+                detectedMood = "contenta",
+                compactSummary = "Lucía contó que tiene 4 maceteros de orquídeas en su balcón. Las riega por inmersión los miércoles y limpia las hojas con un paño húmedo mientras escucha la radio. Se mostró alegre hablando de sus plantas.",
+                primaryTag = "Jardinería",
+                durationSeconds = 240,
+                recordedAt = "2026-10-03T10:30:00Z"
+            ),
+            ConversationFragment(
+                id = "frag_02",
+                serverConversationId = "srv_conv_002",
+                keyTopics = listOf("Chopin", "conciertos de piano", "nieto Tomás", "visita domingo"),
+                namedEntities = listOf("Lucía", "Tomás", "Chopin"),
+                detectedMood = "ilusionada",
+                compactSummary = "Conversaron sobre la música clásica y los nocturnos de Chopin. Lucía mencionó que su nieto Tomás la visitará el domingo y quiere enseñarle a escuchar piano. Se notó ilusionada por la visita.",
+                primaryTag = "Música",
+                durationSeconds = 360,
+                recordedAt = "2026-10-02T16:00:00Z"
+            ),
+            ConversationFragment(
+                id = "frag_03",
+                serverConversationId = "srv_conv_003",
+                keyTopics = listOf("cazuela de ave", "comino", "recetario viejo", "feria del barrio"),
+                namedEntities = listOf("Lucía", "abuela Rosa"),
+                detectedMood = "nostálgica",
+                compactSummary = "Fifo aprendió sobre la cazuela de ave casera con el secreto de dorar la cebolla con comino suave. Lucía habló del recetario manuscrito de su abuela Rosa con más de 40 años y de los ingredientes frescos de la feria.",
+                primaryTag = "Cocina",
+                durationSeconds = 300,
+                recordedAt = "2026-09-30T12:15:00Z"
+            )
+        )
+    )
+    val conversationFragments: StateFlow<List<ConversationFragment>> = _conversationFragments.asStateFlow()
+
+    /**
+     * Registra un nuevo fragmento compacto extraído del final de una conversación.
+     * Se llama al cerrar cada sesión de voz con Fifo.
+     *
+     * El servidor almacena la conversación completa de forma independiente;
+     * aquí solo se guarda el fragmento liviano para que Claude tenga
+     * contexto rápido en la próxima sesión sin latencia extra.
+     */
+    fun addConversationFragment(fragment: ConversationFragment) {
+        _conversationFragments.value = listOf(fragment) + _conversationFragments.value
+    }
+
+    /**
+     * Construye la ventana de contexto compacto para inyectar como prefijo
+     * en el System Prompt o en los mensajes enviados a Claude.
+     *
+     * Retorna un bloque de texto con los últimos N fragmentos, incluyendo:
+     * - Temas clave mencionados
+     * - Entidades nombradas (personas, lugares)
+     * - Estado anímico detectado
+     * - Resumen compacto de cada charla
+     *
+     * @param maxFragments Cantidad máxima de fragmentos recientes a incluir (default 5)
+     * @return String listo para inyectar como contexto previo a Claude
+     */
+    fun buildCompactContextWindow(maxFragments: Int = 5): String {
+        val fragments = _conversationFragments.value.take(maxFragments)
+        if (fragments.isEmpty()) return ""
+
+        val profile = _userProfile.value
+        val tastes = _tastes.value
+
+        return buildString {
+            appendLine("=== CONTEXTO PREVIO DEL USUARIO (fragmentos compactos) ===")
+            appendLine("Nombre: ${profile.fullName} | Edad: ${profile.estimatedAge} | Ciudad: ${profile.city}")
+            appendLine("Gustos conocidos: ${tastes.joinToString(", ")}")
+            appendLine()
+
+            fragments.forEachIndexed { i, frag ->
+                appendLine("--- Charla reciente ${i + 1} (${frag.primaryTag}) ---")
+                appendLine("Temas: ${frag.keyTopics.joinToString(", ")}")
+                appendLine("Personas mencionadas: ${frag.namedEntities.joinToString(", ")}")
+                appendLine("Ánimo: ${frag.detectedMood}")
+                appendLine("Resumen: ${frag.compactSummary}")
+                appendLine()
+            }
+
+            appendLine("=== Si necesitas más detalle sobre un tema pasado, usa la herramienta recall_past_context ===")
+        }
+    }
+
+    /**
+     * Busca contexto profundo en los fragmentos locales por palabra clave.
+     * En producción esto llamará al servidor para obtener la transcripción completa;
+     * por ahora busca en los fragmentos locales como fallback.
+     *
+     * @param query Consulta de búsqueda (tema, persona, lugar)
+     * @return DeepContextResult con extractos relevantes encontrados
+     */
+    fun searchDeepContext(query: String): DeepContextResult {
+        val queryLower = query.lowercase().trim()
+        val allFragments = _conversationFragments.value
+
+        val matchingFragments = allFragments.filter { frag ->
+            frag.keyTopics.any { it.lowercase().contains(queryLower) } ||
+            frag.namedEntities.any { it.lowercase().contains(queryLower) } ||
+            frag.compactSummary.lowercase().contains(queryLower) ||
+            frag.primaryTag.lowercase().contains(queryLower)
+        }
+
+        if (matchingFragments.isEmpty()) {
+            return DeepContextResult(
+                relevantExcerpts = emptyList(),
+                foundEntities = emptyList(),
+                synthesizedContext = "No encontré conversaciones anteriores sobre '$query'.",
+                conversationsSearched = allFragments.size
+            )
+        }
+
+        val excerpts = matchingFragments.map { it.compactSummary }
+        val entities = matchingFragments.flatMap { it.namedEntities }.distinct()
+        val synthesized = buildString {
+            append("Encontré ${matchingFragments.size} charla(s) donde se habló de '$query'. ")
+            matchingFragments.forEach { frag ->
+                append("En la charla sobre ${frag.primaryTag}: ${frag.compactSummary} ")
+            }
+        }
+
+        return DeepContextResult(
+            relevantExcerpts = excerpts,
+            foundEntities = entities,
+            synthesizedContext = synthesized.trim(),
+            conversationsSearched = allFragments.size
+        )
+    }
 }
+

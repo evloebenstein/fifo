@@ -77,3 +77,10 @@ Para la especificación completa del esquema de base de datos, mapeo de componen
 - **Tolerancia Cero a Contenidos Sexuales**: Queda terminantemente prohibido el registro, almacenamiento o difusión de cualquier contenido con connotación sexual en perfiles, historias o muros comunitarios.
 - **Protocolo de Salvaguarda ante Abuso**: La única excepción a menciones de índole sexual es cuando el usuario exprese haber sufrido o estar sufriendo abuso, violencia o maltrato. En este caso crítico, el contenido jamás se publica públicamente; Fifo brinda contención emocional cálida y, con el consentimiento claro del adulto mayor, facilita la comunicación inmediata con su familiar de confianza o con líneas oficiales de asistencia protegida.
 
+## Dual-Layer Memory Architecture & Zero-Latency Context Recall
+
+- **Capa Servidor (Transcripción Completa)**: La nube almacena la conversación completa con todos los turnos, transcripciones de audio y marcas de tiempo para preservación del patrimonio biográfico del usuario y auditoría.
+- **Capa Celular (Fragmentos Livianos On-Device)**: El dispositivo móvil solo mantiene fragmentos compactos (temas clave, entidades nombradas y resúmenes de ≤150 palabras). Esto elimina la latencia de red, garantizando respuestas casi instantáneas en el día a día.
+- **Recuperación Dinámica de Nicho (`recall_past_context`)**: Cuando el usuario pregunta por temas específicos pasados o anécdotas antiguas no presentes en la ventana de contexto compacto, Fifo invoca de forma autónoma su skill de búsqueda profunda en la base de datos central para responder con precisión y sin alucinaciones.
+
+

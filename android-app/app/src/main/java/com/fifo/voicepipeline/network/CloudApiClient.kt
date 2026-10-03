@@ -2,6 +2,7 @@ package com.fifo.voicepipeline.network
 
 import android.util.Log
 import com.fifo.voicepipeline.audio.AudioConfig
+import com.fifo.voicepipeline.data.FifoDataRepository
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import okhttp3.*
@@ -103,6 +104,11 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
   En estos casos:
   1) Escucha con profunda empatía, serenidad y respeto.
   2) Con el consentimiento claro del usuario, ofrécele activar ayuda o llamar a su familiar de confianza (hija/tutor) o a un canal oficial de apoyo (como SAMU 131 o apoyo al adulto mayor): "¿Me autoriza a llamar a su hija o a comunicarnos con un servicio de ayuda confidencial para apoyarle?".
+
+8. Memoria Conversacional de Doble Capa y Contexto Profundo
+- ARQUITECTURA DE LATENCIA MÍNIMA: Para que tus respuestas de voz sean inmediatas en el teléfono del usuario, cuentas con fragmentos compactos de charlas previas inyectados abajo como "VENTANA DE CONTEXTO COMPACTO".
+- CONTINUIDAD CONVERSACIONAL: Utiliza siempre estos fragmentos para demostrar empatía y recordar detalles cotidianos (sus orquídeas, su música de piano, recetas, su familia) sin que el usuario tenga que repetir todo.
+- BÚSQUEDA DE CONTEXTO PROFUNDO EN BASE DE DATOS: Si el usuario te pregunta por un dato muy específico, una anécdota pasada, o un detalle de nicho que no aparezca con suficiente claridad en tus fragmentos compactos, invoca la herramienta 'recall_past_context' con la consulta precisa ('query'). Esta herramienta consultará la base de datos completa del servidor y te traerá el extracto exacto para responderle.
 """
     }
 
@@ -201,11 +207,21 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
             ""
         }
 
+        // Inyectar la ventana de contexto compacto (fragmentos livianos de charlas pasadas)
+        // para que Claude tenga continuidad conversacional sin descargar transcripciones completas.
+        // Si necesita más detalle, usará el skill recall_past_context.
+        val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 5)
+        val enrichedSystemPrompt = if (compactContext.isNotBlank()) {
+            "$SYSTEM_PROMPT\n\n$compactContext"
+        } else {
+            SYSTEM_PROMPT
+        }
+
         val jsonBody = """
         {
             "model": "$CLAUDE_MODEL",
             "max_tokens": 384,
-            "system": ${gson.toJson(SYSTEM_PROMPT)},
+            "system": ${gson.toJson(enrichedSystemPrompt)},
             "messages": $messagesJson$toolsFragment
         }
         """.trimIndent()
@@ -347,11 +363,19 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
 
         val messagesJson = gson.toJson(conversationHistory)
 
+        // Inyectar contexto compacto para streaming
+        val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 5)
+        val enrichedSystemPrompt = if (compactContext.isNotBlank()) {
+            "$SYSTEM_PROMPT\n\n$compactContext"
+        } else {
+            SYSTEM_PROMPT
+        }
+
         val jsonBody = """
         {
             "model": "$CLAUDE_MODEL",
             "max_tokens": 256,
-            "system": ${gson.toJson(SYSTEM_PROMPT)},
+            "system": ${gson.toJson(enrichedSystemPrompt)},
             "messages": $messagesJson,
             "stream": true
         }

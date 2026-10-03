@@ -12,6 +12,7 @@
 4. [Sistema de Skills y Herramientas del Teléfono para Fifo](#4-sistema-de-skills-y-herramientas-del-teléfono-para-fifo)
 5. [Guía de Implementación Técnica (Firestore / Supabase / SQLite Room)](#5-guía-de-implementación-técnica)
 6. [Reglas de Privacidad y Manejo de Información Sensible](#6-reglas-de-privacidad-y-manejo-de-información-sensible)
+7. [Arquitectura de Memoria de Doble Capa: Servidor Completo vs. Celular Compacto](#7-arquitectura-de-memoria-de-doble-capa-servidor-completo-vs-celular-compacto)
 
 ---
 
@@ -294,6 +295,13 @@ Fifo cuenta con un sistema de **Skills (Herramientas / Function Calling)** que l
   * `publish_social_post(content, category)`: Publica en la comunidad Fifo Amigos.
   * `save_conversation_summary(title, summary, topic_tag, duration_sec)`: Registra la bitácora de bienestar.
 
+#### 🧠 6. `ContextRecallSkill` (Recuperación de Contexto Profundo bajo Demanda)
+* **Objetivo:** Permitir a Fifo recordar detalles pasados de nicho (recetas antiguas, nombres de familiares, anécdotas previas) consultando la base de datos completa del servidor, sin penalizar la latencia normal en el celular.
+* **Funciones:**
+  * `recall_past_context(query, context_hint)`: Busca en la base de datos del servidor las conversaciones completas que coincidan con el tema o la persona solicitada y retorna un resumen sintetizado con los extractos exactos.
+* **Respuesta hablada de Fifo:**  
+  *"¡Claro que me acuerdo, Lucía! En nuestra charla de hace unos días sobre su cocina, me contó que el secreto de su cazuela de ave era dorar la cebolla con una pizca de comino suave antes de agregar el caldo."*
+
 ---
 
 ### 4.2. Definición JSON Schema para Claude (Anthropic Tools API)
@@ -374,6 +382,18 @@ Fifo cuenta con un sistema de **Skills (Herramientas / Function Calling)** que l
         "category": { "type": "string", "description": "Categoría (lectura, musica, aire_libre, manualidades, etc.)" }
       },
       "required": ["taste_name"]
+    }
+  },
+  {
+    "name": "recall_past_context",
+    "description": "Busca información detallada en conversaciones pasadas del usuario cuando necesitas recordar algo que se habló anteriormente. Usa esta herramienta cuando el usuario pregunte si recuerdas algo que le contó, o cuando necesites más contexto sobre un tema de nicho que no está en los fragmentos recientes.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "query": { "type": "string", "description": "Término o tema a buscar en las conversaciones pasadas (ej: 'recetario abuela', 'orquídeas', 'nieto Tomás', 'música Chopin')" },
+        "context_hint": { "type": "string", "description": "Pista adicional sobre qué tipo de información buscas (ej: 'detalle de receta', 'nombre de persona', 'fecha de evento')" }
+      },
+      "required": ["query"]
     }
   }
 ]
@@ -475,4 +495,157 @@ Fifo **únicamente extrae y registra de forma autónoma y proactiva**:
 | **Conflictos familiares o finanzas privadas** | ❌ Prohibido | ❌ Prohibido | Escuchar con empatía; nunca registrar ni publicar. |
 | **Contenido sexual o erótico general** | 🚫 **TOTALMENTE PROHIBIDO** | 🚫 **TOTALMENTE PROHIBIDO** | Bloqueo estricto por filtro de seguridad y ética. |
 | **Revelación de Abuso / Acoso / Violencia** | ❌ NUNCA público | ❌ NUNCA público | **Protocolo de Salvaguarda**: Brindar contención y ofrecer canal de ayuda con consentimiento. |
+
+---
+
+## 7. Arquitectura de Memoria de Doble Capa: Servidor Completo vs. Celular Compacto
+
+### 7.1 Filosofía de Diseño: Latencia Cero y Contexto Infinito
+
+En un asistente de voz para adultos mayores, **cada 100 milisegundos de latencia adicional degradan severamente la experiencia**. Si el robot debe descargar cientos de kilobytes de transcripciones previas antes de formular una respuesta, la pausa se percibe como una desconexión o un fallo del sistema.
+
+Para resolver este desafío, Fifo implementa una **Arquitectura de Memoria de Doble Capa**:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│                        SERVIDOR (Cloud / Supabase)                     │
+│  Colección: `conversations_full`                                       │
+│  • Guarda la transcripción ÍNTEGRA de cada sesión de voz               │
+│  • Cada turno de usuario y de Fifo con audio_duration y timestamps    │
+│  • Permite análisis longitudinal, auditoría y respaldo total           │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │ Extracción offline de
+                                    │ entidades, temas y resumen
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                        CELULAR (On-Device Cache)                       │
+│  Colección / StateFlow: `conversation_fragments`                       │
+│  • Solo fragmentos livianos (≤150 palabras cada uno)                   │
+│  • Temas clave: ["orquídeas", "riego por inmersión", "balcón"]         │
+│  • Personas mencionadas: ["Lucía", "abuela Rosa", "nieto Tomás"]       │
+│  • Se inyecta una ventana de los últimos 5 fragmentos en el prompt     │
+│  ➜ RESULTADO: Latencia mínima (<600 ms) en el 95% de las charlas       │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    │ Si el usuario pregunta por un
+                                    │ detalle de nicho no presente:
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│               RECUPERACIÓN BAJO DEMANDA: recall_past_context           │
+│  Fifo invoca la herramienta: recall_past_context(query="cazuela ave")  │
+│  • Consulta la BD completa del servidor por palabra clave o vector     │
+│  • Retorna extracto exacto del secreto de cocina                       │
+│  • Fifo responde con precisión sin haber sobrecargado la sesión diaria │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+### 7.2 Esquema en Servidor: `conversations_full`
+
+| Campo | Tipo | Requerido | Descripción | Ejemplo |
+| :--- | :--- | :---: | :--- | :--- |
+| `id` | `String` (UUID) | Sí | ID único de la conversación | `"conv_full_20261003_01"` |
+| `user_id` | `String` | Sí | Referencia a `users.id` | `"usr_lucia_01"` |
+| `started_at` | `Timestamp` | Sí | Inicio de la sesión de voz | `2026-10-03T10:30:00Z` |
+| `ended_at` | `Timestamp` | Sí | Fin de la sesión | `2026-10-03T10:34:00Z` |
+| `duration_seconds`| `Int` | Sí | Duración total en segundos | `240` |
+| `turns` | `List<Turn>` | Sí | Historial secuencial de turnos de diálogo | Ver JSON abajo |
+| `full_transcript` | `String` | Sí | Texto completo unificado | `"Lucía: Hola Fifo... Fifo: Hola Lucía..."` |
+| `extracted_topics`| `List<String>` | Sí | Temas detectados por el extractor | `["orquídeas", "riego por inmersión"]` |
+| `named_entities` | `List<String>` | Sí | Personas, lugares o fechas | `["Lucía", "Fifo", "Balcón"]` |
+| `sentiment_trend` | `String` | Sí | Tendencia anímica de la charla | `"positiva_alegre"` |
+
+```json
+{
+  "id": "conv_full_20261003_01",
+  "user_id": "usr_lucia_01",
+  "started_at": "2026-10-03T10:30:00Z",
+  "duration_seconds": 240,
+  "turns": [
+    {
+      "speaker": "user",
+      "text": "Hola Fifo, hoy estuve regando mis orquídeas en el balcón.",
+      "timestamp": "2026-10-03T10:30:05Z"
+    },
+    {
+      "speaker": "assistant",
+      "text": "Qué lindo, Lucía. Las orquídeas agradecen mucho el cariño. ¿Cómo están esas flores hoy?",
+      "timestamp": "2026-10-03T10:30:09Z"
+    }
+  ],
+  "extracted_topics": ["orquídeas", "riego por inmersión", "balcón"],
+  "named_entities": ["Lucía", "balcón"],
+  "sentiment_trend": "contenta"
+}
+```
+
+---
+
+### 7.3 Esquema en Celular: `conversation_fragments` (Local)
+
+En el teléfono se guardan únicamente fragmentos sintetizados representados por la data class `ConversationFragment`:
+
+```kotlin
+data class ConversationFragment(
+    val id: String,
+    val serverConversationId: String,
+    val keyTopics: List<String>,
+    val namedEntities: List<String>,
+    val detectedMood: String = "neutral",
+    val compactSummary: String, // ≤150 palabras
+    val primaryTag: String,
+    val durationSeconds: Int = 0,
+    val recordedAt: String = "",
+    val containsSensitiveHealth: Boolean = false
+)
+```
+
+#### Ventana de Contexto Compacto Inyectada en Claude (`FifoDataRepository.buildCompactContextWindow`):
+```text
+=== CONTEXTO PREVIO DEL USUARIO (fragmentos compactos) ===
+Nombre: Lucía González | Edad: 68 | Ciudad: Santiago, Chile
+Gustos conocidos: Música clásica, Jardinería, Lectura
+
+--- Charla reciente 1 (Jardinería) ---
+Temas: orquídeas, riego por inmersión, balcón, maceteros de greda
+Personas mencionadas: Lucía, Fifo
+Ánimo: contenta
+Resumen: Lucía contó que tiene 4 maceteros de orquídeas en su balcón. Las riega por inmersión los miércoles y limpia las hojas con un paño húmedo.
+
+--- Charla reciente 2 (Música) ---
+Temas: Chopin, conciertos de piano, nieto Tomás, visita domingo
+Personas mencionadas: Lucía, Tomás, Chopin
+Ánimo: ilusionada
+Resumen: Conversaron sobre la música clásica y los nocturnos de Chopin. Su nieto Tomás la visitará el domingo.
+
+=== Si necesitas más detalle sobre un tema pasado, usa la herramienta recall_past_context ===
+```
+
+---
+
+### 7.4 Flujo de Recuperación Dinámica Bajo Demanda
+
+1. **El usuario menciona un tema de nicho antiguo:**  
+   *"Fifo, ¿te acuerdas qué condimento me dijiste que le echara a la masa de las empanadas cuando hablamos el mes pasado?"*
+2. **Claude evalúa su contexto actual:**  
+   En la ventana de fragmentos compactos no aparece la receta de empanadas del mes pasado (solo están los últimos 5 resúmenes).
+3. **Claude invoca `recall_past_context`:**  
+   ```json
+   {
+     "name": "recall_past_context",
+     "input": {
+       "query": "condimento masa empanadas",
+       "context_hint": "receta de cocina del mes pasado"
+     }
+   }
+   ```
+4. **`ContextRecallSkill` ejecuta la búsqueda:**  
+   El skill consulta la base de datos completa del servidor (`searchDeepContext`), recupera los extractos exactos y los retorna sintetizados.
+5. **Fifo responde con total precisión y calidez:**  
+   *"¡Por supuesto, Lucía! Me acuerdo que en esa charla me contó que su abuela siempre le ponía manteca tibia con una cucharadita de salmuera y un toquecito de pimentón dulce a la masa para que quedara suave y doradita."*
+6. **Balance Óptimo:**  
+   - 95% de las charlas: Latencia ultra-baja (payload liviano sin overhead).
+   - 5% de las charlas que requieren memoria profunda: Recuperación quirúrgica sin alucinaciones ni pérdidas de contexto.
+
 

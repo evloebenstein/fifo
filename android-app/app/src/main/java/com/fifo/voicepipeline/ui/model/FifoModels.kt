@@ -93,3 +93,62 @@ data class FifoReminderItem(
     val isCompleted: Boolean = false,
     val createdAt: String = "Hoy"
 )
+
+// ═════════════════════════════════════════════════════════════════════
+//  MEMORIA DE DOBLE CAPA: Fragmentos Livianos (on-device) vs.
+//  Transcripción Completa (server-side)
+// ═════════════════════════════════════════════════════════════════════
+
+/**
+ * Fragmento compacto de una conversación pasada, almacenado LOCALMENTE en el celular.
+ *
+ * Diseño de doble capa:
+ * - En el SERVIDOR (Firestore / Supabase) se guarda la conversación COMPLETA
+ *   con cada turno de voz transcrito, todos los detalles y el contexto íntegro.
+ * - En el CELULAR solo se guardan estos fragmentos livianos:
+ *   temas clave, entidades mencionadas y un resumen compacto de ≤150 palabras.
+ *
+ * Beneficios:
+ * 1. Latencia mínima: Fifo tiene contexto inmediato sin descargar conversaciones enteras.
+ * 2. Si necesita más detalle → usa `recall_past_context` skill para buscar en el server.
+ * 3. Privacidad: los datos sensibles completos solo viven en el servidor cifrado,
+ *    no en caché local.
+ */
+data class ConversationFragment(
+    val id: String,
+    /** ID de la conversación completa almacenada en el servidor */
+    val serverConversationId: String,
+    /** Temas clave extraídos (ej: "orquídeas", "cumpleaños de Tomás", "pastillas presión") */
+    val keyTopics: List<String>,
+    /** Entidades nombradas (personas, lugares, objetos relevantes) */
+    val namedEntities: List<String>,
+    /** Estado anímico detectado en la conversación ("contenta", "pensativa", "preocupada") */
+    val detectedMood: String = "neutral",
+    /** Resumen compacto de la charla (≤150 palabras, suficiente para dar contexto) */
+    val compactSummary: String,
+    /** Etiqueta temática principal */
+    val primaryTag: String,
+    /** Duración de la conversación original en segundos */
+    val durationSeconds: Int = 0,
+    /** Timestamp ISO de la conversación */
+    val recordedAt: String = "",
+    /** Si algún fragmento contenía información sensible de salud (confirmada con consentimiento) */
+    val containsSensitiveHealth: Boolean = false
+)
+
+/**
+ * Resultado de una búsqueda de contexto profundo en el servidor.
+ * Cuando Fifo necesita más detalle sobre un tema de nicho o un dato pasado,
+ * usa el skill `recall_past_context` que retorna esto.
+ */
+data class DeepContextResult(
+    /** Fragmentos del servidor que coincidieron con la consulta */
+    val relevantExcerpts: List<String>,
+    /** Entidades encontradas en las conversaciones buscadas */
+    val foundEntities: List<String>,
+    /** Resumen sintetizado del contexto profundo recuperado */
+    val synthesizedContext: String,
+    /** Cuántas conversaciones completas se analizaron en el servidor */
+    val conversationsSearched: Int = 0
+)
+

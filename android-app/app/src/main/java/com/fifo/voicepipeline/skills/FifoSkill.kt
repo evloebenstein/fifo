@@ -10,7 +10,9 @@ package com.fifo.voicepipeline.skills
 data class SkillResult(
     val success: Boolean,
     val spokenFeedback: String,
-    val data: Map<String, Any?> = emptyMap()
+    val data: Map<String, Any?> = emptyMap(),
+    /** Datos adicionales de contexto para que Claude use en su respuesta (ej: extractos de conversaciones pasadas) */
+    val additionalData: Map<String, Any?> = emptyMap()
 )
 
 /**
