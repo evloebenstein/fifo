@@ -159,6 +159,9 @@ Historias detalladas y artículos de blog que Fifo redacta automáticamente sobr
 | `description` | `String` | Sí | Relato o reflexión generada por Fifo | `"Para Lucía el mes de mayo siempre trae recuerdos cálidos de reuniones familiares..."` |
 | `tags` | `List<String>` | Sí | Etiquetas temáticas | `["Familia", "Mayo", "Tradiciones"]` |
 | `icon_category` | `String` | Sí | Categoría visual para icono | `"cake"` / `"music"` / `"book"` / `"leaf"` |
+| `is_sensitive` | `Boolean` | Sí | Si contiene salud/familia delicada | `false` (por defecto solo positivo) |
+| `explicit_consent` | `Boolean` | Sí | Consentimiento explícito si es sensible | `false` |
+| `privacy_level` | `String` | Sí | Visibilidad (`"public_profile"`, `"private"`) | `"public_profile"` |
 | `learned_from` | `String` | Sí | Contexto de origen | `"Charla sobre cumpleaños y juventud"` |
 | `created_at` | `Timestamp` | Sí | Fecha de creación | `2026-10-03T19:00:00Z` |
 
@@ -173,8 +176,10 @@ Publicaciones que el usuario comparte con otros amigos mayores en la comunidad F
 | `user_id` | `String` | Sí | Referencia a `users.id` | `"usr_lucia_01"` |
 | `author_name` | `String` | Sí | Nombre para mostrar | `"Lucía"` |
 | `author_age` | `Int` | Sí | Edad del autor | `68` |
-| `category` | `String` | Sí | Categoría (`"Jardinería"`, `"Música"`, `"Lectura"`) | `"Jardinería"` |
+| `category` | `String` | Sí | Categoría (`"Jardinería"`, `"Música"`, `"Bienestar"`) | `"Jardinería"` |
 | `content` | `String` | Sí | Contenido del post | `"Hoy mis orquídeas dieron su primera flor blanca..."` |
+| `is_sensitive` | `Boolean` | Sí | Si aborda temas de salud o familia delicada | `false` |
+| `explicit_consent` | `Boolean` | Sí | Consentimiento informado otorgado por voz | `true` (obligatorio si `is_sensitive=true`) |
 | `likes_count` | `Int` | Sí | Número de apoyos recibidos | `12` |
 | `comments_count`| `Int` | Sí | Número de comentarios | `3` |
 | `accent_color_hex`| `Long` | Sí | Color estético de la tarjeta | `0xFF10B981` |
@@ -418,11 +423,56 @@ Esto emite de inmediato el nuevo valor en el `StateFlow`, lo que provoca que `Pr
 
 ## 6. Reglas de Privacidad y Manejo de Información Sensible
 
-Para proteger la integridad y dignidad del adulto mayor:
-1. **Exclusión de diagnósticos clínicos en historias públicas:**  
-   Fifo nunca incluirá enfermedades, medicamentos específicos ni datos médicos privados en las historias de `taste_stories` ni en las publicaciones de `social_posts`. Solo registrará intereses, pasatiempos, recuerdos afectivos y anécdotas positivas.
-2. **Confirmación de llamadas y mensajes:**  
-   Antes de disparar una llamada o enviar un SMS a un familiar, Fifo confirmará verbalmente:  
-   *"¿Desea que llame a su hija Carmen ahora mismo?"*
-3. **Control de datos por la familia o tutor:**  
-   La familia puede consultar la app para conocer el estado de ánimo y gustos del usuario, fomentando temas de conversación reales y cercanía familiar.
+Para proteger la integridad, intimidad, dignidad y seguridad física/emocional del adulto mayor, Fifo implementa una política estricta de protección de datos personales y sensibles:
+
+### 6.1 Política de Registro Positivo por Defecto
+Fifo **únicamente extrae y registra de forma autónoma y proactiva**:
+1. **Intereses y pasatiempos**: Actividades recreativas, gustos artísticos, música, cocina, tejido, jardinería, lectura, manualidades o caminatas.
+2. **Recuerdos afectivos y biográficos**: Momentos entrañables de vida familiar, anécdotas con nietos, viajes del pasado, recetas de la abuela o mascotas queridas.
+3. **Anécdotas positivas de superación o alegría cotidiana**: Pequeños logros del día a día, flores que abrieron en el jardín o encuentros amables con vecinos.
+
+> **Regla de Oro:** Todo contenido que escape a estas tres categorías queda fuera del perfil público, de las historias (`taste_stories`) y del muro comunitario (`social_posts`).
+
+---
+
+### 6.2 Manejo de Información Sensible (Salud, Familia Íntima, Finanzas)
+* **Principio de Confidencialidad:** Si el adulto mayor comparte temas médicos (cirugías, dolores, diagnósticos de enfermedades, tratamientos farmacológicos), situaciones familiares complejas o preocupaciones financieras, Fifo brinda contención y escucha empática con calidez, pero **NUNCA los registra como gustos, ni los convierte en historias de perfil ni en publicaciones sociales**.
+* **Requisito Obligatorio de Consentimiento Claro e Inequívoco:**
+  * Si el usuario manifiesta explícitamente su deseo de compartir algo catalogado como sensible (por ejemplo: *"Fifo, quiero contarle a mis amigos en la app que me dieron el alta médica del hospital y me siento con mucho ánimo"*):
+    1. Fifo **NO lo publica de inmediato**.
+    2. Fifo solicita confirmación verbal previa e informada:  
+       *"Entiendo perfectamente. ¿Está completamente seguro de que desea compartir esta información de salud en el muro de Fifo Amigos para que otros miembros puedan leerlo, o prefiere que lo dejemos solo en nuestra conversación privada?"*
+    3. Si el usuario confirma con un *"Sí, deseo publicarlo"*, Fifo efectúa la publicación marcando los campos `is_sensitive = true` y `explicit_consent = true`.
+    4. Si el usuario duda o rechaza, la información no se publica y permanece únicamente en la memoria efímera de la sesión.
+
+---
+
+### 6.3 Prohibición Total de Contenido Sexual y Protocolo de Salvaguarda ante Abuso
+
+#### 1. Prohibición Absoluta de Connotación Sexual General
+* Queda **TOTALMENTE PROHIBIDO** el registro, almacenamiento o publicación de contenidos, historias, gustos o comentarios con connotación sexual, erótica o de adultos en perfiles, bases de datos o muros comunitarios.
+* Cualquier intento de inferencia o publicación de esta naturaleza es filtrado y bloqueado tanto en la capa del LLM (System Prompt) como en los validadores de software locales (`ProfileDatabaseSkill`).
+
+#### 2. Excepción Crítica: Protocolo de Salvaguarda ante Abuso, Violencia o Acoso
+* **Caso Especial**: Si el usuario menciona una vivencia o situación de índole sexual en el contexto de **abuso sexual, acoso, vulneración de derechos o violencia contra la persona mayor**:
+  * **NUNCA se publica en el muro social ni en historias públicas** (tolerancia cero a la revictimización o exposición pública).
+  * **NUNCA se registra como pasatiempo ni interés**.
+  * **Protocolo de Protección y Apoyo con Consentimiento del Usuario:**
+    1. Fifo responde con máxima empatía, serenidad, contención emocional y respeto absoluto.
+    2. Fifo ofrece de forma prudente activar ayuda o contactar a su persona de máxima confianza (familiar tutor / hija) o a un canal oficial especializado de asistencia a personas mayores (ej. SENAMA Fono Mayor 800 400 035 en Chile, SAMU 131 o canal de apoyo a víctimas):  
+       *"Lamento profundamente lo que me está contando y su bienestar y seguridad son lo más importante para mí. Quiero que se sienta en un lugar protegido. ¿Me autoriza a contactar a su hija Carmen o a comunicarnos con un servicio de ayuda confidencial para apoyarle?"*
+    3. Solo con el **consentimiento claro y voluntario** de la persona, Fifo facilita el contacto telefónico de emergencia mediante `PhoneCommunicationSkill`.
+
+---
+
+### 6.4 Matriz de Permisos de Almacenamiento y Publicación
+
+| Categoría de Información | Registro en Perfil (`tastes` / `stories`) | Publicación Comunitaria (`social_posts`) | Acción Requerida de Fifo |
+| :--- | :---: | :---: | :--- |
+| **Intereses y pasatiempos** (jardinería, tango) |  Automático |  Bajo solicitud | Registrar directamente y dar retroalimentación cariñosa. |
+| **Recuerdos afectivos y anécdotas positivas** |  Automático |  Bajo solicitud | Registrar en historias del perfil (`taste_stories`). |
+| **Salud, diagnósticos o medicamentos** | ❌ Excluido por defecto | ⚠️ Requiere Consentimiento Expreso | Preguntar: *"¿Desea compartir esto o mantenerlo privado?"* |
+| **Conflictos familiares o finanzas privadas** | ❌ Prohibido | ❌ Prohibido | Escuchar con empatía; nunca registrar ni publicar. |
+| **Contenido sexual o erótico general** | 🚫 **TOTALMENTE PROHIBIDO** | 🚫 **TOTALMENTE PROHIBIDO** | Bloqueo estricto por filtro de seguridad y ética. |
+| **Revelación de Abuso / Acoso / Violencia** | ❌ NUNCA público | ❌ NUNCA público | **Protocolo de Salvaguarda**: Brindar contención y ofrecer canal de ayuda con consentimiento. |
+

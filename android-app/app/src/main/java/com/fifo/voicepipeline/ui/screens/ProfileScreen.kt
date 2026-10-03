@@ -1461,13 +1461,13 @@ fun ProfileScreen(
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Gustos curados por Fifo (Sin datos sensibles)",
+                                        text = "Privacidad Protegida: Registro Positivo",
                                         fontSize = 13.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF15803D)
                                     )
                                     Text(
-                                        text = "Fifo resume tus pasatiempos favoritos de tus charlas habituales para tu perfil. La información médica o privada nunca se incluye aquí.",
+                                        text = "Fifo solo registra tus pasatiempos, intereses y recuerdos positivos. Todo dato sensible de salud requiere tu consentimiento explícito y jamás se publican contenidos inapropiados.",
                                         fontSize = 11.sp,
                                         color = Color(0xFF166534),
                                         lineHeight = 15.sp

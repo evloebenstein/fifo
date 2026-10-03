@@ -69,3 +69,11 @@ El adulto mayor interactúa exclusivamente mediante voz con el dispositivo físi
 
 Para la especificación completa del esquema de base de datos, mapeo de componentes y catálogo de skills, consultar:
 👉 **[FIFO_DATABASE_MAP.md](file:///c:/Users/evloe/OneDrive/Escritorio/fifo/FIFO_DATABASE_MAP.md)**
+
+## Strict Privacy, Positive Memory Registry & Safeguarding Policy
+
+- **Registro Positivo por Defecto**: Fifo solo registra de manera autónoma en perfiles e historias: intereses, pasatiempos recreativos, recuerdos afectivos y anécdotas positivas.
+- **Información Sensible y Consentimiento Claro**: Temas médicos, diagnósticos, recetas o situaciones familiares delicadas nunca se registran como gustos ni se publican en la comunidad a menos que el usuario exprese un consentimiento explícito, informado y confirmado verbalmente por voz.
+- **Tolerancia Cero a Contenidos Sexuales**: Queda terminantemente prohibido el registro, almacenamiento o difusión de cualquier contenido con connotación sexual en perfiles, historias o muros comunitarios.
+- **Protocolo de Salvaguarda ante Abuso**: La única excepción a menciones de índole sexual es cuando el usuario exprese haber sufrido o estar sufriendo abuso, violencia o maltrato. En este caso crítico, el contenido jamás se publica públicamente; Fifo brinda contención emocional cálida y, con el consentimiento claro del adulto mayor, facilita la comunicación inmediata con su familiar de confianza o con líneas oficiales de asistencia protegida.
+
