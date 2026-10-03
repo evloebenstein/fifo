@@ -27,33 +27,15 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.fifo.voicepipeline.ui.components.FifoFace
 import com.fifo.voicepipeline.ui.theme.FifoColors
+import com.fifo.voicepipeline.ui.model.UserSocialPost
+import com.fifo.voicepipeline.ui.model.FifoTasteStory
 import kotlinx.coroutines.launch
 
 /** Pestañas de contenido estilo Instagram en el perfil */
 private enum class ProfileTab {
-    CONVERSATIONS,
-    MEMORIES
+    POSTS,
+    TASTES
 }
-
-/** Modelo de un recuerdo que Fifo aprendió de las conversaciones */
-data class FifoMemoryItem(
-    val id: String,
-    val emoji: String,
-    val title: String,
-    val detail: String,
-    val learnedDate: String
-)
-
-/** Modelo de una conversación pasada con Fifo */
-data class PastConversationItem(
-    val id: String,
-    val title: String,
-    val date: String,
-    val duration: String,
-    val summary: String,
-    val tag: String,
-    val icon: ImageVector
-)
 
 /**
  * Pantalla de Perfil estilo Instagram para "Tu Amigo Fifo":
@@ -84,7 +66,9 @@ fun ProfileScreen(
 ) {
     var isSettingsOpen by remember { mutableStateOf(false) }
     var isEditProfileOpen by remember { mutableStateOf(false) }
-    var isAddMemoryOpen by remember { mutableStateOf(false) }
+    var isCreatePostOpen by remember { mutableStateOf(false) }
+    var postToDelete by remember { mutableStateOf<UserSocialPost?>(null) }
+    var tasteToDelete by remember { mutableStateOf<FifoTasteStory?>(null) }
 
     // Datos del perfil
     var name by remember { mutableStateOf(currentName.ifBlank { "Lucía" }) }
@@ -106,90 +90,99 @@ fun ProfileScreen(
         )
     }
 
-    // Pestaña activa en el perfil (Conversaciones vs Recuerdos)
-    var selectedTab by remember { mutableStateOf(ProfileTab.CONVERSATIONS) }
+    // Pestaña activa en el perfil (Mis Publicaciones vs Gustos en Detalle)
+    var selectedTab by remember { mutableStateOf(ProfileTab.POSTS) }
 
-    // Lista de recuerdos aprendidos por Fifo
-    var memories by remember {
+    // Publicaciones realizadas por la usuaria (se ven en su perfil y en Fifo Amigos)
+    var userPosts by remember {
         mutableStateOf(
             listOf(
-                FifoMemoryItem(
-                    id = "1",
-                    emoji = "🎂",
-                    title = "Cumpleaños de tu nieto Mateo",
-                    detail = "Tu nieto Mateo cumple años en mayo y le encantan los libros sobre planetas y astronomía.",
-                    learnedDate = "Aprendido hace 3 días"
+                UserSocialPost(
+                    id = "p1",
+                    author = "Lucía",
+                    age = 68,
+                    category = "Lectura & Naturaleza",
+                    timeAgo = "Hace 2 horas",
+                    content = "Acabo de terminar una novela maravillosa de Elena Ferrante en el banco del parque bajo los árboles. Me encantaría encontrar a alguien para comentarla con calma y luego dar un paseo.",
+                    likes = 18,
+                    commentsCount = 6,
+                    accentColorHex = 0xFF38BDF8
                 ),
-                FifoMemoryItem(
-                    id = "2",
-                    emoji = "☕",
-                    title = "Té de manzanilla antes de dormir",
-                    detail = "Prefieres tomar infusión de manzanilla tibia antes de acostarte para descansar plácidamente.",
-                    learnedDate = "Aprendido hace 5 días"
+                UserSocialPost(
+                    id = "p2",
+                    author = "Lucía",
+                    age = 68,
+                    category = "Jardinería & Balcón",
+                    timeAgo = "Ayer",
+                    content = "¡Mis orquídeas blancas del balcón florecieron esta mañana! Les puse un poquito de agua tibia filtrada como me aconsejó Fifo y están hermosas. ¿Alguien más tiene plantas en su terraza?",
+                    likes = 24,
+                    commentsCount = 8,
+                    accentColorHex = 0xFFF472B6
                 ),
-                FifoMemoryItem(
-                    id = "3",
-                    emoji = "🎹",
-                    title = "Música de Chopin para relajarse",
-                    detail = "Te calma escuchar los nocturnos de piano de Frédéric Chopin por la tarde.",
-                    learnedDate = "Aprendido hace 1 semana"
-                ),
-                FifoMemoryItem(
-                    id = "4",
-                    emoji = "🌸",
-                    title = "Cuidado de las orquídeas",
-                    detail = "Riegas y ventilas tus orquídeas del balcón los martes por la mañana.",
-                    learnedDate = "Aprendido hace 2 semanas"
-                ),
-                FifoMemoryItem(
-                    id = "5",
-                    emoji = "🚶‍♀️",
-                    title = "Caminatas cuando no hay viento",
-                    detail = "Sales a caminar al parque cuando el sol está tibio y no hay viento frío.",
-                    learnedDate = "Aprendido hace 2 semanas"
+                UserSocialPost(
+                    id = "p3",
+                    author = "Lucía",
+                    age = 68,
+                    category = "Cocina tradicional",
+                    timeAgo = "Hace 3 días",
+                    content = "Hoy preparé la tarta de manzana casera de mi abuela Elena, con canela y nueces crujientes. Toda la casa huele a merienda de domingo. ¡Ojalá pudiera compartir un trozo con ustedes!",
+                    likes = 31,
+                    commentsCount = 12,
+                    accentColorHex = 0xFFFBBF24
                 )
             )
         )
     }
 
-    // Lista de conversaciones pasadas
-    val pastConversations = remember {
-        listOf(
-            PastConversationItem(
-                id = "c1",
-                title = "Receta familiar y tarta de manzana",
-                date = "Hoy · 10:30 hrs",
-                duration = "4 minutos con Fifo",
-                summary = "Fifo te ayudó a recordar la receta de tu abuela Elena para la tarta de manzana con canela y nueces. Guardó tu preferencia de usar manzanas verdes.",
-                tag = "Cocina y familia",
-                icon = Icons.Outlined.Restaurant
-            ),
-            PastConversationItem(
-                id = "c2",
-                title = "Caminata matutina y música clásica",
-                date = "Ayer · 16:45 hrs",
-                duration = "6 minutos con Fifo",
-                summary = "Charlaron sobre cómo estuvo el día en el parque y escucharon una melodía suave de piano de Chopin para relajarse juntos.",
-                tag = "Bienestar y música",
-                icon = Icons.Outlined.MusicNote
-            ),
-            PastConversationItem(
-                id = "c3",
-                title = "Planes para el cumpleaños de Mateo",
-                date = "Martes · 11:15 hrs",
-                duration = "5 minutos con Fifo",
-                summary = "Comentaste ideas de regalo para tu nieto en mayo y Fifo sugirió escribirle una carta con una anécdota especial de la familia.",
-                tag = "Afectos",
-                icon = Icons.Outlined.FavoriteBorder
-            ),
-            PastConversationItem(
-                id = "c4",
-                title = "Respiración y descanso nocturno",
-                date = "Domingo · 20:00 hrs",
-                duration = "3 minutos con Fifo",
-                summary = "Fifo te acompañó con su ejercicio de respiración guiada de 2 minutos para descansar con la mente tranquila.",
-                tag = "Relajación",
-                icon = Icons.Outlined.Air
+    // Historias y gustos en detalle curados por Fifo a partir de las charlas cotidianas (sin datos sensibles)
+    var tasteStories by remember {
+        mutableStateOf(
+            listOf(
+                FifoTasteStory(
+                    id = "t1",
+                    title = "Nocturnos de Frédéric Chopin",
+                    subtitle = "Pasión por el piano y las melodías clásicas",
+                    description = "En nuestras conversaciones de media tarde descubrimos tu amor por las sonatas y nocturnos de piano. Te evocan momentos de paz de tu juventud y te acompañan con serenidad mientras disfrutas de una taza de té.",
+                    tags = listOf("#MúsicaClásica", "#PianoChopin", "#TardeDeTé", "#Serenidad"),
+                    iconCategory = "music",
+                    learnedFrom = "Extraído de 3 charlas cotidianas · Sin datos sensibles"
+                ),
+                FifoTasteStory(
+                    id = "t2",
+                    title = "Cuidado de orquídeas en balcón",
+                    subtitle = "Paciencia y amor por las flores vivas",
+                    description = "Fifo aprendió que cada martes dedicas tiempo a regar y ventilar tus orquídeas. Disfrutas ver crecer cada botón nuevo y prefieres la luz matutina indirecta para mantener sus hojas brillantes.",
+                    tags = listOf("#Jardinería", "#Orquídeas", "#VidaVerde", "#Balcón"),
+                    iconCategory = "gardening",
+                    learnedFrom = "Extraído de 2 charlas cotidianas · Sin datos sensibles"
+                ),
+                FifoTasteStory(
+                    id = "t3",
+                    title = "Tarta de manzana de la abuela Elena",
+                    subtitle = "Repostería con memoria y tradición familiar",
+                    description = "Un recuerdo entrañable de tu infancia: cocinar recetas tradicionales con canela fresca y manzanas verdes. Compartiste con Fifo cómo este aroma despierta historias de reuniones familiares de los domingos.",
+                    tags = listOf("#CocinaCasera", "#RecetasFamiliares", "#TartaManzana", "#Tradición"),
+                    iconCategory = "cooking",
+                    learnedFrom = "Extraído de 4 charlas cotidianas · Sin datos sensibles"
+                ),
+                FifoTasteStory(
+                    id = "t4",
+                    title = "Novelas históricas y biografías",
+                    subtitle = "El placer de viajar a otras épocas",
+                    description = "Prefieres sumergirte en libros que narran vidas extraordinarias y épocas pasadas con detalle. Disfrutas leer un capítulo al aire libre en el parque los fines de semana soleados.",
+                    tags = listOf("#Lectura", "#Historia", "#Novelas", "#TiempoLibre"),
+                    iconCategory = "book",
+                    learnedFrom = "Extraído de 3 charlas cotidianas · Sin datos sensibles"
+                ),
+                FifoTasteStory(
+                    id = "t5",
+                    title = "Caminatas bajo el sol templado",
+                    subtitle = "Bienestar, aire puro y paso tranquilo",
+                    description = "Nos contaste que caminar a media mañana por el sendero arbolado te llena de energía positiva. Prefieres días despejados sin viento frío para respirar profundo y despejar la mente.",
+                    tags = listOf("#Caminatas", "#Parque", "#Bienestar", "#AireLibre"),
+                    iconCategory = "walk",
+                    learnedFrom = "Extraído de 2 charlas cotidianas · Sin datos sensibles"
+                )
             )
         )
     }
@@ -765,13 +758,13 @@ fun ProfileScreen(
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = "${pastConversations.size}",
+                                    text = "${userPosts.size}",
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = FifoColors.NavyPrimary
                                 )
                                 Text(
-                                    text = "Charlas",
+                                    text = "Publicaciones",
                                     fontSize = 12.sp,
                                     color = FifoColors.LightTextSecondary
                                 )
@@ -793,13 +786,13 @@ fun ProfileScreen(
 
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = "${memories.size}",
+                                    text = "${tasteStories.size}",
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = FifoColors.NavyPrimary
                                 )
                                 Text(
-                                    text = "Recuerdos",
+                                    text = "Gustos",
                                     fontSize = 12.sp,
                                     color = FifoColors.LightTextSecondary
                                 )
@@ -1036,7 +1029,7 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // ── 5. PESTAÑAS ESTILO INSTAGRAM (Conversaciones vs Recuerdos) ───
+            // ── 5. PESTAÑAS ESTILO INSTAGRAM (Mis Publicaciones vs Gustos en Detalle) ───
             Surface(
                 color = Color.White,
                 shape = RoundedCornerShape(20.dp),
@@ -1044,32 +1037,32 @@ fun ProfileScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Row(modifier = Modifier.fillMaxWidth()) {
-                    // Pestaña Charlas Pasadas
-                    val isConvSel = selectedTab == ProfileTab.CONVERSATIONS
+                    // Pestaña Mis Publicaciones
+                    val isPostsSel = selectedTab == ProfileTab.POSTS
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clickable { selectedTab = ProfileTab.CONVERSATIONS }
+                            .clickable { selectedTab = ProfileTab.POSTS }
                             .padding(vertical = 14.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    imageVector = Icons.Default.DateRange,
+                                    imageVector = Icons.Default.GridOn,
                                     contentDescription = null,
-                                    tint = if (isConvSel) FifoColors.NavyPrimary else FifoColors.LightTextMuted,
+                                    tint = if (isPostsSel) FifoColors.NavyPrimary else FifoColors.LightTextMuted,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Charlas (${pastConversations.size})",
-                                    fontSize = 14.sp,
-                                    fontWeight = if (isConvSel) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isConvSel) FifoColors.NavyPrimary else FifoColors.LightTextSecondary
+                                    text = "Mis publicaciones (${userPosts.size})",
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isPostsSel) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isPostsSel) FifoColors.NavyPrimary else FifoColors.LightTextSecondary
                                 )
                             }
-                            if (isConvSel) {
+                            if (isPostsSel) {
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Box(
                                     modifier = Modifier
@@ -1081,32 +1074,32 @@ fun ProfileScreen(
                         }
                     }
 
-                    // Pestaña Recuerdos de Fifo
-                    val isMemSel = selectedTab == ProfileTab.MEMORIES
+                    // Pestaña Gustos en Detalle
+                    val isTastesSel = selectedTab == ProfileTab.TASTES
                     Box(
                         modifier = Modifier
                             .weight(1f)
-                            .clickable { selectedTab = ProfileTab.MEMORIES }
+                            .clickable { selectedTab = ProfileTab.TASTES }
                             .padding(vertical = 14.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Icon(
-                                    imageVector = Icons.Default.Star,
+                                    imageVector = Icons.Default.AutoAwesome,
                                     contentDescription = null,
-                                    tint = if (isMemSel) FifoColors.NavyPrimary else FifoColors.LightTextMuted,
+                                    tint = if (isTastesSel) FifoColors.NavyPrimary else FifoColors.LightTextMuted,
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = "Recuerdos (${memories.size})",
-                                    fontSize = 14.sp,
-                                    fontWeight = if (isMemSel) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isMemSel) FifoColors.NavyPrimary else FifoColors.LightTextSecondary
+                                    text = "Gustos en detalle (${tasteStories.size})",
+                                    fontSize = 13.sp,
+                                    fontWeight = if (isTastesSel) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isTastesSel) FifoColors.NavyPrimary else FifoColors.LightTextSecondary
                                 )
                             }
-                            if (isMemSel) {
+                            if (isTastesSel) {
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Box(
                                     modifier = Modifier
@@ -1124,109 +1117,12 @@ fun ProfileScreen(
 
             // ── 6. CONTENIDO SEGÚN LA PESTAÑA SELECCIONADA ───
             when (selectedTab) {
-                ProfileTab.CONVERSATIONS -> {
-                    // Lista de conversaciones pasadas
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        pastConversations.forEach { conv ->
-                            Surface(
-                                color = Color.White,
-                                shape = RoundedCornerShape(20.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.LightCardBorder),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Column(modifier = Modifier.padding(18.dp)) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.Top
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.weight(1f),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(40.dp)
-                                                    .background(FifoColors.BlueSoftPill, CircleShape),
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    imageVector = conv.icon,
-                                                    contentDescription = null,
-                                                    tint = FifoColors.NavyPrimary,
-                                                    modifier = Modifier.size(20.dp)
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Column {
-                                                Text(
-                                                    text = conv.title,
-                                                    fontSize = 15.sp,
-                                                    fontWeight = FontWeight.Bold,
-                                                    color = FifoColors.LightTextPrimary
-                                                )
-                                                Text(
-                                                    text = conv.date,
-                                                    fontSize = 12.sp,
-                                                    color = FifoColors.LightTextMuted
-                                                )
-                                            }
-                                        }
-
-                                        Surface(
-                                            color = Color(0xFFF1F5F9),
-                                            shape = RoundedCornerShape(10.dp)
-                                        ) {
-                                            Text(
-                                                text = conv.tag,
-                                                fontSize = 11.sp,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = FifoColors.LightTextSecondary,
-                                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                                            )
-                                        }
-                                    }
-
-                                    Spacer(modifier = Modifier.height(12.dp))
-
-                                    Text(
-                                        text = conv.summary,
-                                        fontSize = 13.sp,
-                                        lineHeight = 18.sp,
-                                        color = FifoColors.LightTextSecondary
-                                    )
-
-                                    Spacer(modifier = Modifier.height(10.dp))
-
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Schedule,
-                                            contentDescription = null,
-                                            tint = FifoColors.BlueAccentDark,
-                                            modifier = Modifier.size(14.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text(
-                                            text = conv.duration,
-                                            fontSize = 12.sp,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = FifoColors.BlueAccentDark
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                ProfileTab.MEMORIES -> {
-                    // Lista de recuerdos guardados por Fifo
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        // Botón para agregar recuerdo manual
+                ProfileTab.POSTS -> {
+                    // Vista de publicaciones de la usuaria
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        // Botón para crear nueva publicación
                         Surface(
-                            onClick = { isAddMemoryOpen = true },
+                            onClick = { isCreatePostOpen = true },
                             shape = RoundedCornerShape(18.dp),
                             color = FifoColors.BlueSoftPill,
                             border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.NavyPrimary.copy(alpha = 0.3f)),
@@ -1238,22 +1134,22 @@ fun ProfileScreen(
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(36.dp)
+                                        .size(38.dp)
                                         .background(Color.White, CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(Icons.Default.Add, contentDescription = null, tint = FifoColors.NavyPrimary)
                                 }
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = "Añadir un recuerdo para Fifo",
-                                        fontSize = 14.sp,
+                                        text = "Crear nueva publicación",
+                                        fontSize = 15.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = FifoColors.NavyPrimary
                                     )
                                     Text(
-                                        text = "Cuéntale algo importante para que siempre lo recuerde.",
+                                        text = "Comparte un momento o anécdota con tus amigos.",
                                         fontSize = 12.sp,
                                         color = FifoColors.NavyPrimary.copy(alpha = 0.8f)
                                     )
@@ -1261,39 +1157,385 @@ fun ProfileScreen(
                             }
                         }
 
-                        memories.forEach { mem ->
+                        if (userPosts.isEmpty()) {
                             Surface(
                                 color = Color.White,
                                 shape = RoundedCornerShape(20.dp),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.LightCardBorder),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(18.dp),
-                                    verticalAlignment = Alignment.Top
+                                Column(
+                                    modifier = Modifier.padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Text(text = mem.emoji, fontSize = 26.sp)
-                                    Spacer(modifier = Modifier.width(14.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
+                                    Text("📝", fontSize = 32.sp)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Aún no tienes publicaciones en tu perfil",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = FifoColors.LightTextPrimary,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Toca el botón 'Crear nueva publicación' para compartir algo lindo con tus amigos.",
+                                        fontSize = 12.sp,
+                                        color = FifoColors.LightTextSecondary,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        } else {
+                            userPosts.forEach { post ->
+                                Surface(
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(22.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.LightCardBorder),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(18.dp)) {
+                                        // Encabezado del post
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.weight(1f),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(40.dp)
+                                                        .background(FifoColors.BlueSoftPill, CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Text(
+                                                        text = post.author.take(1).uppercase(),
+                                                        fontSize = 16.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = FifoColors.NavyPrimary
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Column {
+                                                    Text(
+                                                        text = "${post.author}, ${post.age} años",
+                                                        fontSize = 14.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = FifoColors.LightTextPrimary
+                                                    )
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Text(
+                                                            text = post.category,
+                                                            fontSize = 11.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = FifoColors.BlueAccentDark
+                                                        )
+                                                        Text(
+                                                            text = " · ${post.timeAgo}",
+                                                            fontSize = 11.sp,
+                                                            color = FifoColors.LightTextMuted
+                                                        )
+                                                    }
+                                                }
+                                            }
+
+                                            // Botón para borrar publicación
+                                            IconButton(
+                                                onClick = { postToDelete = post },
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.DeleteOutline,
+                                                    contentDescription = "Eliminar publicación",
+                                                    tint = Color(0xFFEF4444),
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        // Contenido del post
                                         Text(
-                                            text = mem.title,
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.Bold,
+                                            text = post.content,
+                                            fontSize = 14.sp,
+                                            lineHeight = 20.sp,
                                             color = FifoColors.LightTextPrimary
                                         )
-                                        Spacer(modifier = Modifier.height(4.dp))
+
+                                        Spacer(modifier = Modifier.height(14.dp))
+
+                                        // Barra de interacciones
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                // Likes interactivos
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier
+                                                        .clickable {
+                                                            userPosts = userPosts.map {
+                                                                if (it.id == post.id) it.copy(likes = it.likes + 1) else it
+                                                            }
+                                                        }
+                                                        .padding(vertical = 4.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Favorite,
+                                                        contentDescription = "Me gusta",
+                                                        tint = Color(0xFFF43F5E),
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = "${post.likes}",
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = FifoColors.LightTextPrimary
+                                                    )
+                                                }
+
+                                                // Comentarios
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.padding(vertical = 4.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Outlined.ChatBubbleOutline,
+                                                        contentDescription = "Comentarios",
+                                                        tint = FifoColors.NavyPrimary,
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text(
+                                                        text = "${post.commentsCount}",
+                                                        fontSize = 13.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = FifoColors.LightTextPrimary
+                                                    )
+                                                }
+                                            }
+
+                                            Surface(
+                                                color = Color(0xFFF1F5F9),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Visible en Fifo Amigos",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = FifoColors.LightTextSecondary,
+                                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ProfileTab.TASTES -> {
+                    // Vista de gustos detallados estilo blog generados por Fifo
+                    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                        // Banner de privacidad y confidencialidad garantizada
+                        Surface(
+                            color = Color(0xFFF0FDF4),
+                            shape = RoundedCornerShape(18.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF86EFAC).copy(alpha = 0.6f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(14.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.VerifiedUser,
+                                    contentDescription = null,
+                                    tint = Color(0xFF16A34A),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Gustos curados por Fifo (Sin datos sensibles)",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF15803D)
+                                    )
+                                    Text(
+                                        text = "Fifo resume tus pasatiempos favoritos de tus charlas habituales para tu perfil. La información médica o privada nunca se incluye aquí.",
+                                        fontSize = 11.sp,
+                                        color = Color(0xFF166534),
+                                        lineHeight = 15.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        if (tasteStories.isEmpty()) {
+                            Surface(
+                                color = Color.White,
+                                shape = RoundedCornerShape(20.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.LightCardBorder),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text("🌱", fontSize = 32.sp)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "Sin gustos guardados",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = FifoColors.LightTextPrimary
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = "Habla con Fifo para que identifique tus pasatiempos favoritos y prepare tus historias.",
+                                        fontSize = 12.sp,
+                                        color = FifoColors.LightTextSecondary,
+                                        textAlign = TextAlign.Center
+                                    )
+                                }
+                            }
+                        } else {
+                            tasteStories.forEach { story ->
+                                Surface(
+                                    color = Color.White,
+                                    shape = RoundedCornerShape(22.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.LightCardBorder),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(18.dp)) {
+                                        // Encabezado del artículo de gusto
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.Top
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.weight(1f),
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                val tasteIcon = when (story.iconCategory) {
+                                                    "music" -> Icons.Outlined.MusicNote
+                                                    "gardening" -> Icons.Outlined.Park
+                                                    "cooking" -> Icons.Outlined.Restaurant
+                                                    "book" -> Icons.Outlined.MenuBook
+                                                    "walk" -> Icons.Outlined.DirectionsWalk
+                                                    else -> Icons.Outlined.FavoriteBorder
+                                                }
+
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(42.dp)
+                                                        .background(FifoColors.BlueSoftPill, CircleShape),
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        imageVector = tasteIcon,
+                                                        contentDescription = null,
+                                                        tint = FifoColors.NavyPrimary,
+                                                        modifier = Modifier.size(22.dp)
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Column {
+                                                    Text(
+                                                        text = story.title,
+                                                        fontSize = 16.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = FifoColors.LightTextPrimary
+                                                    )
+                                                    Text(
+                                                        text = story.subtitle,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = FifoColors.BlueAccentDark
+                                                    )
+                                                }
+                                            }
+
+                                            // Botón para borrar gusto del perfil
+                                            IconButton(
+                                                onClick = { tasteToDelete = story },
+                                                modifier = Modifier.size(36.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.DeleteOutline,
+                                                    contentDescription = "Eliminar gusto",
+                                                    tint = Color(0xFFEF4444),
+                                                    modifier = Modifier.size(20.dp)
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        // Redacción empática de Fifo sobre este gusto
                                         Text(
-                                            text = mem.detail,
+                                            text = story.description,
                                             fontSize = 13.sp,
-                                            lineHeight = 18.sp,
+                                            lineHeight = 19.sp,
                                             color = FifoColors.LightTextSecondary
                                         )
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        // Etiquetas temáticas
+                                        FlowRow(
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            story.tags.forEach { tag ->
+                                                Surface(
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    color = FifoColors.BlueSoftPill
+                                                ) {
+                                                    Text(
+                                                        text = tag,
+                                                        fontSize = 11.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = FifoColors.NavyPrimary,
+                                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        HorizontalDivider(color = Color(0xFFF1F5F9))
                                         Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = mem.learnedDate,
-                                            fontSize = 11.sp,
-                                            color = FifoColors.LightTextMuted
-                                        )
+
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.CheckCircle,
+                                                contentDescription = null,
+                                                tint = Color(0xFF16A34A),
+                                                modifier = Modifier.size(13.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = story.learnedFrom,
+                                                fontSize = 11.sp,
+                                                color = FifoColors.LightTextMuted
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -1476,88 +1718,263 @@ fun ProfileScreen(
     }
 
     // ══════════════════════════════════════════════════════════
-    // ── DIÁLOGO PARA AÑADIR UN RECUERDO MANUAL PARA FIFO ───────
+    // ── DIÁLOGO PARA CREAR NUEVA PUBLICACIÓN ──────────────────
     // ══════════════════════════════════════════════════════════
-    if (isAddMemoryOpen) {
-        var memoryTitle by remember { mutableStateOf("") }
-        var memoryDetail by remember { mutableStateOf("") }
+    if (isCreatePostOpen) {
+        var postCategory by remember { mutableStateOf("Lectura & Naturaleza") }
+        var postContent by remember { mutableStateOf("") }
+        val categoryOptions = listOf(
+            "Lectura & Naturaleza",
+            "Jardinería & Balcón",
+            "Cocina tradicional",
+            "Música clásica",
+            "Paseos y bienestar"
+        )
 
-        Dialog(onDismissRequest = { isAddMemoryOpen = false }) {
+        Dialog(onDismissRequest = { isCreatePostOpen = false }) {
             Surface(
                 shape = RoundedCornerShape(26.dp),
                 color = Color.White,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 20.dp)
+                    .padding(vertical = 16.dp)
             ) {
-                Column(modifier = Modifier.padding(24.dp)) {
-                    Text(
-                        text = "Nuevo recuerdo para Fifo",
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = FifoColors.NavyPrimary
-                    )
+                Column(
+                    modifier = Modifier
+                        .padding(24.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Nueva publicación",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = FifoColors.NavyPrimary
+                        )
+                        IconButton(
+                            onClick = { isCreatePostOpen = false },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = FifoColors.LightTextSecondary)
+                        }
+                    }
+
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Fifo usará este recuerdo para personalizar lo que habla contigo.",
+                        text = "Comparte tus vivencias e historias favoritas con tus amigos en Fifo Amigos.",
                         fontSize = 12.sp,
-                        color = FifoColors.LightTextSecondary
+                        color = FifoColors.LightTextSecondary,
+                        lineHeight = 16.sp
                     )
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Text("Título del recuerdo", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
+                    Text(
+                        text = "Elige un tema o categoría",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = FifoColors.LightTextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    FlowRow(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        categoryOptions.forEach { cat ->
+                            val isSel = postCategory == cat
+                            Surface(
+                                onClick = { postCategory = cat },
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSel) FifoColors.NavyPrimary else FifoColors.BlueSoftPill,
+                                border = if (isSel) null else androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0))
+                            ) {
+                                Text(
+                                    text = cat,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSel) Color.White else FifoColors.NavyPrimary,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = "¿Qué te gustaría compartir hoy?",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = FifoColors.LightTextPrimary
+                    )
                     Spacer(modifier = Modifier.height(6.dp))
                     OutlinedTextField(
-                        value = memoryTitle,
-                        onValueChange = { memoryTitle = it },
-                        placeholder = { Text("Ej: Cumpleaños de mi hija", fontSize = 12.sp) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier.fillMaxWidth()
+                        value = postContent,
+                        onValueChange = { postContent = it },
+                        placeholder = {
+                            Text(
+                                "Ej: Hoy terminé de leer una novela hermosa y salí a caminar por el parque con una tarde soleada...",
+                                fontSize = 13.sp,
+                                color = FifoColors.LightTextMuted
+                            )
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(130.dp)
                     )
 
                     Spacer(modifier = Modifier.height(12.dp))
 
-                    Text("Detalle o anécdota", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
-                    Spacer(modifier = Modifier.height(6.dp))
-                    OutlinedTextField(
-                        value = memoryDetail,
-                        onValueChange = { memoryDetail = it },
-                        placeholder = { Text("Ej: Es el 14 de agosto y le gusta el pastel de chocolate.", fontSize = 12.sp) },
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(100.dp)
-                    )
+                    Surface(
+                        color = FifoColors.HeroBlueCard,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Info,
+                                contentDescription = null,
+                                tint = FifoColors.BlueAccentDark,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Aparecerá en tu perfil y también en el muro de Fifo Amigos.",
+                                fontSize = 11.sp,
+                                color = FifoColors.NavyPrimary
+                            )
+                        }
+                    }
 
                     Spacer(modifier = Modifier.height(20.dp))
 
-                    Button(
-                        onClick = {
-                            if (memoryTitle.isNotBlank()) {
-                                memories = listOf(
-                                    FifoMemoryItem(
-                                        id = System.currentTimeMillis().toString(),
-                                        emoji = "💡",
-                                        title = memoryTitle.trim(),
-                                        detail = memoryDetail.trim().ifEmpty { memoryTitle.trim() },
-                                        learnedDate = "Añadido hoy"
-                                    )
-                                ) + memories
-                                isAddMemoryOpen = false
-                            }
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = FifoColors.NavyPrimary),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(50.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text("Guardar recuerdo", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        OutlinedButton(
+                            onClick = { isCreatePostOpen = false },
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                        ) {
+                            Text("Cancelar", fontSize = 14.sp)
+                        }
+
+                        Button(
+                            onClick = {
+                                if (postContent.isNotBlank()) {
+                                    val newPost = UserSocialPost(
+                                        id = System.currentTimeMillis().toString(),
+                                        author = name,
+                                        age = age.toIntOrNull() ?: 68,
+                                        category = postCategory,
+                                        timeAgo = "Recién publicado",
+                                        content = postContent.trim(),
+                                        likes = 0,
+                                        commentsCount = 0,
+                                        accentColorHex = 0xFF38BDF8
+                                    )
+                                    userPosts = listOf(newPost) + userPosts
+                                    isCreatePostOpen = false
+                                }
+                            },
+                            enabled = postContent.isNotBlank(),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = FifoColors.NavyPrimary),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                        ) {
+                            Text("Publicar", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
         }
+    }
+
+    // ── DIÁLOGO PARA CONFIRMAR ELIMINACIÓN DE PUBLICACIÓN ─────
+    if (postToDelete != null) {
+        val target = postToDelete!!
+        AlertDialog(
+            onDismissRequest = { postToDelete = null },
+            title = {
+                Text(
+                    text = "Eliminar publicación",
+                    fontWeight = FontWeight.Bold,
+                    color = FifoColors.NavyPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "¿Deseas eliminar esta publicación de tu perfil y de Fifo Amigos?",
+                    color = FifoColors.LightTextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        userPosts = userPosts.filter { it.id != target.id }
+                        postToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                ) {
+                    Text("Eliminar", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { postToDelete = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
+    }
+
+    // ── DIÁLOGO PARA CONFIRMAR ELIMINACIÓN DE GUSTO ───────────
+    if (tasteToDelete != null) {
+        val target = tasteToDelete!!
+        AlertDialog(
+            onDismissRequest = { tasteToDelete = null },
+            title = {
+                Text(
+                    text = "Eliminar gusto del perfil",
+                    fontWeight = FontWeight.Bold,
+                    color = FifoColors.NavyPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "¿Deseas quitar '${target.title}' de tus gustos curados en el perfil?",
+                    color = FifoColors.LightTextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        tasteStories = tasteStories.filter { it.id != target.id }
+                        tasteToDelete = null
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                ) {
+                    Text("Eliminar", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { tasteToDelete = null }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 }

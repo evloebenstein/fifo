@@ -39,7 +39,7 @@ Asistente robótico interactivo con **conexión 100% Bluetooth Low Energy (BLE)*
              │ Notificaciones BLE                 │ Escritura BLE
              ▼                                    │
 ┌─────────────────────────────────────────────────┼───────────┐
-│            Celular Android (El Cerebro)          │           │
+│            Celular Android (El Cerebro)         │           │
 │                                                             │
 │   ┌──────────────────────────────────────────┐  │           │
 │   │ FifoVoiceService (24/7 Foreground + Wake)├──┘           │
@@ -72,46 +72,56 @@ Asistente robótico interactivo con **conexión 100% Bluetooth Low Energy (BLE)*
 ## 🔌 Conexiones de Hardware (ESP32-S3-N16R8)
 
 ### 1. Micrófono Analógico UCC
-| Pin Módulo UCC | Pin ESP32-S3 | Función |
-| :--- | :--- | :--- |
-| **VCC** | **3.3V** | Alimentación |
-| **GND** | **GND** | Tierra común |
-| **OUT** | **GPIO 4** | ADC1 Canal 3 (I2S DMA a 16 kHz) |
+
+| Pin Módulo UCC | Pin ESP32-S3     | Función                        |
+| :-------------- | :--------------- | :------------------------------ |
+| **VCC**   | **3.3V**   | Alimentación                   |
+| **GND**   | **GND**    | Tierra común                   |
+| **OUT**   | **GPIO 4** | ADC1 Canal 3 (I2S DMA a 16 kHz) |
 
 ### 2. Pantalla OLED 1.3" I2C (SH1106 128x64)
-| Pin OLED | Pin ESP32-S3 | Función |
-| :--- | :--- | :--- |
-| **VCC** | **3.3V** | Alimentación |
-| **GND** | **GND** | Tierra común |
-| **SDA** | **GPIO 8** | Datos I2C |
-| **SCL** | **GPIO 9** | Reloj I2C |
+
+| Pin OLED      | Pin ESP32-S3     | Función      |
+| :------------ | :--------------- | :------------ |
+| **VCC** | **3.3V**   | Alimentación |
+| **GND** | **GND**    | Tierra común |
+| **SDA** | **GPIO 8** | Datos I2C     |
+| **SCL** | **GPIO 9** | Reloj I2C     |
 
 ---
 
 ## 🚀 Puesta en Marcha
 
 ### 1. Grabar Firmware en ESP32-S3
+
 Con PlatformIO:
+
 ```bash
 pio run -d esp32-firmware -t upload --upload-port COM9
 ```
 
 ### 2. Compilar e Instalar App Android
+
 1. Copia `android-app/local.properties.example` como `android-app/local.properties` y coloca tus claves:
+
 ```properties
 ANTHROPIC_API_KEY=sk-ant-api03-...
 OPENAI_API_KEY=gsk_...
 ```
+
 2. Compila el APK:
+
 ```bash
 cd android-app
 .\gradlew.bat assembleDebug
 ```
+
 3. El APK generado estará en: `android-app/app/build/outputs/apk/debug/app-debug.apk`.
 
 ---
 
 ## 🛡️ Claves de API Soportadas
+
 - **Cerebro (LLM):** Anthropic Claude (`sk-ant-...`).
 - **Oídos (STT):**
   - **Groq Whisper (Recomendado y Gratuito):** Clave `gsk_...` de [console.groq.com/keys](https://console.groq.com/keys).

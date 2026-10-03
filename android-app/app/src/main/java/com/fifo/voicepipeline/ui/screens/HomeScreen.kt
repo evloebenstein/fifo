@@ -27,8 +27,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.fifo.voicepipeline.pipeline.PipelineState
 import com.fifo.voicepipeline.ui.components.FifoFace
+import com.fifo.voicepipeline.ui.model.FifoMemoryItem
+import com.fifo.voicepipeline.ui.model.PastConversationItem
 import com.fifo.voicepipeline.ui.theme.FifoColors
 
 @Composable
@@ -43,6 +46,95 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     var selectedMood by remember { mutableStateOf<String?>("Bien") }
+
+    var isConversationsSheetOpen by remember { mutableStateOf(false) }
+    var isAddMemoryOpen by remember { mutableStateOf(false) }
+    var selectedHistoryTab by remember { mutableStateOf(0) } // 0: Charlas, 1: Recuerdos
+
+    var conversations by remember {
+        mutableStateOf(
+            listOf(
+                PastConversationItem(
+                    id = "c1",
+                    title = "Receta familiar y tarta de manzana",
+                    date = "Hoy · 10:30 hrs",
+                    duration = "4 minutos con Fifo",
+                    summary = "Fifo te ayudó a recordar la receta de tu abuela Elena para la tarta de manzana con canela y nueces. Guardó tu preferencia de usar manzanas verdes.",
+                    tag = "Cocina y familia",
+                    iconName = "restaurant"
+                ),
+                PastConversationItem(
+                    id = "c2",
+                    title = "Caminata matutina y música clásica",
+                    date = "Ayer · 16:45 hrs",
+                    duration = "6 minutos con Fifo",
+                    summary = "Charlaron sobre cómo estuvo el día en el parque y escucharon una melodía suave de piano de Chopin para relajarse juntos.",
+                    tag = "Bienestar y música",
+                    iconName = "music"
+                ),
+                PastConversationItem(
+                    id = "c3",
+                    title = "Planes para el cumpleaños de Mateo",
+                    date = "Martes · 11:15 hrs",
+                    duration = "5 minutos con Fifo",
+                    summary = "Comentaste ideas de regalo para tu nieto en mayo y Fifo sugirió escribirle una carta con una anécdota especial de la familia.",
+                    tag = "Afectos",
+                    iconName = "heart"
+                ),
+                PastConversationItem(
+                    id = "c4",
+                    title = "Respiración y descanso nocturno",
+                    date = "Domingo · 20:00 hrs",
+                    duration = "3 minutos con Fifo",
+                    summary = "Fifo te acompañó con su ejercicio de respiración guiada de 2 minutos para descansar con la mente tranquila.",
+                    tag = "Relajación",
+                    iconName = "air"
+                )
+            )
+        )
+    }
+
+    var memories by remember {
+        mutableStateOf(
+            listOf(
+                FifoMemoryItem(
+                    id = "1",
+                    emoji = "🎂",
+                    title = "Cumpleaños de tu nieto Mateo",
+                    detail = "Tu nieto Mateo cumple años en mayo y le encantan los libros sobre planetas y astronomía.",
+                    learnedDate = "Aprendido hace 3 días"
+                ),
+                FifoMemoryItem(
+                    id = "2",
+                    emoji = "☕",
+                    title = "Té de manzanilla antes de dormir",
+                    detail = "Prefieres tomar infusión de manzanilla tibia antes de acostarte para descansar plácidamente.",
+                    learnedDate = "Aprendido hace 5 días"
+                ),
+                FifoMemoryItem(
+                    id = "3",
+                    emoji = "🎹",
+                    title = "Música de Chopin para relajarse",
+                    detail = "Te calma escuchar los nocturnos de piano de Frédéric Chopin por la tarde.",
+                    learnedDate = "Aprendido hace 1 semana"
+                ),
+                FifoMemoryItem(
+                    id = "4",
+                    emoji = "🌸",
+                    title = "Cuidado de las orquídeas",
+                    detail = "Riegas y ventilas tus orquídeas del balcón los martes por la mañana.",
+                    learnedDate = "Aprendido hace 2 semanas"
+                ),
+                FifoMemoryItem(
+                    id = "5",
+                    emoji = "🚶‍♀️",
+                    title = "Caminatas cuando no hay viento",
+                    detail = "Sales a caminar al parque cuando el sol está tibio y no hay viento frío.",
+                    learnedDate = "Aprendido hace 2 semanas"
+                )
+            )
+        )
+    }
 
     Column(
         modifier = modifier
@@ -534,7 +626,7 @@ fun HomeScreen(
                 Spacer(modifier = Modifier.height(18.dp))
 
                 Button(
-                    onClick = onStartVoiceChat,
+                    onClick = { isConversationsSheetOpen = true },
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = FifoColors.NavyPrimary,
@@ -545,7 +637,7 @@ fun HomeScreen(
                         .height(50.dp)
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Ver conversaciones anteriores", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Text("Ver charlas y recuerdos con Fifo", fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
                         Spacer(modifier = Modifier.width(8.dp))
                         Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                     }
@@ -554,6 +646,418 @@ fun HomeScreen(
         }
 
         Spacer(modifier = Modifier.height(100.dp))
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // ── DIÁLOGO COMPLETO DE CHARLAS Y RECUERDOS CON FIFO ───────
+    // ══════════════════════════════════════════════════════════
+    if (isConversationsSheetOpen) {
+        Dialog(onDismissRequest = { isConversationsSheetOpen = false }) {
+            Surface(
+                shape = RoundedCornerShape(26.dp),
+                color = Color.White,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.85f)
+                    .padding(vertical = 16.dp)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(20.dp)
+                ) {
+                    // Cabecera con botón de cerrar accesible
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Charlas y Recuerdos",
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = FifoColors.NavyPrimary
+                            )
+                            Text(
+                                text = "Tu historial de confianza con Fifo",
+                                fontSize = 12.sp,
+                                color = FifoColors.LightTextSecondary
+                            )
+                        }
+                        IconButton(
+                            onClick = { isConversationsSheetOpen = false },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Cerrar", tint = FifoColors.NavyPrimary)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Selector de Pestañas (Charlas vs Recuerdos)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFF1F5F9), RoundedCornerShape(14.dp))
+                            .padding(4.dp)
+                    ) {
+                        Surface(
+                            onClick = { selectedHistoryTab = 0 },
+                            shape = RoundedCornerShape(11.dp),
+                            color = if (selectedHistoryTab == 0) Color.White else Color.Transparent,
+                            shadowElevation = if (selectedHistoryTab == 0) 2.dp else 0.dp,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = "Charlas (${conversations.size})",
+                                    fontSize = 13.sp,
+                                    fontWeight = if (selectedHistoryTab == 0) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (selectedHistoryTab == 0) FifoColors.NavyPrimary else FifoColors.LightTextSecondary
+                                )
+                            }
+                        }
+
+                        Surface(
+                            onClick = { selectedHistoryTab = 1 },
+                            shape = RoundedCornerShape(11.dp),
+                            color = if (selectedHistoryTab == 1) Color.White else Color.Transparent,
+                            shadowElevation = if (selectedHistoryTab == 1) 2.dp else 0.dp,
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier.padding(vertical = 8.dp)
+                            ) {
+                                Text(
+                                    text = "Recuerdos (${memories.size})",
+                                    fontSize = 13.sp,
+                                    fontWeight = if (selectedHistoryTab == 1) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (selectedHistoryTab == 1) FifoColors.NavyPrimary else FifoColors.LightTextSecondary
+                                )
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    // Contenido según pestaña
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        if (selectedHistoryTab == 0) {
+                            // ── PESTAÑA: CHARLAS PASADAS ───
+                            if (conversations.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "No tienes charlas guardadas aún.",
+                                        fontSize = 14.sp,
+                                        color = FifoColors.LightTextMuted
+                                    )
+                                }
+                            } else {
+                                conversations.forEach { conv ->
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = Color(0xFFF8FAFC),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Column(modifier = Modifier.padding(14.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.Top
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = conv.title,
+                                                        fontSize = 14.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = FifoColors.LightTextPrimary
+                                                    )
+                                                    Text(
+                                                        text = "${conv.date} · ${conv.duration}",
+                                                        fontSize = 11.sp,
+                                                        color = FifoColors.BlueAccentDark
+                                                    )
+                                                }
+
+                                                // Botón accesible para borrar charla
+                                                IconButton(
+                                                    onClick = { conversations = conversations.filterNot { it.id == conv.id } },
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.DeleteOutline,
+                                                        contentDescription = "Borrar esta charla",
+                                                        tint = Color(0xFFDC2626),
+                                                        modifier = Modifier.size(18.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(8.dp))
+
+                                            Text(
+                                                text = conv.summary,
+                                                fontSize = 12.sp,
+                                                lineHeight = 17.sp,
+                                                color = FifoColors.LightTextSecondary
+                                            )
+
+                                            Spacer(modifier = Modifier.height(6.dp))
+
+                                            Surface(
+                                                color = Color.White,
+                                                shape = RoundedCornerShape(8.dp),
+                                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFCBD5E1))
+                                            ) {
+                                                Text(
+                                                    text = conv.tag,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                    color = FifoColors.LightTextSecondary,
+                                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // ── PESTAÑA: RECUERDOS DE FIFO ───
+                            // Botón para añadir recuerdo
+                            Surface(
+                                onClick = { isAddMemoryOpen = true },
+                                shape = RoundedCornerShape(14.dp),
+                                color = FifoColors.BlueSoftPill,
+                                border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.NavyPrimary.copy(alpha = 0.3f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = null,
+                                        tint = FifoColors.NavyPrimary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "+ Añadir un recuerdo para Fifo",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = FifoColors.NavyPrimary
+                                    )
+                                }
+                            }
+
+                            if (memories.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 32.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Fifo aún no tiene recuerdos guardados.",
+                                        fontSize = 14.sp,
+                                        color = FifoColors.LightTextMuted
+                                    )
+                                }
+                            } else {
+                                memories.forEach { mem ->
+                                    Surface(
+                                        shape = RoundedCornerShape(16.dp),
+                                        color = Color(0xFFF8FAFC),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFE2E8F0)),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(14.dp),
+                                            verticalAlignment = Alignment.Top
+                                        ) {
+                                            Text(text = mem.emoji, fontSize = 22.sp)
+                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = mem.title,
+                                                    fontSize = 14.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = FifoColors.LightTextPrimary
+                                                )
+                                                Spacer(modifier = Modifier.height(3.dp))
+                                                Text(
+                                                    text = mem.detail,
+                                                    fontSize = 12.sp,
+                                                    lineHeight = 17.sp,
+                                                    color = FifoColors.LightTextSecondary
+                                                )
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = mem.learnedDate,
+                                                    fontSize = 10.sp,
+                                                    color = FifoColors.LightTextMuted
+                                                )
+                                            }
+
+                                            // Botón accesible para borrar recuerdo
+                                            IconButton(
+                                                onClick = { memories = memories.filterNot { it.id == mem.id } },
+                                                modifier = Modifier.size(32.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = Icons.Default.DeleteOutline,
+                                                    contentDescription = "Borrar recuerdo",
+                                                    tint = Color(0xFFDC2626),
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // ── DIÁLOGO PARA AÑADIR UN RECUERDO (Con botón salir/cancelar)
+    // ══════════════════════════════════════════════════════════
+    if (isAddMemoryOpen) {
+        var newTitle by remember { mutableStateOf("") }
+        var newDetail by remember { mutableStateOf("") }
+
+        Dialog(onDismissRequest = { isAddMemoryOpen = false }) {
+            Surface(
+                shape = RoundedCornerShape(26.dp),
+                color = Color.White,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 16.dp)
+            ) {
+                Column(modifier = Modifier.padding(22.dp)) {
+                    // Cabecera con título y botón de salir claramente visible
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Nuevo recuerdo para Fifo",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = FifoColors.NavyPrimary
+                        )
+                        IconButton(
+                            onClick = { isAddMemoryOpen = false },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Salir sin guardar",
+                                tint = FifoColors.NavyPrimary
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Fifo recordará este dato para personalizar sus conversaciones contigo.",
+                        fontSize = 12.sp,
+                        color = FifoColors.LightTextSecondary
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text("Título del recuerdo", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = newTitle,
+                        onValueChange = { newTitle = it },
+                        placeholder = { Text("Ej: Cumpleaños de mi nieto Mateo", fontSize = 13.sp) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text("Detalle o anécdota", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = newDetail,
+                        onValueChange = { newDetail = it },
+                        placeholder = { Text("Ej: Es en mayo y le gustan los libros sobre planetas.", fontSize = 13.sp) },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(100.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // Botones de acción: Cancelar / Salir y Guardar
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = { isAddMemoryOpen = false },
+                            shape = RoundedCornerShape(16.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFCBD5E1)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(50.dp)
+                        ) {
+                            Text("Cancelar", fontSize = 14.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextSecondary)
+                        }
+
+                        Button(
+                            onClick = {
+                                if (newTitle.isNotBlank()) {
+                                    memories = listOf(
+                                        FifoMemoryItem(
+                                            id = System.currentTimeMillis().toString(),
+                                            emoji = "💡",
+                                            title = newTitle.trim(),
+                                            detail = newDetail.trim().ifEmpty { newTitle.trim() },
+                                            learnedDate = "Añadido hoy"
+                                        )
+                                    ) + memories
+                                    isAddMemoryOpen = false
+                                }
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = FifoColors.NavyPrimary),
+                            modifier = Modifier
+                                .weight(1.2f)
+                                .height(50.dp)
+                        ) {
+                            Text("Guardar recuerdo", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
