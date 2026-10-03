@@ -71,25 +71,37 @@ fun ProfileScreen(
     var postToDelete by remember { mutableStateOf<UserSocialPost?>(null) }
     var tasteToDelete by remember { mutableStateOf<FifoTasteStory?>(null) }
 
-    // Datos del perfil
-    var name by remember { mutableStateOf(if (currentName.isNotBlank() && currentName != "Lucía") currentName else "Lucía González") }
-    var birthDate by remember { mutableStateOf("14 de Mayo, 1958") }
-    var age by remember { mutableStateOf("68") }
-    var gender by remember { mutableStateOf("Mujer") }
-    var location by remember { mutableStateOf("Santiago, Chile") }
+    // Repositorio reactivo central de Fifo (sincronizado con base de datos)
+    val userProfileState by com.fifo.voicepipeline.data.FifoDataRepository.userProfile.collectAsState()
+    val tastesState by com.fifo.voicepipeline.data.FifoDataRepository.tastes.collectAsState()
+    val storiesState by com.fifo.voicepipeline.data.FifoDataRepository.tasteStories.collectAsState()
+    val postsState by com.fifo.voicepipeline.data.FifoDataRepository.socialPosts.collectAsState()
+
+    // Datos del perfil (se inicializan con el repositorio o parámetro)
+    var name by remember { mutableStateOf(userProfileState.fullName) }
+    var birthDate by remember { mutableStateOf(userProfileState.birthDate) }
+    var age by remember { mutableStateOf(userProfileState.estimatedAge.toString()) }
+    var gender by remember { mutableStateOf(userProfileState.genderIdentity) }
+    var location by remember { mutableStateOf(userProfileState.city) }
 
     // Gustos reconocidos
-    var interests by remember {
-        mutableStateOf(
-            listOf("Lectura histórica", "Música clásica", "Paseos en el parque", "Jardinería", "Cocina tradicional")
-        )
-    }
+    var interests by remember { mutableStateOf(tastesState) }
 
     // Biografía generada por Fifo
-    var bioText by remember {
-        mutableStateOf(
-            "Amante de las novelas de historia, la música clásica de piano y las mañanas tranquilas con café. Disfruta compartir con Fifo anécdotas de su familia, preparar recetas caseras y cuidar las orquídeas de su jardín."
-        )
+    var bioText by remember { mutableStateOf(userProfileState.bioAi) }
+
+    // Sincronización en vivo: cuando el robot Fifo ejecuta cambios por voz o BD, la UI se actualiza sola
+    LaunchedEffect(userProfileState) {
+        name = userProfileState.fullName
+        birthDate = userProfileState.birthDate
+        age = userProfileState.estimatedAge.toString()
+        gender = userProfileState.genderIdentity
+        location = userProfileState.city
+        bioText = userProfileState.bioAi
+    }
+
+    LaunchedEffect(tastesState) {
+        interests = tastesState
     }
 
     // Pestaña activa en el perfil (Mis Publicaciones vs Gustos en Detalle)
@@ -1809,6 +1821,12 @@ fun ProfileScreen(
                             interests = editInterests
                             // Regenerar biografía adaptada
                             bioText = "Amante de ${editInterests.take(3).joinToString(", ")}. Le gusta conversar con Fifo sobre sus pasatiempos favoritos y compartir anécdotas de su día a día."
+                            com.fifo.voicepipeline.data.FifoDataRepository.updateDemographics(
+                                fullName = editName,
+                                birthDate = editBirthDate,
+                                birthYear = editBirthDate.takeLast(4).toIntOrNull(),
+                                gender = editGender
+                            )
                             isEditProfileOpen = false
                         },
                         shape = RoundedCornerShape(18.dp),

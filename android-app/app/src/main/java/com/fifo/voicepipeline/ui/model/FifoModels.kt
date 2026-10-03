@@ -65,3 +65,31 @@ data class FifoTasteStory(
     val iconCategory: String,
     val learnedFrom: String
 )
+
+/**
+ * Datos del perfil del usuario gestionados por Fifo y sincronizados con la Base de Datos
+ */
+data class UserProfileData(
+    val id: String = "usr_01",
+    val fullName: String = "Lucía González",
+    val birthDate: String = "14 de Mayo, 1958",
+    val birthYear: Int = 1958,
+    val estimatedAge: Int = 68,
+    val genderIdentity: String = "Mujer",
+    val city: String = "Santiago, Chile",
+    val bioAi: String = "Amante de las novelas de historia, la música clásica de piano y las mañanas tranquilas con café. Disfruta compartir con Fifo anécdotas de su familia, preparar recetas caseras y cuidar las orquídeas de su jardín.",
+    val emergencyContactName: String = "Carmen (Hija)",
+    val emergencyContactPhone: String = "+56987654321"
+)
+
+/**
+ * Recordatorio creado por voz por Fifo (para pastillas, compromisos, familia)
+ */
+data class FifoReminderItem(
+    val id: String,
+    val title: String,
+    val timeStr: String,
+    val category: String = "medication", // "medication", "family", "hobby", "health"
+    val isCompleted: Boolean = false,
+    val createdAt: String = "Hoy"
+)

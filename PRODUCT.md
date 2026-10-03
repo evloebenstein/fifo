@@ -62,3 +62,10 @@ El hogar: la mesa de noche, el velador, la cocina o el comedor. El usuario puede
 - Relación de contraste de texto superior a 4.5:1 para cuerpo y 3:1 para titulares grandes contra cualquier fondo.
 - Compatibilidad plena con configuraciones de accesibilidad del sistema operativo: tamaño de fuente aumentado, contraste alto y lectores de pantalla (TalkBack con `contentDescription` descriptivos en español).
 - Alternativas sensoriales: información crítica transmitida visualmente (color, icono, texto explícito) y por voz de forma complementaria.
+
+## Autonomous Operation & Real-Time Sync (Cero Intervención Manual)
+
+El adulto mayor interactúa exclusivamente mediante voz con el dispositivo físico Fifo. Fifo opera como agente autónomo con Function Calling (Skills de Claude), ejecutando mutaciones directamente sobre la base de datos (datos demográficos, fecha de nacimiento, gustos, memorias, historias de blog) y disparando herramientas nativas del teléfono (recordatorios de salud, calendario, mapas y llamadas de apoyo). La aplicación Android refleja todos estos cambios en vivo sin que el usuario deba tocar el teléfono.
+
+Para la especificación completa del esquema de base de datos, mapeo de componentes y catálogo de skills, consultar:
+👉 **[FIFO_DATABASE_MAP.md](file:///c:/Users/evloe/OneDrive/Escritorio/fifo/FIFO_DATABASE_MAP.md)**

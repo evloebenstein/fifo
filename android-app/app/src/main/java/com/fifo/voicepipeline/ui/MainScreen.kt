@@ -57,7 +57,12 @@ fun MainScreen(
 ) {
     var currentFlowScreen by remember { mutableStateOf(AppFlowScreen.MAIN_APP) }
     var currentTab by remember { mutableStateOf(FifoTab.HOME) }
-    var userName by remember { mutableStateOf("Lucía González") }
+    val userProfileState by com.fifo.voicepipeline.data.FifoDataRepository.userProfile.collectAsState()
+    var userName by remember { mutableStateOf(userProfileState.fullName) }
+
+    LaunchedEffect(userProfileState) {
+        userName = userProfileState.fullName
+    }
 
     // Control de ventanas modales interactivas
     var isVoiceSheetOpen by remember { mutableStateOf(false) }

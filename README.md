@@ -19,6 +19,7 @@ Asistente robótico interactivo con **conexión 100% Bluetooth Low Energy (BLE)*
   - **Oídos (STT):** Whisper (OpenAI o Groq gratuito `gsk_...` de latencia ultra-baja).
   - **Voz (TTS):** Parlante integrado del teléfono con Android TextToSpeech nativo o OpenAI TTS.
 - **Filtro de Ruido Acústico en ESP32-S3:** Filtro IIR Pasa-Altos a 150 Hz y puerta de ruido (*Noise Gate*) para capturar voz clara en ambientes concurridos.
+- **Sistema de Skills y Mapeo de Base de Datos:** Fifo actúa de forma 100% autónoma mediante Function Calling para actualizar el perfil, gustos, historias de vida y ejecutar herramientas del celular (alarmas de medicamentos, calendario, mapas, llamadas). El adulto mayor no necesita tocar la pantalla. Ver detalles en **[FIFO_DATABASE_MAP.md](FIFO_DATABASE_MAP.md)**.
 - **Interfaz Android Completa (Figma):** 10 pantallas con estética *soft premium*, dashboard de bienvenida, comunidad de amigos, registro, ejercicios de respiración y panel de ajustes.
 
 ---

@@ -101,6 +101,9 @@ class VoicePipelineManager(
     private val pcmBuffer = PcmBuffer()
     private lateinit var cloudClient: CloudApiClient
 
+    // Registro de habilidades nativas del teléfono y mutaciones de BD
+    val skillRegistry = com.fifo.voicepipeline.skills.FifoSkillRegistry(context)
+
     // Parlante del celular
     private val audioPlayer = AudioPlayer()
     private var androidTtsSpeaker: AndroidTtsSpeaker? = null
@@ -641,15 +644,29 @@ class VoicePipelineManager(
     }
 
     /**
-     * Consulta a Claude y reproduce la respuesta mediante voz.
+     * Consulta a Claude y reproduce la respuesta mediante voz,
+     * ejecutando herramientas nativas del teléfono y mutaciones de BD mediante [skillRegistry].
      */
     private suspend fun consultClaudeAndRespond(query: String) {
+        // 1. Verificación de intención directa por voz (respuesta ultra-rápida sin latencia)
+        val directResult = skillRegistry.tryExecuteVoiceIntent(query)
+        if (directResult != null) {
+            Log.i(TAG, "Skill ejecutada directamente por intención de voz: ${directResult.spokenFeedback}")
+            val directFeedback = TextSanitizer.cleanForSpeech(directResult.spokenFeedback)
+            _aiResponse.value = directFeedback
+            _statusMessage.value = "Respondiendo..."
+            speakResponseChunk(directFeedback)
+            resetAutoSleepTimer()
+            return
+        }
+
+        // 2. Si no es un comando directo, consultar a Claude con el catálogo de herramientas
         _state.value = PipelineState.PROCESSING
         _statusMessage.value = "Consultando a Claude..."
         updateEspDisplay(state = "PENSANDO", transcript = query)
 
         val reply = withTimeoutOrNull(15000L) {
-            cloudClient.chat(query)
+            cloudClient.chat(query, skillRegistry)
         } ?: "Disculpa, la respuesta de Claude tardó demasiado tiempo. Intenta de nuevo."
 
         val cleanReply = TextSanitizer.cleanForSpeech(reply)

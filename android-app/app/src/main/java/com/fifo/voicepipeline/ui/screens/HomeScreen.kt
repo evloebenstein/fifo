@@ -47,6 +47,10 @@ fun HomeScreen(
 ) {
     var selectedMood by remember { mutableStateOf<String?>("Bien") }
 
+    val liveReminders by com.fifo.voicepipeline.data.FifoDataRepository.reminders.collectAsState()
+    val liveConversations by com.fifo.voicepipeline.data.FifoDataRepository.conversations.collectAsState()
+    val liveMemories by com.fifo.voicepipeline.data.FifoDataRepository.memories.collectAsState()
+
     var isConversationsSheetOpen by remember { mutableStateOf(false) }
     var isAddMemoryOpen by remember { mutableStateOf(false) }
     var selectedHistoryTab by remember { mutableStateOf(0) } // 0: Charlas, 1: Recuerdos
@@ -473,7 +477,7 @@ fun HomeScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Recordatorios",
+                text = "Recordatorios de Fifo",
                 fontSize = 18.sp,
                 fontWeight = FontWeight.Bold,
                 color = FifoColors.LightTextPrimary
@@ -483,7 +487,7 @@ fun HomeScreen(
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Text(
-                    text = "3 para hoy",
+                    text = "${liveReminders.count { !it.isCompleted }} activos",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = FifoColors.NavyPrimary,
@@ -495,24 +499,36 @@ fun HomeScreen(
         Spacer(modifier = Modifier.height(14.dp))
 
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            ReminderItem(
-                icon = Icons.Outlined.Schedule,
-                title = "Llamar a mamá",
-                subtitle = "10:30 hrs · Hoy",
-                badgeText = "Hoy"
-            )
-            ReminderItem(
-                icon = Icons.Default.PhoneAndroid,
-                title = "Revisar agenda",
-                subtitle = "19:00 hrs · Hoy",
-                badgeText = "Hoy"
-            )
-            ReminderItem(
-                icon = Icons.Outlined.Air,
-                title = "Respiración de calma",
-                subtitle = "Antes de dormir",
-                badgeText = "Rutina"
-            )
+            if (liveReminders.isEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color.White,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.LightCardBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = "No tienes recordatorios pendientes para hoy. Pídele a Fifo: 'Recuérdame tomar mi medicina'.",
+                        fontSize = 13.sp,
+                        color = FifoColors.LightTextSecondary,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            } else {
+                liveReminders.forEach { item ->
+                    val icon = when (item.category) {
+                        "medication" -> Icons.Default.Favorite
+                        "family" -> Icons.Default.Phone
+                        "health" -> Icons.Outlined.Air
+                        else -> Icons.Outlined.Schedule
+                    }
+                    ReminderItem(
+                        icon = icon,
+                        title = item.title,
+                        subtitle = "${item.timeStr} hrs · ${item.createdAt}",
+                        badgeText = if (item.isCompleted) "Listo" else "Pendiente"
+                    )
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(26.dp))

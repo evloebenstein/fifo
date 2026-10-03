@@ -163,19 +163,28 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
     // ═════════════════════════════════════════════════
 
     /**
-     * Envía el texto del usuario a Claude de forma directa y asíncrona.
-     * Retorna la respuesta completa en ~300-500 ms sin depender de SSE.
+     * Envía el texto del usuario a Claude de forma directa y asíncrona,
+     * soportando Function Calling / Tools mediante [FifoSkillRegistry].
      */
-    suspend fun chat(userText: String): String {
+    suspend fun chat(
+        userText: String,
+        skillRegistry: com.fifo.voicepipeline.skills.FifoSkillRegistry? = null
+    ): String {
         conversationHistory.add(mapOf("role" to "user", "content" to userText))
         val messagesJson = gson.toJson(conversationHistory)
+
+        val toolsFragment = if (skillRegistry != null) {
+            """, "tools": ${skillRegistry.getAnthropicToolsJson()}"""
+        } else {
+            ""
+        }
 
         val jsonBody = """
         {
             "model": "$CLAUDE_MODEL",
-            "max_tokens": 256,
+            "max_tokens": 384,
             "system": ${gson.toJson(SYSTEM_PROMPT)},
-            "messages": $messagesJson
+            "messages": $messagesJson$toolsFragment
         }
         """.trimIndent()
 
@@ -198,10 +207,47 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
 
             val json = JsonParser.parseString(body).asJsonObject
             val contentArray = json.getAsJsonArray("content")
-            val rawReply = contentArray?.get(0)?.asJsonObject?.get("text")?.asString
-                ?: "No pude entender tu respuesta."
-            val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(rawReply)
 
+            var textReply = ""
+            var toolFeedback = ""
+
+            contentArray?.forEach { element ->
+                val block = element.asJsonObject
+                val type = block.get("type")?.asString
+                if (type == "text") {
+                    textReply += block.get("text")?.asString ?: ""
+                } else if (type == "tool_use" && skillRegistry != null) {
+                    val toolName = block.get("name")?.asString ?: ""
+                    val toolInput = block.getAsJsonObject("input")
+                    val argsMap = mutableMapOf<String, Any?>()
+                    toolInput?.keySet()?.forEach { key ->
+                        val elementVal = toolInput.get(key)
+                        if (elementVal.isJsonPrimitive) {
+                            val prim = elementVal.asJsonPrimitive
+                            argsMap[key] = when {
+                                prim.isNumber -> prim.asInt
+                                prim.isBoolean -> prim.asBoolean
+                                else -> prim.asString
+                            }
+                        } else {
+                            argsMap[key] = elementVal.toString()
+                        }
+                    }
+                    val result = skillRegistry.executeSkill(toolName, argsMap)
+                    if (result.spokenFeedback.isNotBlank()) {
+                        toolFeedback = if (toolFeedback.isBlank()) result.spokenFeedback else "$toolFeedback ${result.spokenFeedback}"
+                    }
+                }
+            }
+
+            val combinedReply = when {
+                toolFeedback.isNotBlank() && textReply.isNotBlank() -> "$textReply $toolFeedback".trim()
+                toolFeedback.isNotBlank() -> toolFeedback.trim()
+                textReply.isNotBlank() -> textReply.trim()
+                else -> "Listo, he registrado los cambios."
+            }
+
+            val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(combinedReply)
             conversationHistory.add(mapOf("role" to "assistant", "content" to reply))
             reply
         } catch (e: Exception) {
