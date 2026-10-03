@@ -1555,7 +1555,6 @@ fun ProfileScreen(
         var editName by remember { mutableStateOf(name) }
         var editAge by remember { mutableStateOf(age) }
         var editGender by remember { mutableStateOf(gender) }
-        var newInterestInput by remember { mutableStateOf("") }
         var editInterests by remember { mutableStateOf(interests) }
 
         Dialog(onDismissRequest = { isEditProfileOpen = false }) {
@@ -1663,32 +1662,43 @@ fun ProfileScreen(
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(10.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
+                    // Tarjeta explicativa cálida: Fifo aprende tus gustos hablando contigo
+                    Surface(
+                        color = FifoColors.HeroBlueCard,
+                        shape = RoundedCornerShape(16.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        OutlinedTextField(
-                            value = newInterestInput,
-                            onValueChange = { newInterestInput = it },
-                            placeholder = { Text("Nuevo gusto (ej: Pintura)", fontSize = 12.sp) },
-                            singleLine = true,
-                            shape = RoundedCornerShape(14.dp),
-                            modifier = Modifier.weight(1f)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Button(
-                            onClick = {
-                                if (newInterestInput.isNotBlank()) {
-                                    editInterests = editInterests + newInterestInput.trim()
-                                    newInterestInput = ""
-                                }
-                            },
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = FifoColors.NavyPrimary)
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.Top
                         ) {
-                            Text("Añadir", fontSize = 12.sp)
+                            Box(
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .background(Color.White, CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                FifoFace(size = 24.dp, isDarkTheme = false)
+                            }
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "¿Falta algún gusto tuyo?",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = FifoColors.NavyPrimary
+                                )
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = "Explícale a Fifo tus otros gustos durante sus charlas para que aparezcan aquí. Si uno no aparece, solo dale el detalle a él y Fifo lo pondrá en tu perfil.",
+                                    fontSize = 12.sp,
+                                    lineHeight = 17.sp,
+                                    color = FifoColors.NavyPrimary.copy(alpha = 0.85f)
+                                )
+                            }
                         }
                     }
 
