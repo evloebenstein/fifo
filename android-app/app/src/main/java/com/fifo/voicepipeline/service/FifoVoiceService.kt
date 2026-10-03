@@ -94,7 +94,7 @@ class FifoVoiceService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "FIFO Asistente Continuo",
+                "Fifo Asistente Continuo",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
                 description = "Mantiene a Fifo escuchando y conectado al ESP32 por Bluetooth"
@@ -116,7 +116,7 @@ class FifoVoiceService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("Tu amigo FIFO")
+            .setContentTitle("Tu amigo Fifo")
             .setContentText(text)
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(pendingIntent)
