@@ -79,7 +79,8 @@ data class UserProfileData(
     val city: String = "Santiago, Chile",
     val bioAi: String = "Amante de las novelas de historia, la música clásica de piano y las mañanas tranquilas con café. Disfruta compartir con Fifo anécdotas de su familia, preparar recetas caseras y cuidar las orquídeas de su jardín.",
     val emergencyContactName: String = "Carmen (Hija)",
-    val emergencyContactPhone: String = "+56987654321"
+    val emergencyContactPhone: String = "+56987654321",
+    val preferredAddress: String = "Av. Providencia 1234, Providencia, Santiago"
 )
 
 /**
@@ -151,4 +152,41 @@ data class DeepContextResult(
     /** Cuántas conversaciones completas se analizaron en el servidor */
     val conversationsSearched: Int = 0
 )
+
+// ═════════════════════════════════════════════════════════════════════
+//  LOCALIZADOR DEL DISPOSITIVO FIFO (Rastreo ESP32 + GPS Celular)
+// ═════════════════════════════════════════════════════════════════════
+
+/**
+ * Estado de ubicación y rastreo del robot físico Fifo.
+ *
+ * Dado que el ESP32 no tiene módulo GPS integrado propio:
+ * 1. El celular guarda las coordenadas GPS del celular cada vez que
+ *    el robot se conecta o desconecta por Bluetooth.
+ * 2. Mide la intensidad de señal BLE (RSSI) para estimar proximidad en la casa.
+ * 3. Permite activar un beeper/alarma sonora en el parlante del ESP32
+ *    y encender su pantalla OLED con "¡AQUÍ ESTOY!" para encontrarlo al instante.
+ */
+data class FifoDeviceLocation(
+    val isConnected: Boolean = false,
+    val lastConnectedTime: String = "Hoy a las 18:30",
+    val lastKnownLatitude: Double = -33.4255,
+    val lastKnownLongitude: Double = -70.6143,
+    val lastKnownAddress: String = "Av. Providencia 1234, Providencia, Santiago",
+    val lastKnownRoom: String = "Cerca del Living / Mesa de noche",
+    val signalStrengthRssi: Int = -64,
+    val isBeeping: Boolean = false
+)
+
+/**
+ * Información de ubicación geográfica actual obtenida del GPS del celular.
+ */
+data class CurrentLocationInfo(
+    val latitude: Double = -33.4255,
+    val longitude: Double = -70.6143,
+    val address: String = "Av. Providencia 1234",
+    val city: String = "Providencia, Santiago",
+    val isGpsActive: Boolean = true
+)
+
 

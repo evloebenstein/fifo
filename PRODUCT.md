@@ -83,4 +83,15 @@ Para la especificación completa del esquema de base de datos, mapeo de componen
 - **Capa Celular (Fragmentos Livianos On-Device)**: El dispositivo móvil solo mantiene fragmentos compactos (temas clave, entidades nombradas y resúmenes de ≤150 palabras). Esto elimina la latencia de red, garantizando respuestas casi instantáneas en el día a día.
 - **Recuperación Dinámica de Nicho (`recall_past_context`)**: Cuando el usuario pregunta por temas específicos pasados o anécdotas antiguas no presentes en la ventana de contexto compacto, Fifo invoca de forma autónoma su skill de búsqueda profunda en la base de datos central para responder con precisión y sin alucinaciones.
 
+## Phone-Only Mode, Lost Device Locator & GPS Navigation
+
+- **Modo Celular Independiente**: Posibilidad de hablar con Fifo directamente a través del micrófono y parlante del teléfono celular sin necesidad de tener el robot físico encendido ni conectado por Bluetooth, manteniendo la misma empatía, memoria y base de datos reactiva.
+- **Localizador de Robot Extraviado ("Te perdí", "¿Dónde estás?")**:
+  - En rango Bluetooth: Fifo activa una alarma y melodía alegre por el parlante del robot y enciende la pantalla OLED con "¡AQUÍ ESTOY!" para guiar al usuario por el sonido.
+  - Fuera de rango: Consulta las últimas coordenadas GPS guardadas por el celular al momento de la desconexión, indica la habitación o dirección aproximada y abre la ubicación exacta en Google Maps.
+- **Módulo GPS y Navegación Paso a Paso (Google Maps & Waze)**:
+  - Detección de ubicación actual en tiempo real para responder "¿dónde estamos?" con calle y comuna.
+  - Navegación guiada por voz paso a paso hacia el domicilio ("mi casa"), farmacias, consultorios, hospitales o parques utilizando Google Maps o Waze.
+
+
 

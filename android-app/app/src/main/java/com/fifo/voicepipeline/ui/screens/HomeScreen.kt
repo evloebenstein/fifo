@@ -53,6 +53,7 @@ fun HomeScreen(
 
     var isConversationsSheetOpen by remember { mutableStateOf(false) }
     var isAddMemoryOpen by remember { mutableStateOf(false) }
+    var isFinderOpen by remember { mutableStateOf(false) }
     var selectedHistoryTab by remember { mutableStateOf(0) } // 0: Charlas, 1: Recuerdos
 
     var conversations by remember {
@@ -333,6 +334,66 @@ fun HomeScreen(
                                 imageVector = Icons.Default.ArrowForward,
                                 contentDescription = null,
                                 modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                }
+
+                // ACCIONES RÁPIDAS SI NO ESTÁ CONECTADO: Hablar por celular o buscar dónde está
+                if (!isBleConnected) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        OutlinedButton(
+                            onClick = onStartVoiceChat,
+                            shape = RoundedCornerShape(18.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = FifoColors.NavyPrimary
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.2.dp, FifoColors.NavyPrimary.copy(alpha = 0.40f)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PhoneAndroid,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = FifoColors.NavyPrimary
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Por celular",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        OutlinedButton(
+                            onClick = { isFinderOpen = true },
+                            shape = RoundedCornerShape(18.dp),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                contentColor = FifoColors.NavyPrimary
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0xFFD97706).copy(alpha = 0.60f)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocationSearching,
+                                contentDescription = null,
+                                modifier = Modifier.size(18.dp),
+                                tint = Color(0xFFD97706)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "¿Dónde está?",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = FifoColors.NavyPrimary
                             )
                         }
                     }
@@ -1074,6 +1135,17 @@ fun HomeScreen(
                 }
             }
         }
+    }
+
+    // Modal para encontrar y rastrear al robot Fifo
+    if (isFinderOpen) {
+        com.fifo.voicepipeline.ui.components.FifoDeviceFinderDialog(
+            onDismiss = { isFinderOpen = false },
+            onScanBle = {
+                isFinderOpen = false
+                onStartVoiceChat()
+            }
+        )
     }
 }
 

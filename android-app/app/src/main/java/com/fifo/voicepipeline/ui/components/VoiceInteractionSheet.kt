@@ -45,9 +45,11 @@ fun VoiceInteractionSheet(
 ) {
     // Si se abrió sin conexión y se conecta exitosamente, notificar y cerrar automáticamente
     val wasEverDisconnected by remember { mutableStateOf(!isBleConnected) }
+    var isPhoneMicMode by remember { mutableStateOf(false) }
+    var showDeviceFinderDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(isBleConnected) {
-        if (wasEverDisconnected && isBleConnected) {
+        if (wasEverDisconnected && isBleConnected && !isPhoneMicMode) {
             delay(1200)
             onDismiss()
         }
@@ -78,17 +80,32 @@ fun VoiceInteractionSheet(
                         .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    if (!isBleConnected) {
+                    if (!isBleConnected && !isPhoneMicMode) {
                         // ══════════════════════════════════════════════════════════
-                        // PANTALLA 1: CONECTAR A FIFO (SIN SOBRECARGA VISUAL)
+                        // PANTALLA 1: CONECTAR A FIFO O HABLAR DESDE EL CELULAR
                         // ══════════════════════════════════════════════════════════
 
-                        // Barra superior: Sólo botón de cerrar
+                        // Barra superior: Botón rastrear + Botón cerrar
                         Row(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // Botón de ayuda para encontrar el dispositivo
+                            IconButton(
+                                onClick = { showDeviceFinderDialog = true },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .background(FifoColors.DarkInputBg, CircleShape)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationSearching,
+                                    contentDescription = "¿Dónde está mi Fifo?",
+                                    tint = Color(0xFFFBBF24),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
                             IconButton(
                                 onClick = onDismiss,
                                 modifier = Modifier
@@ -175,9 +192,65 @@ fun VoiceInteractionSheet(
                                 )
                             }
                         }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // BOTÓN SECUNDARIO: Hablar desde el celular sin necesidad de robot
+                        Button(
+                            onClick = {
+                                isPhoneMicMode = true
+                                onTalkFromPhone()
+                            },
+                            shape = RoundedCornerShape(20.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = FifoColors.DarkInputBg,
+                                contentColor = Color.White
+                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF0284C7)),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.PhoneAndroid,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(22.dp)
+                            )
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Hablar desde el celular",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // ACCIÓN TERCIARIA: Rastrear robot si se perdió
+                        TextButton(
+                            onClick = { showDeviceFinderDialog = true },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.LocationSearching,
+                                contentDescription = null,
+                                tint = Color(0xFFFBBF24),
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "¿No encuentras a tu Fifo? Rastrear dispositivo",
+                                fontSize = 14.sp,
+                                color = Color(0xFFFBBF24),
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                     } else {
                         // ══════════════════════════════════════════════════════════
-                        // PANTALLA 2: INTERACCIÓN DE VOZ COMPLETA (FIFO CONECTADO)
+                        // PANTALLA 2: INTERACCIÓN DE VOZ COMPLETA (FIFO CONECTADO O CELULAR)
                         // ══════════════════════════════════════════════════════════
 
                         // Barra superior: Indicador sutil de conexión + Botón Mute + Botón Cerrar
@@ -200,15 +273,21 @@ fun VoiceInteractionSheet(
                                         modifier = Modifier
                                             .size(8.dp)
                                             .background(
-                                                if (micSource == MicSource.PHONE) Color(0xFF38BDF8) else Color(0xFF10B981),
+                                                if (!isBleConnected) Color(0xFFFBBF24)
+                                                else if (micSource == MicSource.PHONE) Color(0xFF38BDF8)
+                                                else Color(0xFF10B981),
                                                 CircleShape
                                             )
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = if (micSource == MicSource.PHONE) "Micrófono Celular" else "Fifo Conectado · Mic Robot",
+                                        text = if (!isBleConnected) "Modo Celular (Sin Robot)"
+                                               else if (micSource == MicSource.PHONE) "Micrófono Celular"
+                                               else "Fifo Conectado · Mic Robot",
                                         fontSize = 12.sp,
-                                        color = if (micSource == MicSource.PHONE) Color(0xFF38BDF8) else Color(0xFF10B981),
+                                        color = if (!isBleConnected) Color(0xFFFBBF24)
+                                                else if (micSource == MicSource.PHONE) Color(0xFF38BDF8)
+                                                else Color(0xFF10B981),
                                         fontWeight = FontWeight.SemiBold
                                     )
                                 }
@@ -218,6 +297,21 @@ fun VoiceInteractionSheet(
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
+                                if (!isBleConnected) {
+                                    IconButton(
+                                        onClick = { showDeviceFinderDialog = true },
+                                        modifier = Modifier
+                                            .size(44.dp)
+                                            .background(FifoColors.DarkInputBg, CircleShape)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.LocationSearching,
+                                            contentDescription = "Buscar robot",
+                                            tint = Color(0xFFFBBF24),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                }
                                 IconButton(
                                     onClick = onToggleMicMute,
                                     modifier = Modifier
@@ -440,6 +534,17 @@ fun VoiceInteractionSheet(
                     }
                 }
             }
+        }
+
+        // Modal de búsqueda de robot Fifo (Localizador GPS + Sonido Beep)
+        if (showDeviceFinderDialog) {
+            FifoDeviceFinderDialog(
+                onDismiss = { showDeviceFinderDialog = false },
+                onScanBle = {
+                    showDeviceFinderDialog = false
+                    onConnectBle()
+                }
+            )
         }
     }
 }

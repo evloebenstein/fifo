@@ -13,6 +13,7 @@
 5. [Guía de Implementación Técnica (Firestore / Supabase / SQLite Room)](#5-guía-de-implementación-técnica)
 6. [Reglas de Privacidad y Manejo de Información Sensible](#6-reglas-de-privacidad-y-manejo-de-información-sensible)
 7. [Arquitectura de Memoria de Doble Capa: Servidor Completo vs. Celular Compacto](#7-arquitectura-de-memoria-de-doble-capa-servidor-completo-vs-celular-compacto)
+8. [Modo Celular, Rastreo del Robot y Navegación GPS (Maps y Waze)](#8-modo-celular-rastreo-del-robot-y-navegación-gps-maps-y-waze)
 
 ---
 
@@ -225,6 +226,23 @@ Bitácora de bienestar y recuerdos entrañables aprendidos por Fifo.
 
 ---
 
+### 2.8. Colección: `device_locations` (Rastreo del Robot Fifo y Última Conexión GPS)
+Registra la última ubicación geográfica conocida y proximidad del robot físico Fifo.
+
+| Campo | Tipo | Requerido | Descripción | Ejemplo |
+| :--- | :--- | :---: | :--- | :--- |
+| `device_id` | `String` | Sí | Identificador BLE del hardware ESP32 | `"FIFO-S3-ESP32"` |
+| `user_id` | `String` | Sí | Referencia a `users.id` | `"usr_lucia_01"` |
+| `is_connected` | `Boolean` | Sí | Si está conectado por Bluetooth ahora | `false` |
+| `last_connected_time` | `String` | Sí | Hora legible de última conexión | `"Hoy a las 18:30"` |
+| `last_known_latitude` | `Double` | Sí | Latitud GPS capturada por el celular | `-33.4255` |
+| `last_known_longitude`| `Double` | Sí | Longitud GPS capturada por el celular | `-70.6143` |
+| `last_known_address` | `String` | Sí | Dirección de la última desconexión | `"Av. Providencia 1234, Santiago"` |
+| `last_known_room` | `String` | Sí | Habitación sugerida en la casa | `"Cerca del Living / Mesa de noche"` |
+| `signal_strength_rssi`| `Int` | Sí | Intensidad de señal BLE en dBm | `-64` |
+
+---
+
 ## 3. Matriz de Mapeo: Pantallas de la App ↔ Base de Datos ↔ Acciones de Voz de Fifo
 
 Esta tabla es la guía definitiva para saber **qué pantalla y qué componente visual se actualiza cuando Fifo ejecuta una acción por voz**:
@@ -301,6 +319,27 @@ Fifo cuenta con un sistema de **Skills (Herramientas / Function Calling)** que l
   * `recall_past_context(query, context_hint)`: Busca en la base de datos del servidor las conversaciones completas que coincidan con el tema o la persona solicitada y retorna un resumen sintetizado con los extractos exactos.
 * **Respuesta hablada de Fifo:**  
   *"¡Claro que me acuerdo, Lucía! En nuestra charla de hace unos días sobre su cocina, me contó que el secreto de su cazuela de ave era dorar la cebolla con una pizca de comino suave antes de agregar el caldo."*
+
+#### 📍 7. `FindFifoDeviceSkill` (Localizador del Robot Fifo / "Te perdí")
+* **Objetivo:** Encontrar el robot Fifo cuando el usuario dice que no lo encuentra o pregunta "¿dónde estás?".
+* **Funciones:**
+  * `find_fifo_device(action)`: Si está conectado por Bluetooth, emite un tono/melodía alegre por el parlante del robot y enciende la pantalla con "¡AQUÍ ESTOY!". Si está desconectado, consulta la última ubicación GPS y dirección registradas por el celular y abre el mapa.
+* **Respuesta hablada de Fifo:**  
+  *"¡Aquí estoy, Lucía! Estoy conectado y muy cerca de usted. Estoy haciendo sonar una melodía por mi parlante para que me escuche: ¡bip bip bip! Siga el sonido."*
+
+#### 🧭 8. `CurrentLocationSkill` (Ubicación GPS Celular / "¿Dónde estamos?")
+* **Objetivo:** Responder con precisión geográfica cuando el usuario pregunta en qué calle o comuna se encuentra.
+* **Funciones:**
+  * `get_current_location()`: Lee las coordenadas GPS del celular y realiza geocodificación inversa.
+* **Respuesta hablada de Fifo:**  
+  *"Estamos en Avenida Providencia 1234, en la comuna de Providencia. ¿Desea que le ayude con indicaciones para llegar a algún lugar?"*
+
+#### 🚗 9. `NavigationDirectionsSkill` (Navegación Paso a Paso con Maps o Waze)
+* **Objetivo:** Guiar al usuario paso a paso abriendo Google Maps o Waze hacia su casa, consultorio, farmacia o parque.
+* **Funciones:**
+  * `open_navigation_directions(destination, navigation_app)`: Lanza la ruta de navegación en la app preferida.
+* **Respuesta hablada de Fifo:**  
+  *"He iniciado la navegación hacia su casa en Waze. Ya puede seguir las indicaciones paso a paso en la pantalla de su teléfono."*
 
 ---
 
@@ -394,6 +433,39 @@ Fifo cuenta con un sistema de **Skills (Herramientas / Function Calling)** que l
         "context_hint": { "type": "string", "description": "Pista adicional sobre qué tipo de información buscas (ej: 'detalle de receta', 'nombre de persona', 'fecha de evento')" }
       },
       "required": ["query"]
+    }
+  },
+  {
+    "name": "find_fifo_device",
+    "description": "Ayuda a encontrar el robot físico Fifo cuando el usuario dice que lo perdió, pregunta 'dónde estás', 'te perdí' o pide que emita un sonido para encontrarlo en la casa o en la calle.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "action": { "type": "string", "enum": ["locate", "beep", "last_known_place"], "description": "Acción a realizar" }
+      },
+      "required": ["action"]
+    }
+  },
+  {
+    "name": "get_current_location",
+    "description": "Obtiene la ubicación geográfica actual del usuario a través del GPS del celular y le informa con exactitud en qué calle, comuna o ciudad se encuentra cuando pregunta '¿dónde estamos?' o '¿cuál es mi ubicación?'.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "detail_level": { "type": "string", "enum": ["street_and_city", "city_only"], "description": "Nivel de detalle" }
+      }
+    }
+  },
+  {
+    "name": "open_navigation_directions",
+    "description": "Abre la navegación paso a paso hacia un destino en el celular utilizando Google Maps o Waze cuando el usuario pide direcciones o pregunta cómo llegar a algún lugar.",
+    "input_schema": {
+      "type": "object",
+      "properties": {
+        "destination": { "type": "string", "description": "Destino o dirección (ej: 'mi casa', 'Farmacia Cruz Verde', 'Hospital del Salvador')" },
+        "navigation_app": { "type": "string", "enum": ["google_maps", "waze"], "description": "App de navegación ('google_maps' o 'waze')" }
+      },
+      "required": ["destination"]
     }
   }
 ]
@@ -647,5 +719,53 @@ Resumen: Conversaron sobre la música clásica y los nocturnos de Chopin. Su nie
 6. **Balance Óptimo:**  
    - 95% de las charlas: Latencia ultra-baja (payload liviano sin overhead).
    - 5% de las charlas que requieren memoria profunda: Recuperación quirúrgica sin alucinaciones ni pérdidas de contexto.
+
+---
+
+## 8. Modo Celular, Rastreo del Robot y Navegación GPS (Maps y Waze)
+
+### 8.1 Modo Celular Independiente (Sin Robot Físico)
+Para permitir que el adulto mayor converse con Fifo en cualquier momento (esté fuera de casa, de paseo, en la consulta médica o con el robot guardado):
+- La aplicación móvil permite **hablar directamente desde el celular** usando su micrófono nativo (`PhoneMicRecorder` / `NativeSpeechRecognizer`) y parlante (`AndroidTtsSpeaker`).
+- En la pantalla de conexión ("Prende a tu Fifo"), el usuario cuenta con el botón directo: **"Hablar desde el celular"**, que activa inmediatamente la interacción de voz completa sin requerir Bluetooth.
+- El estado y la continuidad de memoria son compartidos: todas las historias, gustos y recordatorios se guardan en la misma base de datos reactiva.
+
+---
+
+### 8.2 Rastreo del Robot Perdido ("Te perdí", "¿Dónde estás?")
+Dado que el microcontrolador ESP32-S3 no cuenta con un receptor GPS autónomo por razones de costo y autonomía de batería, Fifo implementa una **estrategia de localización híbrida inteligente**:
+
+1. **Rastreo por Proximidad Bluetooth (BLE RSSI) + Beeper en el Robot:**
+   - Si el robot está encendido y dentro del alcance del teléfono (~10-15 metros):
+     - El usuario pregunta por voz: *"Fifo, te perdí, ¿dónde estás?"* o presiona *"Hacer sonar a Fifo"*.
+     - Fifo activa la herramienta `find_fifo_device(action="beep")`.
+     - El celular envía por BLE el comando `FIND_ME` a la característica `0000ff12-...` del ESP32.
+     - El parlante del ESP32 (MAX98357A) emite una melodía alegre en bucle y su pantalla OLED parpadea con el mensaje: **"¡AQUÍ ESTOY!"**.
+     - Fifo avisa por voz: *"¡Aquí estoy, Lucía! Estoy muy cerca. Siga el sonido de mi voz."*
+
+2. **Última Ubicación Conocida vía GPS del Celular (Last Known Location):**
+   - Cada vez que el robot se conecta o desconecta por Bluetooth, la app captura instantáneamente las coordenadas GPS del celular (`ACCESS_FINE_LOCATION`), realiza geocodificación inversa y almacena el registro en `device_locations`:
+     - Fecha y hora: `"Hoy a las 18:30"`
+     - Dirección aproximada: `"Av. Providencia 1234, Providencia, Santiago"`
+     - Habitación / Zona: `"Cerca del Living / Mesa de noche"`
+   - Si el usuario extravió el robot fuera de casa o en otra habitación lejana:
+     - Fifo le informa verbalmente dónde estuvieron juntos por última vez.
+     - Abre automáticamente un marcador en Google Maps (`geo:lat,lon?q=...`) para guiarlo visualmente hacia el lugar exacto.
+
+---
+
+### 8.3 Módulo GPS y Navegación Paso a Paso (Google Maps y Waze)
+Fifo integra el módulo de geolocalización y navegación nativa del teléfono para responder dudas de orientación espacial del adulto mayor:
+
+1. **"Fifo, ¿dónde estamos?" (`get_current_location`):**
+   - Lee el GPS en tiempo real y responde con claridad:  
+     *"Estamos en Avenida Providencia 1234, en la comuna de Providencia, Santiago. ¿Desea que le indique cómo llegar a algún lugar?"*
+2. **"Fifo, ¿cómo llego a mi casa / farmacia / hospital?" (`open_navigation_directions`):**
+   - Si el destino es "mi casa", toma la dirección registrada en el perfil del usuario (`preferredAddress`).
+   - Lanza la navegación guiada por voz en **Google Maps** o **Waze** según la preferencia del usuario:
+     - Google Maps: `google.navigation:q=[destino]&mode=d`
+     - Waze: `waze://?q=[destino]&navigate=yes`
+   - Fifo confirma por voz: *"He iniciado la navegación hacia su casa en Waze. Ya puede seguir las indicaciones paso a paso en su pantalla."*
+
 
 

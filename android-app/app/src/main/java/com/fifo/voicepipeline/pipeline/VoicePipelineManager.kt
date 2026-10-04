@@ -85,12 +85,41 @@ class VoicePipelineManager(
                 vad.reset()
                 pcmBuffer.clear()
                 updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
+
+                // Registrar ubicación GPS del celular al conectar
+                try {
+                    val loc = com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(context)
+                    com.fifo.voicepipeline.data.FifoDataRepository.updateDeviceConnectionStatus(
+                        connected = true,
+                        latitude = loc.latitude,
+                        longitude = loc.longitude,
+                        address = loc.address,
+                        roomHint = "En esta habitación",
+                        rssi = -60
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error registrando ubicación al conectar: ${e.message}")
+                }
             } else {
                 Log.i(TAG, "ESP32-S3 desconectado de BLE")
                 _state.value = PipelineState.DISCONNECTED
                 _statusMessage.value = "Fifo desconectado · Conecte por Bluetooth"
                 vad.reset()
                 pcmBuffer.clear()
+
+                // Registrar última ubicación GPS conocida del celular al desconectar
+                try {
+                    val loc = com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(context)
+                    com.fifo.voicepipeline.data.FifoDataRepository.updateDeviceConnectionStatus(
+                        connected = false,
+                        latitude = loc.latitude,
+                        longitude = loc.longitude,
+                        address = loc.address,
+                        roomHint = "Cerca del lugar de desconexión"
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error registrando ubicación al desconectar: ${e.message}")
+                }
             }
         }
     )
@@ -216,6 +245,20 @@ class VoicePipelineManager(
         // Iniciar escucha continua de voz si no está silenciado
         if (!_isMicMuted.value) {
             nativeRecognizer?.startContinuousListening()
+        }
+
+        // Observar solicitud de beep / alarma sonora para encontrar a Fifo
+        scope.launch {
+            com.fifo.voicepipeline.data.FifoDataRepository.deviceLocation.collect { devLoc ->
+                if (devLoc.isBeeping) {
+                    if (bleClient.isConnected) {
+                        updateEspDisplay(state = "FIND_ME", transcript = "¡AQUÍ ESTOY!", response = "BEEP", level = 1.0f)
+                    }
+                    androidTtsSpeaker?.speak("¡Aquí estoy, Lucía! Siga el sonido de mi voz.")
+                    kotlinx.coroutines.delay(3500)
+                    com.fifo.voicepipeline.data.FifoDataRepository.triggerDeviceBeep(false)
+                }
+            }
         }
 
         // Iniciar escaneo y conexión BLE con el ESP32-S3

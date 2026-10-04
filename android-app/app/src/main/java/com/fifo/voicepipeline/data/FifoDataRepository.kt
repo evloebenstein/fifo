@@ -545,5 +545,54 @@ object FifoDataRepository {
             conversationsSearched = allFragments.size
         )
     }
+
+    // ══════════════════════════════════════════════════════════════
+    //  9. Rastreo de Ubicación del Dispositivo Fifo (ESP32)
+    // ══════════════════════════════════════════════════════════════
+
+    private val _deviceLocation = MutableStateFlow(
+        FifoDeviceLocation(
+            isConnected = false,
+            lastConnectedTime = "Hoy a las 18:30",
+            lastKnownLatitude = -33.4255,
+            lastKnownLongitude = -70.6143,
+            lastKnownAddress = "Av. Providencia 1234, Providencia, Santiago",
+            lastKnownRoom = "Cerca del Living / Mesa de noche",
+            signalStrengthRssi = -64,
+            isBeeping = false
+        )
+    )
+    val deviceLocation: StateFlow<FifoDeviceLocation> = _deviceLocation.asStateFlow()
+
+    /**
+     * Actualiza el estado de conexión y coordenadas GPS de la última vez visto.
+     */
+    fun updateDeviceConnectionStatus(
+        connected: Boolean,
+        latitude: Double? = null,
+        longitude: Double? = null,
+        address: String? = null,
+        roomHint: String? = null,
+        rssi: Int? = null
+    ) {
+        val current = _deviceLocation.value
+        _deviceLocation.value = current.copy(
+            isConnected = connected,
+            lastConnectedTime = if (connected) "Conectado ahora" else "Hoy a las 18:30",
+            lastKnownLatitude = latitude ?: current.lastKnownLatitude,
+            lastKnownLongitude = longitude ?: current.lastKnownLongitude,
+            lastKnownAddress = address ?: current.lastKnownAddress,
+            lastKnownRoom = roomHint ?: current.lastKnownRoom,
+            signalStrengthRssi = rssi ?: current.signalStrengthRssi,
+            isBeeping = if (!connected) false else current.isBeeping
+        )
+    }
+
+    /**
+     * Activa o desactiva la alarma sonora en el robot para encontrarlo cuando se pierde.
+     */
+    fun triggerDeviceBeep(beeping: Boolean) {
+        _deviceLocation.value = _deviceLocation.value.copy(isBeeping = beeping)
+    }
 }
 

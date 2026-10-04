@@ -30,6 +30,9 @@ class FifoSkillRegistry(private val context: Context) {
         registerSkill(PhoneCommunicationSkill(context))
         registerSkill(ProfileDatabaseSkill(context))
         registerSkill(ContextRecallSkill(context))
+        registerSkill(FindFifoDeviceSkill(context))
+        registerSkill(CurrentLocationSkill(context))
+        registerSkill(NavigationDirectionsSkill(context))
         Log.i(TAG, "Inicializado FifoSkillRegistry con ${skills.size} herramientas.")
     }
 
