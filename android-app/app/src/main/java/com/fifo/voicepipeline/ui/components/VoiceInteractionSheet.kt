@@ -48,6 +48,9 @@ fun VoiceInteractionSheet(
     var isPhoneMicMode by remember { mutableStateOf(false) }
     var showDeviceFinderDialog by remember { mutableStateOf(false) }
 
+    val isContinuousListening by com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.collectAsState()
+    val incomingCall by com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.collectAsState()
+
     LaunchedEffect(isBleConnected) {
         if (wasEverDisconnected && isBleConnected && !isPhoneMicMode) {
             delay(1200)
@@ -80,7 +83,7 @@ fun VoiceInteractionSheet(
                         .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    if (!isBleConnected && !isPhoneMicMode) {
+                    if (!isBleConnected && !isPhoneMicMode && micSource != MicSource.PHONE) {
                         // ══════════════════════════════════════════════════════════
                         // PANTALLA 1: CONECTAR A FIFO O HABLAR DESDE EL CELULAR
                         // ══════════════════════════════════════════════════════════
@@ -273,7 +276,8 @@ fun VoiceInteractionSheet(
                                         modifier = Modifier
                                             .size(8.dp)
                                             .background(
-                                                if (!isBleConnected) Color(0xFFFBBF24)
+                                                if (isContinuousListening) Color(0xFF34D399)
+                                                else if (!isBleConnected) Color(0xFFFBBF24)
                                                 else if (micSource == MicSource.PHONE) Color(0xFF38BDF8)
                                                 else Color(0xFF10B981),
                                                 CircleShape
@@ -281,11 +285,13 @@ fun VoiceInteractionSheet(
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = if (!isBleConnected) "Modo Celular (Sin Robot)"
+                                        text = if (isContinuousListening) "Escucha Continua (Sin 'Fifo')"
+                                               else if (!isBleConnected) "Modo Celular (Sin Robot)"
                                                else if (micSource == MicSource.PHONE) "Micrófono Celular"
                                                else "Fifo Conectado · Mic Robot",
                                         fontSize = 12.sp,
-                                        color = if (!isBleConnected) Color(0xFFFBBF24)
+                                        color = if (isContinuousListening) Color(0xFF34D399)
+                                                else if (!isBleConnected) Color(0xFFFBBF24)
                                                 else if (micSource == MicSource.PHONE) Color(0xFF38BDF8)
                                                 else Color(0xFF10B981),
                                         fontWeight = FontWeight.SemiBold
@@ -347,6 +353,82 @@ fun VoiceInteractionSheet(
 
                         Spacer(modifier = Modifier.height(16.dp))
 
+                        // BANNER DE LLAMADA ENTRANTE (ALEXA STYLE)
+                        incomingCall?.let { call ->
+                            if (call.isRinging) {
+                                Surface(
+                                    color = Color(0xFF450A0A),
+                                    shape = RoundedCornerShape(20.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFEF4444)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = Color(0xFFEF4444),
+                                                modifier = Modifier.size(40.dp)
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Call,
+                                                        contentDescription = null,
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "¡Llamada de ${call.callerName}!",
+                                                    fontSize = 16.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                                Text(
+                                                    text = "Diga 'Fifo contesta' o use los botones",
+                                                    fontSize = 12.sp,
+                                                    color = Color(0xFFFCA5A5)
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(14.dp))
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            Button(
+                                                onClick = { com.fifo.voicepipeline.data.FifoDataRepository.answerCurrentCall() },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
+                                                shape = RoundedCornerShape(14.dp),
+                                                modifier = Modifier.weight(1f).height(44.dp)
+                                            ) {
+                                                Icon(Icons.Default.PhoneInTalk, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Contestar", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                                            }
+
+                                            OutlinedButton(
+                                                onClick = { com.fifo.voicepipeline.data.FifoDataRepository.hangupCurrentCall() },
+                                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
+                                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444)),
+                                                shape = RoundedCornerShape(14.dp),
+                                                modifier = Modifier.weight(1f).height(44.dp)
+                                            ) {
+                                                Icon(Icons.Default.CallEnd, contentDescription = null, tint = Color(0xFFEF4444), modifier = Modifier.size(16.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Colgar", fontWeight = FontWeight.Bold, color = Color(0xFFEF4444), fontSize = 13.sp)
+                                            }
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(14.dp))
+                            }
+                        }
+
                         // Rostro animado y expresivo de Fifo
                         FifoFace(
                             size = 130.dp,
@@ -360,6 +442,8 @@ fun VoiceInteractionSheet(
                         // Estado del pipeline (Único badge de estado)
                         val (statusText, statusBg, statusColor) = if (isMicMuted) {
                             Triple("Micrófono Silenciado · Toque para activar", Color(0xFFEF4444).copy(alpha = 0.2f), Color(0xFFEF4444))
+                        } else if (isContinuousListening && state == PipelineState.LISTENING) {
+                            Triple("Escucha continua activa · Hable sin 'Fifo'", Color(0xFF064E3B).copy(alpha = 0.6f), Color(0xFF34D399))
                         } else when (state) {
                             PipelineState.LISTENING -> Triple(
                                 if (micSource == MicSource.PHONE) "Escuchando por el celular..." else "Escuchando... Diga 'Fifo'",

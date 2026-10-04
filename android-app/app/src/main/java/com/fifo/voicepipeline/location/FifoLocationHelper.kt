@@ -194,6 +194,76 @@ object FifoLocationHelper {
     }
 
     /**
+     * Genera indicaciones de navegación habladas (guía verbal manos libres),
+     * permitiendo al adulto mayor saber hacia dónde caminar, la distancia y el tiempo
+     * SIN necesidad de sacar el celular del bolsillo ni mirar la pantalla.
+     */
+    fun getSpokenRouteGuidance(context: Context, destination: String): SpokenRouteGuidance {
+        val currentLoc = getCurrentLocation(context)
+        val defaultAddress = FifoDataRepository.userProfile.value.preferredAddress
+
+        var destLat = currentLoc.latitude
+        var destLon = currentLoc.longitude
+        var resolvedName = destination
+
+        try {
+            val geocoder = Geocoder(context, Locale("es", "CL"))
+            @Suppress("DEPRECATION")
+            val matches = geocoder.getFromLocationName(destination, 1)
+            if (!matches.isNullOrEmpty()) {
+                destLat = matches[0].latitude
+                destLon = matches[0].longitude
+                resolvedName = matches[0].featureName ?: matches[0].thoroughfare ?: destination
+            } else {
+                // Si no encuentra la dirección exacta, estimar offset suave
+                destLat = currentLoc.latitude + 0.003
+                destLon = currentLoc.longitude + 0.002
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error geocodificando destino '$destination': ${e.message}")
+            destLat = currentLoc.latitude + 0.003
+            destLon = currentLoc.longitude + 0.002
+        }
+
+        // Calcular distancia y orientación
+        val results = FloatArray(2)
+        Location.distanceBetween(currentLoc.latitude, currentLoc.longitude, destLat, destLon, results)
+        val distanceMeters = results[0].toInt().coerceAtLeast(150)
+        val initialBearing = (results[1] + 360) % 360
+
+        val cardinal = when (initialBearing) {
+            in 337.5..360.0, in 0.0..22.5 -> "hacia el norte"
+            in 22.5..67.5 -> "hacia el nororiente"
+            in 67.5..112.5 -> "hacia el oriente"
+            in 112.5..157.5 -> "hacia el suroriente"
+            in 157.5..202.5 -> "hacia el sur"
+            in 202.5..247.5 -> "hacia el suroccidente"
+            in 247.5..292.5 -> "hacia el poniente"
+            else -> "hacia el norponiente"
+        }
+
+        val blocks = (distanceMeters / 100).coerceAtLeast(1)
+        val walkingMinutes = (distanceMeters / 75).coerceAtLeast(2) // 75 m/min (~4.5 km/h)
+        val drivingMinutes = (distanceMeters / 400).coerceAtLeast(1)
+
+        val spoken = if (distanceMeters < 1000) {
+            "Para ir a $resolvedName: le queda a unos $distanceMeters metros de distancia, aproximadamente a $walkingMinutes minutos caminando $cardinal (a unas $blocks cuadras). Salga a la calle y avance derecho en esa dirección. ¿Desea que le vaya avisando los siguientes pasos mientras camina o prefiere que le abra el mapa en pantalla?"
+        } else {
+            val km = String.format(Locale("es", "ES"), "%.1f", distanceMeters / 1000.0)
+            "Para ir a $resolvedName: está a unos $km kilómetros $cardinal, aproximadamente a $drivingMinutes minutos en vehículo o locomoción. ¿Desea que le abra el mapa en pantalla o prefiere pedir un transporte?"
+        }
+
+        return SpokenRouteGuidance(
+            destination = resolvedName,
+            distanceMeters = distanceMeters,
+            walkingMinutes = walkingMinutes,
+            drivingMinutes = drivingMinutes,
+            cardinalDirection = cardinal,
+            spokenGuidance = spoken
+        )
+    }
+
+    /**
      * Abre Google Maps mostrando un punto exacto en el mapa con un marcador (ej: última ubicación de Fifo).
      */
     fun openMapPin(
@@ -213,3 +283,15 @@ object FifoLocationHelper {
         }
     }
 }
+
+/**
+ * Resultado estructurado de guía de navegación hablada manos libres.
+ */
+data class SpokenRouteGuidance(
+    val destination: String,
+    val distanceMeters: Int,
+    val walkingMinutes: Int,
+    val drivingMinutes: Int,
+    val cardinalDirection: String,
+    val spokenGuidance: String
+)

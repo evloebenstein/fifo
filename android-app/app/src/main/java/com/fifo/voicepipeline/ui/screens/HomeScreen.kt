@@ -50,6 +50,8 @@ fun HomeScreen(
     val liveReminders by com.fifo.voicepipeline.data.FifoDataRepository.reminders.collectAsState()
     val liveConversations by com.fifo.voicepipeline.data.FifoDataRepository.conversations.collectAsState()
     val liveMemories by com.fifo.voicepipeline.data.FifoDataRepository.memories.collectAsState()
+    val incomingCall by com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.collectAsState()
+    val isContinuousListening by com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.collectAsState()
 
     var isConversationsSheetOpen by remember { mutableStateOf(false) }
     var isAddMemoryOpen by remember { mutableStateOf(false) }
@@ -218,7 +220,143 @@ fun HomeScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(22.dp))
+        Spacer(modifier = Modifier.height(18.dp))
+
+        // ── BANNER DE LLAMADA ENTRANTE ACTIVA TIPO ALEXA ─────────────
+        incomingCall?.let { call ->
+            if (call.isRinging) {
+                Surface(
+                    color = Color(0xFFFEF2F2),
+                    shape = RoundedCornerShape(24.dp),
+                    border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFFEF4444)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFFEF4444),
+                                modifier = Modifier.size(46.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.Call,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "¡Llamada de ${call.callerName}!",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF991B1B)
+                                )
+                                Text(
+                                    text = "Diga 'Fifo contesta' o use los botones de abajo",
+                                    fontSize = 13.sp,
+                                    color = Color(0xFFB91C1C)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Button(
+                                onClick = { com.fifo.voicepipeline.data.FifoDataRepository.answerCurrentCall() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                            ) {
+                                Icon(Icons.Default.PhoneInTalk, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Contestar", fontWeight = FontWeight.Bold, color = Color.White)
+                            }
+
+                            OutlinedButton(
+                                onClick = { com.fifo.voicepipeline.data.FifoDataRepository.hangupCurrentCall() },
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626)),
+                                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFDC2626)),
+                                shape = RoundedCornerShape(16.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(48.dp)
+                            ) {
+                                Icon(Icons.Default.CallEnd, contentDescription = null, tint = Color(0xFFDC2626), modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Colgar", fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
+                            }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
+
+        // ── BANNER DE ESCUCHA CONTINUA ("Fifo sigue escuchando") ─────
+        if (isContinuousListening) {
+            Surface(
+                color = Color(0xFFECFDF5),
+                shape = RoundedCornerShape(20.dp),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF10B981)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF10B981),
+                            modifier = Modifier.size(12.dp)
+                        ) {}
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Fifo sigue escuchando activamente",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF065F46)
+                            )
+                            Text(
+                                text = "Hable libremente sin decir 'Fifo'. Diga 'Fifo descansa' para pausar.",
+                                fontSize = 12.sp,
+                                color = Color(0xFF047857)
+                            )
+                        }
+                    }
+
+                    TextButton(
+                        onClick = { com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false) },
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = "Pausar",
+                            color = Color(0xFF047857),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.height(16.dp))
+        }
 
         // ── HERO CARD: Dinámica según conexión ("Conecte a Fifo" o "Tu Fifo está conectado") ───
         Surface(

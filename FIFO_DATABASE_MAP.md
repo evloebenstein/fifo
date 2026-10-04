@@ -762,10 +762,105 @@ Fifo integra el módulo de geolocalización y navegación nativa del teléfono p
      *"Estamos en Avenida Providencia 1234, en la comuna de Providencia, Santiago. ¿Desea que le indique cómo llegar a algún lugar?"*
 2. **"Fifo, ¿cómo llego a mi casa / farmacia / hospital?" (`open_navigation_directions`):**
    - Si el destino es "mi casa", toma la dirección registrada en el perfil del usuario (`preferredAddress`).
-   - Lanza la navegación guiada por voz en **Google Maps** o **Waze** según la preferencia del usuario:
-     - Google Maps: `google.navigation:q=[destino]&mode=d`
+   - **Por defecto: Guía 100% Hablada por Voz (Hands-free):** Fifo calcula la distancia, el tiempo caminando y el rumbo cardinal sin obligar al adulto mayor a sacar el celular de su bolsillo ni mirar una pantalla pequeña:  
+     *"Para ir a Farmacia Ahumada camine aproximadamente 220 metros hacia el norte, por la vereda derecha. Le tomará unos 3 minutos a paso tranquilo."*
+   - **Navegación Visual Opcional:** Si el usuario solicita explícitamente ver el mapa en pantalla (*"Abre Maps en pantalla"* o *"Abre Waze"*), lanza la aplicación correspondiente en segundo plano:
+     - Google Maps: `google.navigation:q=[destino]&mode=w`
      - Waze: `waze://?q=[destino]&navigate=yes`
-   - Fifo confirma por voz: *"He iniciado la navegación hacia su casa en Waze. Ya puede seguir las indicaciones paso a paso en su pantalla."*
+
+---
+
+## 9. Arquitectura "Alexa para Celular": Telefonía, Escucha Continua y Control de Hardware
+
+> **Objetivo de Accesibilidad:**  
+> Transformar el teléfono móvil en un **asistente invisible de fondo**. El adulto mayor no tiene que desbloquear el teléfono, buscar íconos, deslizar paneles ni lidiar con interfaces táctiles complejas. Fifo gestiona las tareas del teléfono por comando de voz con la misma comodidad y naturalidad que un parlante inteligente tipo Amazon Alexa, pero aprovechando los sensores, antenas y conectividad del celular.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                 ARQUITECTURA DE FONDO: "ALEXA EN TU CELULAR"                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  [1. LLAMADAS TELEFÓNICAS MANOS LIBRES]                                     │
+│  • FifoPhoneCallReceiver + FifoCallManager (TelephonyManager API 34)        │
+│  • Detección inmediata de RINGING + Lookup de Contactos (ContactsContract) │
+│  • Anuncio hablado proactivo: "¡Lucía! Le está llamando Carmen (Hija)..."   │
+│  • Comandos de voz directos: "Fifo contesta" (altavoz activado) / "cuelga"  │
+│                                                                             │
+│  [2. MODO ESCUCHA CONTINUA ("Fifo sigue escuchando")]                      │
+│  • Estado reactivo: FifoDataRepository.isContinuousListening                │
+│  • Mantiene el micrófono abierto tras cada turno conversacional             │
+│  • Sin necesidad de repetir la palabra clave "Fifo" en cada frase           │
+│  • Ventana de silencio extendida a 120 segundos para pausas tranquilas     │
+│  • Desactivación natural: "Fifo descansa" / "ya no escuches"                │
+│                                                                             │
+│  [3. GUÍA DE NAVEGACIÓN SPOKEN HANDS-FREE]                                  │
+│  • Geocoder Android + Location.distanceBetween + Geodesic Bearing           │
+│  • Indicaciones verbales: Metros, minutos a paso senior, dirección cardinal │
+│  • Cero necesidad de mirar la pantalla o abrir apps pesadas en la calle     │
+│                                                                             │
+│  [4. CONTROL DE HARDWARE DEL DISPOSITIVO]                                   │
+│  • Linterna: CameraManager.setTorchMode (prender / apagar linterna)         │
+│  • Volumen: AudioManager.setStreamVolume (subir, bajar, silenciar)          │
+│  • Batería: BatteryManager (nivel porcentual y estado de carga)             │
+│  • Hora y Fecha: Formato hablado empático en español ("Son las 4 y cuarto") │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 9.1 Manejo de Llamadas Telefónicas (`manage_phone_call`)
+
+- **Detección y Anuncio Proactivo:**
+  Cuando el teléfono recibe una llamada entrante, el `FifoCallManager` intercepta el evento `EXTRA_STATE_RINGING`. Si la agenda telefónica contiene el número, obtiene el nombre del contacto (`"Carmen (Hija)"` o `"Dr. Soto"`). Fifo interrumpe suavemente cualquier actividad y anuncia por voz:  
+  *"¡Lucía! Le está llamando Carmen (Hija). ¿Desea que conteste o que cuelgue?"*
+- **Acciones Disponibles:**
+  1. `answer`: Invoca `TelecomManager.acceptRingingCall()`, activa el modo `AudioManager.MODE_IN_COMMUNICATION` y conmuta a `isSpeakerphoneOn = true`. El usuario puede conversar de inmediato al aire sin acercar el teléfono a su oreja.
+  2. `hangup`: Invoca `TelecomManager.endCall()` y confirma verbalmente: *"He colgado la llamada."*
+  3. `status`: Informa si hay una llamada en curso o sonando.
+  4. `call`: Marca automáticamente al contacto solicitado usando la agenda del teléfono.
+
+### 9.2 Modo de Escucha Continua ("Fifo sigue escuchando")
+
+- **Problema que Resuelve:**
+  En los asistentes convencionales, el usuario debe repetir "Oye Siri" o "Alexa" antes de cada frase, lo cual resulta agotador y artificial para un adulto mayor en medio de una conversación extensa o una sesión de preguntas sobre su salud o su familia.
+- **Funcionamiento:**
+  - El usuario dice: *"Fifo, sigue escuchando"*, *"quédate escuchando"* o *"modo conversación"*.
+  - El pipeline activa `isContinuousListening = true`.
+  - Fifo confirma: *"De acuerdo, me quedo escuchando atentamente. Puedes hablarme directo sin decir mi nombre. Cuando quieras que descanse, solo dime 'Fifo descansa'."*
+  - En este modo:
+    - Tras cada respuesta de Fifo, el micrófono se re-arma inmediatamente en estado `LISTENING`.
+    - No se requiere pronunciar el wake-word "Fifo" para capturar el siguiente turno.
+    - El tiempo de auto-suspensión por silencio se amplía de 25 segundos a 120 segundos.
+    - Para finalizar la sesión, el usuario simplemente dice: *"Fifo descansa"*, *"ya no escuches"* o *"buenas noches"*.
+
+### 9.3 Control de Hardware del Dispositivo (`control_device_hardware`)
+
+Permite gestionar funciones clave del celular mediante comandos de voz coloquiales:
+
+| Comando Coloquial | Acción de Skill | Componente Android | Respuesta Hablada de Fifo |
+| :--- | :--- | :--- | :--- |
+| *"Fifo, prende la linterna"* | `toggle_flashlight(true)` | `CameraManager.setTorchMode` | *"He encendido la linterna para iluminarle el camino."* |
+| *"Fifo, apaga la linterna"* | `toggle_flashlight(false)`| `CameraManager.setTorchMode` | *"Linterna apagada."* |
+| *"Fifo, ¿cuánta batería le queda al celular?"* | `get_battery_status` | `BatteryManager` | *"Al celular le queda un 78% de batería y no está conectado al cargador."* |
+| *"Fifo, sube el volumen"* | `set_volume(up)` | `AudioManager.ADJUST_RAISE` | *"Subí un poco el volumen del teléfono."* |
+| *"Fifo, volumen al máximo"* | `set_volume(max)` | `AudioManager.FLAG_SHOW_UI` | *"He puesto el volumen al máximo para que me escuche con total claridad."* |
+| *"Fifo, ¿qué hora es?"* | `get_current_time` | `java.time.LocalTime` | *"Son las 4 y veinticinco de la tarde de hoy sábado 3 de octubre."* |
+
+---
+
+## 10. Resumen de Herramientas (Skills) Disponibles para el Cerebro IA
+
+A continuación se resume el catálogo unificado de tools registradas en `FifoSkillRegistry`:
+
+1. `update_user_profile`: Modifica nombre, género, ciudad, cumpleaños, biografía en la base de datos.
+2. `manage_user_interests`: Agrega o elimina gustos, pasatiempos e intereses positivos.
+3. `manage_reminders`: Crea recordatorios hablados para medicamentos o rutinas del hogar.
+4. `manage_calendar_events`: Registra visitas médicas, citas familiares o compromisos.
+5. `recall_past_context`: Busca recuerdos profundos en la base de datos completa del servidor.
+6. `find_fifo_device`: Rastrear el robot perdido mediante sonido ("beep") o coordenadas GPS previas.
+7. `get_current_location`: Informa la calle, comuna y ciudad actual por voz.
+8. `open_navigation_directions`: Guía de ruta hablada paso a paso o apertura de Maps/Waze.
+9. `manage_phone_call`: Anuncia llamadas, contesta en altavoz manos libres o cuelga.
+10. `control_device_hardware`: Linterna, volumen, batería y hora del celular.
+
 
 
 

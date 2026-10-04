@@ -594,5 +594,74 @@ object FifoDataRepository {
     fun triggerDeviceBeep(beeping: Boolean) {
         _deviceLocation.value = _deviceLocation.value.copy(isBeeping = beeping)
     }
+
+    // ══════════════════════════════════════════════════════════════
+    //  10. Detección y Gestión de Llamadas Entrantes (Tipo Alexa)
+    // ══════════════════════════════════════════════════════════════
+
+    private val _incomingCall = MutableStateFlow<IncomingCallInfo?>(null)
+    val incomingCall: StateFlow<IncomingCallInfo?> = _incomingCall.asStateFlow()
+
+    // Callback para que la UI o los comandos por voz ejecuten contestar/colgar
+    var onAnswerCallAction: (() -> Boolean)? = null
+    var onHangupCallAction: (() -> Boolean)? = null
+
+    fun setIncomingCall(call: IncomingCallInfo?) {
+        _incomingCall.value = call
+    }
+
+    fun answerCurrentCall(): Boolean {
+        val handled = onAnswerCallAction?.invoke() ?: false
+        if (handled) {
+            _incomingCall.value = _incomingCall.value?.copy(isRinging = false)
+        }
+        return handled
+    }
+
+    fun hangupCurrentCall(): Boolean {
+        val handled = onHangupCallAction?.invoke() ?: false
+        _incomingCall.value = null
+        return handled
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  11. Modo de Escucha Continua ("Fifo, sigue escuchando")
+    // ══════════════════════════════════════════════════════════════
+
+    private val _isContinuousListening = MutableStateFlow(false)
+    val isContinuousListening: StateFlow<Boolean> = _isContinuousListening.asStateFlow()
+
+    fun setContinuousListening(active: Boolean) {
+        _isContinuousListening.value = active
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  12. Estado de Hardware del Teléfono (Linterna, Batería, etc.)
+    // ══════════════════════════════════════════════════════════════
+
+    private val _phoneHardware = MutableStateFlow(
+        PhoneHardwareStatus(
+            batteryPercent = 85,
+            isCharging = false,
+            isFlashlightOn = false,
+            volumePercent = 80
+        )
+    )
+    val phoneHardware: StateFlow<PhoneHardwareStatus> = _phoneHardware.asStateFlow()
+
+    fun updateHardwareStatus(
+        batteryPercent: Int? = null,
+        isCharging: Boolean? = null,
+        isFlashlightOn: Boolean? = null,
+        volumePercent: Int? = null
+    ) {
+        val current = _phoneHardware.value
+        _phoneHardware.value = current.copy(
+            batteryPercent = batteryPercent ?: current.batteryPercent,
+            isCharging = isCharging ?: current.isCharging,
+            isFlashlightOn = isFlashlightOn ?: current.isFlashlightOn,
+            volumePercent = volumePercent ?: current.volumePercent
+        )
+    }
 }
 

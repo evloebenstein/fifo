@@ -72,6 +72,9 @@ class VoicePipelineManager(
     // Reconocedor de voz nativo de Google (100% GRATIS, no requiere claves de API)
     private var nativeRecognizer: NativeSpeechRecognizer? = null
 
+    // Gestor de telefonía para detectar llamadas entrantes tipo Alexa
+    private var callManager: com.fifo.voicepipeline.telephony.FifoCallManager? = null
+
     // ── Componentes internos de audio y BLE ──────────
     private val bleClient = BleVoiceClient(
         onAudioReceived = { pcmData ->
@@ -180,6 +183,9 @@ class VoicePipelineManager(
                     if (!bleClient.isConnected && _micSource.value == MicSource.ESP32) {
                         _state.value = PipelineState.DISCONNECTED
                         _statusMessage.value = "Fifo desconectado · Conecte por Bluetooth"
+                    } else if (com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value) {
+                        _state.value = PipelineState.LISTENING
+                        _statusMessage.value = "Escucha continua activa — hable cuando guste"
                     } else {
                         _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
                         _statusMessage.value = if (_isMicMuted.value) {
@@ -190,7 +196,11 @@ class VoicePipelineManager(
                             "Fifo en reposo · Diga 'Fifo' para despertar"
                         }
                     }
-                    updateEspDisplay(state = if (_isMicMuted.value) "MUTED" else (if (_isAwake.value) "LISTO" else "DURMIENDO"))
+                    updateEspDisplay(
+                        state = if (_isMicMuted.value) "MUTED"
+                        else if (com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value) "ESCUCHANDO"
+                        else (if (_isAwake.value) "LISTO" else "DURMIENDO")
+                    )
                     vad.reset()
 
                     // Reanudar la escucha de voz nativa tras terminar de hablar solo si no está muteado
@@ -258,6 +268,34 @@ class VoicePipelineManager(
                     kotlinx.coroutines.delay(3500)
                     com.fifo.voicepipeline.data.FifoDataRepository.triggerDeviceBeep(false)
                 }
+            }
+        }
+
+        // Inicializar gestor de telefonía inteligente tipo Alexa
+        callManager = com.fifo.voicepipeline.telephony.FifoCallManager(
+            context = context,
+            onAnnounceCall = { callerName, _ ->
+                scope.launch {
+                    _isAwake.value = true
+                    _isMicMuted.value = false
+                    _state.value = PipelineState.LISTENING
+                    _statusMessage.value = "Llamada de $callerName"
+                    updateEspDisplay(state = "LLAMADA", transcript = "Llamada entrante", response = callerName)
+                    speakResponseChunk("¡Lucía! Le está llamando $callerName. ¿Desea que conteste o que cuelgue la llamada?")
+                }
+            }
+        )
+        callManager?.startListening()
+
+        // Escuchar también llamadas entrantes detectadas por el BroadcastReceiver
+        com.fifo.voicepipeline.telephony.FifoPhoneCallReceiver.onIncomingCallDetected = { callerName, _ ->
+            scope.launch {
+                _isAwake.value = true
+                _isMicMuted.value = false
+                _state.value = PipelineState.LISTENING
+                _statusMessage.value = "Llamada de $callerName"
+                updateEspDisplay(state = "LLAMADA", transcript = "Llamada entrante", response = callerName)
+                speakResponseChunk("¡Lucía! Le está llamando $callerName. ¿Desea que conteste o que cuelgue la llamada?")
             }
         }
 
@@ -376,6 +414,8 @@ class VoicePipelineManager(
         audioPlayer.release()
         androidTtsSpeaker?.release()
         androidTtsSpeaker = null
+        callManager?.stopListening()
+        callManager = null
         bleClient.disconnect()
         _state.value = PipelineState.DISCONNECTED
         _statusMessage.value = "Pipeline detenido"
@@ -465,14 +505,22 @@ class VoicePipelineManager(
     }
 
     /**
-     * Reinicia el temporizador de auto-sueño tras 25 segundos sin actividad.
+     * Reinicia el temporizador de auto-sueño.
+     * En modo normal: 25 segundos.
+     * En modo de escucha continua ("Fifo, sigue escuchando"): 120 segundos de silencio.
      */
     private fun resetAutoSleepTimer() {
         autoSleepJob?.cancel()
         autoSleepJob = scope.launch {
-            delay(25000L)
+            val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
+            val timeoutMs = if (isContinuous) 120000L else 25000L
+            delay(timeoutMs)
             if (_isAwake.value && _state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
-                Log.i(TAG, "25 segundos de inactividad: Fifo vuelve a dormir")
+                if (com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value) {
+                    Log.i(TAG, "2 minutos de silencio en modo continuo: Fifo descansa")
+                    com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
+                }
+                Log.i(TAG, "Inactividad: Fifo vuelve a dormir")
                 goToSleep()
             }
         }
@@ -540,12 +588,13 @@ class VoicePipelineManager(
 
         val textLower = rawText.lowercase().trim()
         val hasWakeWord = isWakeWord(textLower)
+        val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
 
         scope.launch {
-            if (!_isAwake.value) {
-                // Fifo está durmiendo: SOLO despierta si dijeron FIFO (o variante acústica con música de fondo)
+            if (!_isAwake.value && !isContinuous) {
+                // Fifo está durmiendo: SOLO despierta si dijeron FIFO (o variante acústica)
                 if (!hasWakeWord) {
-                    Log.d(TAG, "Audio ignorado: Fifo durmiendo y no se oyó 'Fifo' (o variante). Oído: $rawText")
+                    Log.d(TAG, "Audio ignorado: Fifo durmiendo y no se oyó 'Fifo'. Oído: $rawText")
                     _state.value = PipelineState.SLEEPING
                     updateEspDisplay(state = "DURMIENDO")
                     return@launch
@@ -566,13 +615,16 @@ class VoicePipelineManager(
 
                 consultClaudeAndRespond(query)
             } else {
-                // Fifo ya estaba despierto
+                // Fifo ya estaba despierto o está en modo de escucha continua
+                _isAwake.value = true
                 resetAutoSleepTimer()
                 val isSleepCmd = textLower.contains("duérmete") || textLower.contains("a dormir") ||
                         textLower.contains("buenas noches") || textLower.contains("descansa") ||
-                        textLower.contains("adiós") || textLower.contains("hasta luego")
+                        textLower.contains("adiós") || textLower.contains("hasta luego") ||
+                        textLower.contains("deja de escuchar") || textLower.contains("ya no escuches")
 
                 if (isSleepCmd) {
+                    com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
                     speakResponseChunk("Hasta luego, que tenga un excelente descanso.")
                     goToSleep()
                     return@launch
@@ -636,8 +688,9 @@ class VoicePipelineManager(
                 _transcription.value = transcript
                 val textLower = transcript.lowercase().trim()
                 val hasWakeWord = isWakeWord(textLower)
+                val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
 
-                if (!_isAwake.value) {
+                if (!_isAwake.value && !isContinuous) {
                     // Fifo estaba durmiendo: SOLO despierta si dijeron FIFO (o variante acústica con música)
                     if (!hasWakeWord) {
                         Log.d(TAG, "Audio ignorado: Fifo está durmiendo y no se detectó 'Fifo'. Oído: $transcript")
@@ -661,13 +714,16 @@ class VoicePipelineManager(
                     // Pregunta formulada en la misma frase ("Fifo, ¿qué hora es?")
                     consultClaudeAndRespond(query)
                 } else {
-                    // Fifo ya estaba despierto
+                    // Fifo ya estaba despierto o está en modo de escucha continua
+                    _isAwake.value = true
                     resetAutoSleepTimer()
                     val isSleepCmd = textLower.contains("duérmete") || textLower.contains("a dormir") ||
                             textLower.contains("buenas noches") || textLower.contains("descansa") ||
-                            textLower.contains("adiós") || textLower.contains("hasta luego")
+                            textLower.contains("adiós") || textLower.contains("hasta luego") ||
+                            textLower.contains("deja de escuchar") || textLower.contains("ya no escuches")
 
                     if (isSleepCmd) {
+                        com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
                         speakResponseChunk("Hasta luego, que tenga un excelente descanso.")
                         goToSleep()
                         return@launch

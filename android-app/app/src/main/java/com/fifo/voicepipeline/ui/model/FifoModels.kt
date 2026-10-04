@@ -189,4 +189,26 @@ data class CurrentLocationInfo(
     val isGpsActive: Boolean = true
 )
 
+// ═════════════════════════════════════════════════════════════════════
+//  GESTIÓN DE LLAMADAS Y CONTROL DEL TELÉFONO TIPO ALEXA
+// ═════════════════════════════════════════════════════════════════════
 
+/**
+ * Estado reactivo de llamadas entrantes detectadas por el celular.
+ */
+data class IncomingCallInfo(
+    val callerName: String = "Llamada desconocida",
+    val phoneNumber: String = "",
+    val isRinging: Boolean = false,
+    val callTimestamp: Long = System.currentTimeMillis()
+)
+
+/**
+ * Estado de control de hardware del celular (Linterna, Batería, Volumen).
+ */
+data class PhoneHardwareStatus(
+    val batteryPercent: Int = 100,
+    val isCharging: Boolean = false,
+    val isFlashlightOn: Boolean = false,
+    val volumePercent: Int = 80
+)

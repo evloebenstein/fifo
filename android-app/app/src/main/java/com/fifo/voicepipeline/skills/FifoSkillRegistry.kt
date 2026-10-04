@@ -33,6 +33,8 @@ class FifoSkillRegistry(private val context: Context) {
         registerSkill(FindFifoDeviceSkill(context))
         registerSkill(CurrentLocationSkill(context))
         registerSkill(NavigationDirectionsSkill(context))
+        registerSkill(PhoneCallSkill(context))
+        registerSkill(PhoneDeviceControlSkill(context))
         Log.i(TAG, "Inicializado FifoSkillRegistry con ${skills.size} herramientas.")
     }
 
@@ -92,6 +94,73 @@ class FifoSkillRegistry(private val context: Context) {
      */
     suspend fun tryExecuteVoiceIntent(transcript: String): SkillResult? {
         val text = transcript.lowercase().trim()
+
+        // 0. MODO ESCUCHA CONTINUA ("Fifo sigue escuchando")
+        if (text.contains("sigue escuchando") || text.contains("quédate escuchando") || text.contains("quedate escuchando") || text.contains("modo continuo") || text.contains("modo conversación") || text.contains("no te duermas") || text.contains("sigue atento")) {
+            com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(true)
+            return SkillResult(
+                success = true,
+                spokenFeedback = "Entendido Lucía, me quedo escuchándole con atención. Puede hablarme cuando guste sin decir 'Fifo'. Cuando desee que descanse, solo dígame 'Fifo, descansa'."
+            )
+        }
+        if (text.contains("deja de escuchar") || text.contains("ya no escuches") || text.contains("silencio") || text.contains("descansa fifo") || text.contains("puedes descansar") || text.contains("gracias fifo") || text.contains("listo fifo")) {
+            com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
+            return SkillResult(
+                success = true,
+                spokenFeedback = "Con gusto, me quedo en reposo. Llámeme diciendo 'Fifo' cuando me necesite."
+            )
+        }
+
+        // 0.1 GESTIÓN DE LLAMADAS TELEFÓNICAS TIPO ALEXA (Contestar / Colgar / Saber quién llama)
+        if (text.contains("contesta") || text.contains("contestar") || text.contains("atiende") || text.contains("atender") || text.contains("acepta la llamada") || text.contains("sí contesta")) {
+            return executeSkill("manage_phone_call", mapOf("action" to "answer"))
+        }
+        if (text.contains("cuelga") || text.contains("colgar") || text.contains("rechaza") || text.contains("rechazar") || text.contains("deten la llamada") || text.contains("detener llamada") || text.contains("no contestes") || text.contains("corta la llamada")) {
+            return executeSkill("manage_phone_call", mapOf("action" to "hangup"))
+        }
+        if (text.contains("quién llama") || text.contains("quien llama") || text.contains("quién está llamando") || text.contains("quien esta llamando")) {
+            return executeSkill("manage_phone_call", mapOf("action" to "status"))
+        }
+
+        // 0.2 CONTROL DE HARDWARE DEL TELÉFONO (Linterna, Volumen, Batería, Hora)
+        if (text.contains("linterna") || (text.contains("luz") && (text.contains("prende") || text.contains("enciende") || text.contains("apaga")))) {
+            val turnOn = !text.contains("apaga") && !text.contains("desactiva")
+            return executeSkill("control_device_hardware", mapOf("feature" to "flashlight", "state" to if (turnOn) "on" else "off"))
+        }
+
+        if (text.contains("volumen") || text.contains("más fuerte") || text.contains("más despacio") || text.contains("más alto") || text.contains("más bajo")) {
+            val state = when {
+                text.contains("máximo") || text.contains("todo el volumen") -> "max"
+                text.contains("mínimo") || text.contains("silencio") -> "min"
+                text.contains("baja") || text.contains("despacio") || text.contains("menos") || text.contains("bajo") -> "down"
+                else -> "up"
+            }
+            return executeSkill("control_device_hardware", mapOf("feature" to "volume", "state" to state))
+        }
+
+        if (text.contains("batería") || text.contains("bateria") || text.contains("cuánta carga") || text.contains("cuanta carga")) {
+            return executeSkill("control_device_hardware", mapOf("feature" to "battery"))
+        }
+
+        if (text.contains("qué hora") || text.contains("que hora") || text.contains("dime la hora") || text.contains("qué día es") || text.contains("que dia es")) {
+            return executeSkill("control_device_hardware", mapOf("feature" to "time"))
+        }
+
+        // 0.3 LOCALIZADOR Y GUÍA HABLADA SIN MIRAR EL CELULAR
+        if (text.contains("te perdí") || text.contains("te perdi") || text.contains("dónde estás") || text.contains("donde estas") || text.contains("dónde está fifo") || text.contains("donde esta fifo") || (text.contains("suena") && text.contains("fifo"))) {
+            return executeSkill("find_fifo_device", emptyMap())
+        }
+
+        if (text.contains("dónde estamos") || text.contains("donde estamos") || text.contains("dónde estoy") || text.contains("donde estoy") || text.contains("en qué calle") || text.contains("en que calle") || text.contains("cuál es mi ubicación")) {
+            return executeSkill("get_current_location", emptyMap())
+        }
+
+        if (text.contains("cómo llego a") || text.contains("como llego a") || text.contains("guíame a") || text.contains("guiame a") || text.contains("dirección hacia") || text.contains("hacia dónde voy para")) {
+            val target = text.replace(Regex("(?i)\\b(fifo|por favor|cómo llego a|como llego a|guíame a|guiame a|dirección hacia|hacia dónde voy para)\\b"), "").trim()
+                .ifBlank { "mi casa" }
+            val openScreen = text.contains("abre maps") || text.contains("abre waze") || text.contains("pantalla") || text.contains("en el celular")
+            return executeSkill("open_navigation_directions", mapOf("destination" to target, "open_screen_map" to openScreen))
+        }
 
         // 1. RECORDATORIOS / ALARMAS DE MEDICINA
         if (text.contains("recuérdame") || text.contains("recuerdame") || text.contains("recordar") || text.contains("pon una alarma") || text.contains("alarma para")) {

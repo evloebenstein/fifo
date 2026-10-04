@@ -91,7 +91,26 @@ Para la especificación completa del esquema de base de datos, mapeo de componen
   - Fuera de rango: Consulta las últimas coordenadas GPS guardadas por el celular al momento de la desconexión, indica la habitación o dirección aproximada y abre la ubicación exacta en Google Maps.
 - **Módulo GPS y Navegación Paso a Paso (Google Maps & Waze)**:
   - Detección de ubicación actual en tiempo real para responder "¿dónde estamos?" con calle y comuna.
-  - Navegación guiada por voz paso a paso hacia el domicilio ("mi casa"), farmacias, consultorios, hospitales o parques utilizando Google Maps o Waze.
+  - Navegación guiada paso a paso hacia el domicilio ("mi casa"), farmacias, consultorios, hospitales o parques utilizando Google Maps o Waze.
+
+## Alexa-Style Invisible Phone Architecture: Hands-Free Telephony & Hardware Control
+
+- **El Celular como Cerebro Invisible**: El adulto mayor nunca necesita desbloquear la pantalla, navegar menús ni abrir aplicaciones complejas. Fifo gestiona las tareas del teléfono por voz como un parlante inteligente Alexa pero con la movilidad y sensores del celular.
+- **Gestión Proactiva de Llamadas Telefónicas**:
+  - Fifo anuncia en voz alta y clara quién llama consultando la agenda de contactos (*"¡Lucía! Le está llamando Carmen (Hija)..."*).
+  - Comandos directos de voz: *"Fifo, contesta"* (atiende automáticamente en altavoz manos libres) o *"Fifo, cuelga / detener llamada"*.
+- **Modo de Escucha Continua ("Fifo sigue escuchando")**:
+  - Permite encadenar preguntas o conversar libremente sin tener que repetir el comando de activación "Fifo" en cada frase.
+  - Margen de silencio extendido a 120 segundos para respetar las pausas naturales al hablar del adulto mayor.
+  - Finalización con comandos amables: *"Fifo, descansa"* o *"ya no escuches"*.
+- **Guía de Navegación 100% Hablada (Hands-Free)**:
+  - Instrucciones verbales de orientación espacial (distancia en metros, minutos a pie y rumbo cardinal) para caminar por la calle sin tener que mirar ni manipular el celular.
+  - Apertura visual de Google Maps o Waze únicamente si el usuario lo solicita explícitamente.
+- **Control de Hardware del Teléfono por Voz**:
+  - Linterna para emergencias y noche (*"Fifo, prende la linterna"* / *"apaga la linterna"*).
+  - Consulta de batería (*"Fifo, ¿cuánta batería le queda al celular?"*).
+  - Ajuste de volumen y consulta de hora en lenguaje natural.
+
 
 
 
