@@ -7,6 +7,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
@@ -45,14 +46,14 @@ fun VoiceInteractionSheet(
 ) {
     // Si se abrió sin conexión y se conecta exitosamente, notificar y cerrar automáticamente
     val wasEverDisconnected by remember { mutableStateOf(!isBleConnected) }
-    var isPhoneMicMode by remember { mutableStateOf(false) }
+    var isPhoneMicMode by remember(micSource) { mutableStateOf(micSource == MicSource.PHONE) }
     var showDeviceFinderDialog by remember { mutableStateOf(false) }
 
     val isContinuousListening by com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.collectAsState()
     val incomingCall by com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.collectAsState()
 
     LaunchedEffect(isBleConnected) {
-        if (wasEverDisconnected && isBleConnected && !isPhoneMicMode) {
+        if (wasEverDisconnected && isBleConnected && !isPhoneMicMode && micSource != MicSource.PHONE) {
             delay(1200)
             onDismiss()
         }
@@ -429,13 +430,25 @@ fun VoiceInteractionSheet(
                             }
                         }
 
-                        // Rostro animado y expresivo de Fifo
-                        FifoFace(
-                            size = 130.dp,
-                            state = if (isMicMuted) PipelineState.SLEEPING else state,
-                            isDarkTheme = true,
-                            rmsLevel = if (isMicMuted) 0f else rmsLevel
-                        )
+                        // Rostro animado y expresivo de Fifo (táctil para despertar o activar)
+                        Box(
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .clickable {
+                                    if (isMicMuted) {
+                                        onToggleMicMute()
+                                    } else {
+                                        onTalkFromPhone()
+                                    }
+                                }
+                        ) {
+                            FifoFace(
+                                size = 130.dp,
+                                state = if (isMicMuted) PipelineState.SLEEPING else state,
+                                isDarkTheme = true,
+                                rmsLevel = if (isMicMuted) 0f else rmsLevel
+                            )
+                        }
 
                         Spacer(modifier = Modifier.height(16.dp))
 

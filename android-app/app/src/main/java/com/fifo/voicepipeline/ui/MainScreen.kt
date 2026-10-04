@@ -123,6 +123,10 @@ fun MainScreen(
                                         onWakeUp()
                                         isVoiceSheetOpen = true
                                     },
+                                    onTalkFromPhone = {
+                                        onTalkFromPhone()
+                                        isVoiceSheetOpen = true
+                                    },
                                     onOpenBreathingExercise = { isBreathingOpen = true },
                                     isMicMuted = isMicMuted,
                                     onToggleMicMute = onToggleMicMute,

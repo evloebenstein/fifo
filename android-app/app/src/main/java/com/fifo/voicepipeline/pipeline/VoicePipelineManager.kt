@@ -360,7 +360,9 @@ class VoicePipelineManager(
         _state.value = PipelineState.LISTENING
         _statusMessage.value = "Escuchando por el celular... hable ahora"
         resetAutoSleepTimer()
-        startPhoneMic()
+        vad.reset()
+        pcmBuffer.clear()
+        phoneMicRecorder.stop()
         nativeRecognizer?.startContinuousListening()
         updateEspDisplay(state = "ESCUCHANDO")
     }
@@ -381,23 +383,35 @@ class VoicePipelineManager(
         _isMicMuted.value = muted
         if (muted) {
             Log.i(TAG, "Micrófono SILENCIADO por el usuario")
+            // Detener cualquier habla o audio activo inmediatamente
+            try {
+                androidTtsSpeaker?.stop()
+                audioPlayer.stop()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error deteniendo audio al silenciar: ${e.message}")
+            }
             nativeRecognizer?.stop()
             phoneMicRecorder.stop()
             pcmBuffer.clear()
             vad.reset()
             _rmsLevel.value = 0.0
+            _state.value = PipelineState.SLEEPING
             _statusMessage.value = "Micrófono silenciado (Mute)"
             updateEspDisplay(state = "MUTED", transcript = "", response = "")
         } else {
             Log.i(TAG, "Micrófono REACTIVADO por el usuario")
-            if (_micSource.value == MicSource.PHONE) {
-                startPhoneMic()
-            }
-            if (_state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
-                nativeRecognizer?.startContinuousListening()
-            }
-            _statusMessage.value = if (_isAwake.value) "Fifo despierto — te escucho" else "Fifo durmiendo · Di 'Fifo' para despertar"
-            updateEspDisplay(state = if (_isAwake.value) "ESCUCHANDO" else "DURMIENDO", transcript = "", response = "")
+            _isAwake.value = true
+            _state.value = PipelineState.LISTENING
+            vad.reset()
+            pcmBuffer.clear()
+            resetAutoSleepTimer()
+
+            // Detener AudioRecord por si estaba activo para que SpeechRecognizer tenga acceso limpio al mic
+            phoneMicRecorder.stop()
+            nativeRecognizer?.startContinuousListening()
+
+            _statusMessage.value = "Fifo despierto — te escucho"
+            updateEspDisplay(state = "ESCUCHANDO", transcript = "", response = "")
         }
     }
 
@@ -589,10 +603,11 @@ class VoicePipelineManager(
         val textLower = rawText.lowercase().trim()
         val hasWakeWord = isWakeWord(textLower)
         val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
+        val isPhoneMode = _micSource.value == MicSource.PHONE
 
         scope.launch {
-            if (!_isAwake.value && !isContinuous) {
-                // Fifo está durmiendo: SOLO despierta si dijeron FIFO (o variante acústica)
+            if (!_isAwake.value && !isContinuous && !isPhoneMode) {
+                // Fifo está durmiendo (solo modo robot ESP32): SOLO despierta si dijeron FIFO (o variante acústica)
                 if (!hasWakeWord) {
                     Log.d(TAG, "Audio ignorado: Fifo durmiendo y no se oyó 'Fifo'. Oído: $rawText")
                     _state.value = PipelineState.SLEEPING

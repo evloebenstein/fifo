@@ -43,6 +43,7 @@ fun HomeScreen(
     onToggleMicMute: () -> Unit = {},
     isBleConnected: Boolean = false,
     onConnectBle: () -> Unit = {},
+    onTalkFromPhone: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     var selectedMood by remember { mutableStateOf<String?>("Bien") }
@@ -177,8 +178,8 @@ fun HomeScreen(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                // Si está conectado, botón táctil grande (48dp) para silenciar/activar micrófono. Si está desconectado, no mostramos botón de Bluetooth para evitar confusión.
-                if (isBleConnected) {
+                // Botón táctil grande (48dp) para silenciar/activar micrófono
+                if (isBleConnected || isMicMuted) {
                     Surface(
                         shape = CircleShape,
                         color = if (isMicMuted) Color(0xFFFEE2E2) else Color.White,
@@ -402,8 +403,8 @@ fun HomeScreen(
                     }
                 }
 
-                // Banner de micrófono silenciado SOLO si está conectado
-                if (isBleConnected && isMicMuted) {
+                // Banner de micrófono silenciado si está activo el mute
+                if (isMicMuted) {
                     Spacer(modifier = Modifier.height(16.dp))
                     Surface(
                         color = Color(0xFFFEE2E2),
@@ -485,7 +486,7 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         OutlinedButton(
-                            onClick = onStartVoiceChat,
+                            onClick = onTalkFromPhone,
                             shape = RoundedCornerShape(18.dp),
                             colors = ButtonDefaults.outlinedButtonColors(
                                 contentColor = FifoColors.NavyPrimary

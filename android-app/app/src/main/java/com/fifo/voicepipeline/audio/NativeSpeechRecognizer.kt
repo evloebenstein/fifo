@@ -41,6 +41,8 @@ class NativeSpeechRecognizer(
     private val mainHandler = Handler(Looper.getMainLooper())
     private var isListening = false
     private var shouldKeepListening = false
+    private var currentGeneration = 0
+    private var useFallbackLocale = false
 
     fun isAvailable(): Boolean {
         return SpeechRecognizer.isRecognitionAvailable(context)
@@ -48,6 +50,7 @@ class NativeSpeechRecognizer(
 
     fun startContinuousListening() {
         shouldKeepListening = true
+        mainHandler.removeCallbacksAndMessages(null)
         mainHandler.post {
             startInternal()
         }
@@ -55,27 +58,51 @@ class NativeSpeechRecognizer(
 
     fun stop() {
         shouldKeepListening = false
+        mainHandler.removeCallbacksAndMessages(null)
         mainHandler.post {
             try {
                 isListening = false
-                speechRecognizer?.stopListening()
                 speechRecognizer?.cancel()
             } catch (e: Exception) {
-                Log.w(TAG, "Error deteniendo recognizer: ${e.message}")
+                Log.w(TAG, "Error cancelando recognizer: ${e.message}")
             }
         }
     }
 
     fun release() {
         shouldKeepListening = false
+        mainHandler.removeCallbacksAndMessages(null)
         mainHandler.post {
             try {
+                isListening = false
                 speechRecognizer?.destroy()
                 speechRecognizer = null
-                isListening = false
             } catch (e: Exception) {
                 Log.w(TAG, "Error liberando recognizer: ${e.message}")
             }
+        }
+    }
+
+    private fun buildRecognizerIntent(): Intent {
+        return Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            if (useFallbackLocale) {
+                val sysLocale = java.util.Locale.getDefault().toLanguageTag()
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, sysLocale)
+            } else {
+                val defaultLocale = java.util.Locale.getDefault()
+                val isSpanish = defaultLocale.language.equals("es", ignoreCase = true)
+                val langTag = if (isSpanish) defaultLocale.toLanguageTag() else "es"
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, langTag)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, langTag)
+                putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("es", "es-419", "es-ES", "es-US", "es-CL"))
+            }
+            putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1000L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
         }
     }
 
@@ -84,33 +111,50 @@ class NativeSpeechRecognizer(
 
         try {
             if (speechRecognizer == null) {
+                val generation = ++currentGeneration
                 speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context).apply {
-                    setRecognitionListener(createListener())
+                    setRecognitionListener(createListener(generation))
                 }
             }
 
-            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, "es-ES")
-                putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
-                putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1000L)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
-                putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 1800L)
-                putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
-            }
-
-            speechRecognizer?.startListening(intent)
+            speechRecognizer?.startListening(buildRecognizerIntent())
             isListening = true
-            Log.d(TAG, "SpeechRecognizer iniciado escuchando...")
+            Log.d(TAG, "SpeechRecognizer startListening llamado...")
         } catch (e: Exception) {
             Log.e(TAG, "Error iniciando SpeechRecognizer: ${e.message}", e)
-            restartAfterDelay(1500L)
+            destroyAndRecreateAfterDelay(1000L)
         }
     }
 
-    private fun restartAfterDelay(delayMs: Long) {
+    private fun restartListening(delayMs: Long = 200L) {
         if (!shouldKeepListening) return
+        mainHandler.removeCallbacksAndMessages(null)
+        mainHandler.postDelayed({
+            if (shouldKeepListening && !isListening) {
+                try {
+                    if (speechRecognizer == null) {
+                        startInternal()
+                    } else {
+                        speechRecognizer?.startListening(buildRecognizerIntent())
+                        isListening = true
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error reiniciando recognizer existente: ${e.message}, recreando...")
+                    destroyAndRecreateAfterDelay(800L)
+                }
+            }
+        }, delayMs)
+    }
+
+    private fun destroyAndRecreateAfterDelay(delayMs: Long) {
+        if (!shouldKeepListening) return
+        mainHandler.removeCallbacksAndMessages(null)
+        try {
+            speechRecognizer?.destroy()
+        } catch (_: Exception) {}
+        speechRecognizer = null
+        isListening = false
+
         mainHandler.postDelayed({
             if (shouldKeepListening && !isListening) {
                 startInternal()
@@ -118,18 +162,20 @@ class NativeSpeechRecognizer(
         }, delayMs)
     }
 
-    private fun createListener(): RecognitionListener {
+    private fun createListener(generation: Int): RecognitionListener {
         return object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
+                if (generation != currentGeneration) return
                 isListening = true
                 callbackReady()
             }
 
             override fun onBeginningOfSpeech() {
-                // Usuario hablando
+                if (generation != currentGeneration) return
             }
 
             override fun onRmsChanged(rmsdB: Float) {
+                if (generation != currentGeneration) return
                 val normalized = ((rmsdB + 2f) / 12f).coerceIn(0f, 1f)
                 callbackRmsChanged(normalized)
             }
@@ -137,10 +183,12 @@ class NativeSpeechRecognizer(
             override fun onBufferReceived(buffer: ByteArray?) {}
 
             override fun onEndOfSpeech() {
+                if (generation != currentGeneration) return
                 isListening = false
             }
 
             override fun onError(error: Int) {
+                if (generation != currentGeneration) return
                 isListening = false
                 val errorMsg = when (error) {
                     SpeechRecognizer.ERROR_NO_MATCH -> "No se detectaron palabras"
@@ -151,23 +199,49 @@ class NativeSpeechRecognizer(
                     SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Tiempo de red agotado"
                     SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Reconocedor ocupado"
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Permiso de micrófono faltante"
+                    SpeechRecognizer.ERROR_CLIENT -> "Error de cliente"
+                    13 -> "Idioma no disponible"
                     else -> "Error de reconocimiento ($error)"
                 }
                 Log.d(TAG, "SpeechRecognizer onError: $errorMsg ($error)")
                 callbackError(error, errorMsg)
 
-                // Si está en modo continuo, reiniciar tras breve pausa
-                if (shouldKeepListening) {
-                    restartAfterDelay(if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) 1200L else 600L)
+                if (!shouldKeepListening) return
+
+                when (error) {
+                    // Silencio normal del usuario o fin de tiempo: la instancia sigue sana, no destruirla
+                    SpeechRecognizer.ERROR_NO_MATCH,
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
+                        restartListening(200L)
+                    }
+                    // Idioma no descargado: cambiar a locale del sistema y recrear
+                    13 -> {
+                        useFallbackLocale = true
+                        destroyAndRecreateAfterDelay(600L)
+                    }
+                    // Errores recuperables con pausa breve
+                    SpeechRecognizer.ERROR_NETWORK,
+                    SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
+                    SpeechRecognizer.ERROR_SERVER -> {
+                        restartListening(1200L)
+                    }
+                    // Errores de cliente o busy: destruir y recrear limpiamente con delay
+                    SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
+                    SpeechRecognizer.ERROR_CLIENT -> {
+                        destroyAndRecreateAfterDelay(800L)
+                    }
+                    else -> {
+                        restartListening(500L)
+                    }
                 }
             }
 
             override fun onResults(results: Bundle?) {
+                if (generation != currentGeneration) return
                 isListening = false
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: arrayListOf()
                 Log.i(TAG, "Candidatos reconocidos por Google: $matches")
 
-                // Si entre las interpretaciones acústicas aparece "fifo", "fifa", "fito", etc., priorizarla
                 val wakeWords = listOf("fifo", "fifa", "fito", "feefo", "fido", "vivo", "filo", "fijo", "pipo", "kiko", "sifo", "fio")
                 val bestMatch = matches.firstOrNull { candidate ->
                     val lower = candidate.lowercase()
@@ -178,13 +252,13 @@ class NativeSpeechRecognizer(
                     callbackResult(bestMatch)
                 }
 
-                // Reiniciar escucha continua si corresponde
                 if (shouldKeepListening) {
-                    restartAfterDelay(350L)
+                    restartListening(300L)
                 }
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
+                if (generation != currentGeneration) return
                 val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: arrayListOf()
                 val wakeWords = listOf("fifo", "fifa", "fito", "feefo")
                 val bestPartial = matches.firstOrNull { candidate ->
