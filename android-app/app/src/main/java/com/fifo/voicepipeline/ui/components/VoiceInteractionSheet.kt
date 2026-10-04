@@ -89,39 +89,53 @@ fun VoiceInteractionSheet(
                         // PANTALLA 1: CONECTAR A FIFO O HABLAR DESDE EL CELULAR
                         // ══════════════════════════════════════════════════════════
 
-                        // Barra superior: Botón rastrear + Botón cerrar
+                        // Barra superior limpia: Título sutil + Botón Cerrar claro y accesible
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Botón de ayuda para encontrar el dispositivo
-                            IconButton(
-                                onClick = { showDeviceFinderDialog = true },
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .background(FifoColors.DarkInputBg, CircleShape)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.LocationSearching,
-                                    contentDescription = "¿Dónde está mi Fifo?",
-                                    tint = Color(0xFFFBBF24),
-                                    modifier = Modifier.size(22.dp)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(10.dp)
+                                        .background(Color(0xFFF59E0B), CircleShape)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Fifo Asistente",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color.White.copy(alpha = 0.85f)
                                 )
                             }
 
-                            IconButton(
+                            // Botón Cerrar con texto e ícono visible para adultos mayores
+                            Surface(
                                 onClick = onDismiss,
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .background(FifoColors.DarkInputBg, CircleShape)
+                                color = FifoColors.DarkInputBg,
+                                shape = RoundedCornerShape(20.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.DarkInputBorder),
+                                modifier = Modifier.defaultMinSize(minHeight = 44.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.Close,
-                                    contentDescription = "Cerrar",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(22.dp)
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Cerrar",
+                                        tint = Color.White,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Cerrar",
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold
+                                    )
+                                }
                             }
                         }
 
@@ -232,25 +246,34 @@ fun VoiceInteractionSheet(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         // ACCIÓN TERCIARIA: Rastrear robot si se perdió
-                        TextButton(
+                        Surface(
                             onClick = { showDeviceFinderDialog = true },
+                            shape = RoundedCornerShape(20.dp),
+                            color = Color(0xFF78350F).copy(alpha = 0.25f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.45f)),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(48.dp)
+                                .defaultMinSize(minHeight = 50.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.LocationSearching,
-                                contentDescription = null,
-                                tint = Color(0xFFFBBF24),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "¿No encuentras a tu Fifo? Rastrear dispositivo",
-                                fontSize = 14.sp,
-                                color = Color(0xFFFBBF24),
-                                fontWeight = FontWeight.SemiBold
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.LocationSearching,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFBBF24),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = "¿Dónde dejé a mi robot? (Buscar Fifo)",
+                                    fontSize = 15.sp,
+                                    color = Color(0xFFFDE68A),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     } else {
                         // ══════════════════════════════════════════════════════════
@@ -300,53 +323,30 @@ fun VoiceInteractionSheet(
                                 }
                             }
 
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            // Botón Cerrar claro con texto e ícono (sin íconos misteriosos en la esquina)
+                            Surface(
+                                onClick = onDismiss,
+                                color = FifoColors.DarkInputBg,
+                                shape = RoundedCornerShape(20.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.DarkInputBorder),
+                                modifier = Modifier.defaultMinSize(minHeight = 44.dp)
                             ) {
-                                if (!isBleConnected) {
-                                    IconButton(
-                                        onClick = { showDeviceFinderDialog = true },
-                                        modifier = Modifier
-                                            .size(44.dp)
-                                            .background(FifoColors.DarkInputBg, CircleShape)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.LocationSearching,
-                                            contentDescription = "Buscar robot",
-                                            tint = Color(0xFFFBBF24),
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                    }
-                                }
-                                IconButton(
-                                    onClick = onToggleMicMute,
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .background(
-                                            if (isMicMuted) Color(0xFFEF4444).copy(alpha = 0.25f) else FifoColors.DarkInputBg,
-                                            CircleShape
-                                        )
-                                ) {
-                                    Icon(
-                                        imageVector = if (isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                                        contentDescription = if (isMicMuted) "Activar micrófono" else "Silenciar micrófono",
-                                        tint = if (isMicMuted) Color(0xFFEF4444) else FifoColors.BlueAccent,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = onDismiss,
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .background(FifoColors.DarkInputBg, CircleShape)
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Close,
-                                        contentDescription = "Cerrar ventana de voz",
+                                        contentDescription = "Cerrar",
                                         tint = Color.White,
-                                        modifier = Modifier.size(22.dp)
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "Cerrar",
+                                        color = Color.White,
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold
                                     )
                                 }
                             }
@@ -486,39 +486,145 @@ fun VoiceInteractionSheet(
                             )
                         }
 
-                        Spacer(modifier = Modifier.height(14.dp))
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                        // Botón de conveniencia para hablar desde el celular si el robot está lejos
-                        Surface(
-                            onClick = onTalkFromPhone,
-                            shape = RoundedCornerShape(18.dp),
-                            color = if (micSource == MicSource.PHONE) Color(0xFF0284C7).copy(alpha = 0.3f) else FifoColors.DarkInputBg,
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                if (micSource == MicSource.PHONE) Color(0xFF0284C7) else FifoColors.DarkInputBorder
-                            ),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .defaultMinSize(minHeight = 50.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
+                        // ── BOTÓN DE MICRÓFONO PRINCIPAL (GRANDE, ACCESIBLE Y ENTENDIBLE) ──
+                        if (isMicMuted) {
+                            Surface(
+                                onClick = onToggleMicMute,
+                                shape = RoundedCornerShape(22.dp),
+                                color = Color(0xFFDC2626),
+                                shadowElevation = 4.dp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = 56.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.PhoneAndroid,
-                                    contentDescription = null,
-                                    tint = if (micSource == MicSource.PHONE) Color(0xFF38BDF8) else FifoColors.BlueAccent,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                                Spacer(modifier = Modifier.width(10.dp))
-                                Text(
-                                    text = if (micSource == MicSource.PHONE) "Escuchando desde el celular..." else "¿No lo tienes cerca? Hablar desde este celular",
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = Color.White
-                                )
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 14.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Mic,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text(
+                                            text = "Tocar para hablar con Fifo",
+                                            fontSize = 16.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "El micrófono está pausado en este momento",
+                                            fontSize = 12.sp,
+                                            color = Color.White.copy(alpha = 0.9f)
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            Surface(
+                                onClick = onToggleMicMute,
+                                shape = RoundedCornerShape(22.dp),
+                                color = FifoColors.DarkInputBg,
+                                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFEF4444).copy(alpha = 0.45f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = 52.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 13.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MicOff,
+                                        contentDescription = null,
+                                        tint = Color(0xFFF87171),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = "Silenciar micrófono (Pausar a Fifo)",
+                                        fontSize = 15.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFFFCA5A5)
+                                    )
+                                }
+                            }
+                        }
+
+                        // ── ACCIÓN SECUNDARIA SEGÚN ESTADO (RASTREAR O HABLAR DESDE CELULAR) ──
+                        if (!isBleConnected) {
+                            // Modo Celular: Opción clara para buscar el robot físico si no sabe dónde está
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Surface(
+                                onClick = { showDeviceFinderDialog = true },
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color(0xFF78350F).copy(alpha = 0.25f),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.45f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = 50.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.LocationSearching,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFBBF24),
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = "¿Dónde dejé a mi robot? (Buscar Fifo)",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFFFDE68A)
+                                    )
+                                }
+                            }
+                        } else {
+                            // Robot conectado: Opción para hablar desde el teléfono si el robot está en otra habitación
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Surface(
+                                onClick = onTalkFromPhone,
+                                shape = RoundedCornerShape(20.dp),
+                                color = if (micSource == MicSource.PHONE) Color(0xFF0284C7).copy(alpha = 0.3f) else FifoColors.DarkInputBg,
+                                border = androidx.compose.foundation.BorderStroke(
+                                    1.dp,
+                                    if (micSource == MicSource.PHONE) Color(0xFF0284C7) else FifoColors.DarkInputBorder
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = 50.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PhoneAndroid,
+                                        contentDescription = null,
+                                        tint = if (micSource == MicSource.PHONE) Color(0xFF38BDF8) else FifoColors.BlueAccent,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = if (micSource == MicSource.PHONE) "Escuchando desde este celular" else "¿Robot lejos? Hablar desde este celular",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color.White
+                                    )
+                                }
                             }
                         }
 

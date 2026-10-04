@@ -97,18 +97,31 @@ fun FifoDeviceFinderDialog(
                             )
                         }
 
-                        IconButton(
+                        Surface(
                             onClick = onDismiss,
-                            modifier = Modifier
-                                .size(44.dp)
-                                .background(FifoColors.DarkInputBg, CircleShape)
+                            color = FifoColors.DarkInputBg,
+                            shape = RoundedCornerShape(20.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.DarkInputBorder),
+                            modifier = Modifier.defaultMinSize(minHeight = 40.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Cerrar",
-                                tint = Color.White,
-                                modifier = Modifier.size(20.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Cerrar",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Cerrar",
+                                    color = Color.White,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
                         }
                     }
 
