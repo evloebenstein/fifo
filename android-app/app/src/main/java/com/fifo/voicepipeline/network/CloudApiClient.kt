@@ -17,15 +17,17 @@ import java.nio.ByteOrder
 
 /**
  * Cliente para las APIs de nube del pipeline de voz:
- * - Whisper (OpenAI) → Speech-to-Text
- * - Claude (Anthropic) → LLM Agent
+ * - Google Gemini (gemini-2.5-flash) → LLM Agent + Function Calling + STT Multimodal
+ * - Claude (Anthropic) → LLM Agent + Function Calling
+ * - Whisper (OpenAI / Groq) → Speech-to-Text
  * - OpenAI TTS → Text-to-Speech
  *
- * Soporta streaming para minimizar latencia.
+ * Soporta streaming y autodetección de proveedor (Gemini 'AIza...' o Claude 'sk-ant-...').
  */
 class CloudApiClient(
     var anthropicApiKey: String,
-    var openAiApiKey: String = ""
+    var openAiApiKey: String = "",
+    var geminiApiKey: String = ""
 ) {
     companion object {
         private const val TAG = "CloudApiClient"
@@ -33,11 +35,14 @@ class CloudApiClient(
         // ── Endpoints ───────────────────────────────
         private const val ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
         private const val ANTHROPIC_VERSION = "2023-06-01"
+        private const val GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
         private const val WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions"
         private const val TTS_URL = "https://api.openai.com/v1/audio/speech"
 
         // ── Modelo ──────────────────────────────────
         private const val CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+        private const val GEMINI_MODEL = "gemini-3.8-flash"
+        private const val GEMINI_FALLBACK_MODEL = "gemini-3.6-flash"
         private const val WHISPER_MODEL = "whisper-1"
         private const val TTS_MODEL = "tts-1"
         private const val TTS_VOICE = "nova"
@@ -148,13 +153,53 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
     /** Historial de conversación para contexto */
     private val conversationHistory = mutableListOf<Map<String, String>>()
 
+    /**
+     * Normaliza una clave de Gemini (por ejemplo si se pegó como 'AIzaSy-AQ....' extrae 'AQ....')
+     * y verifica si corresponde a formato Gemini ('AIza...' o 'AQ....').
+     */
+    private fun normalizeGeminiKey(raw: String): String {
+        val trimmed = raw.trim()
+        return if (trimmed.startsWith("AIzaSy-AQ.")) {
+            trimmed.removePrefix("AIzaSy-")
+        } else {
+            trimmed
+        }
+    }
+
+    private fun isLikelyGeminiKey(raw: String): Boolean {
+        val k = normalizeGeminiKey(raw)
+        return k.startsWith("AIza") || k.startsWith("AQ.")
+    }
+
+    /**
+     * Resuelve la clave activa de Google Gemini (ya sea configurada en [geminiApiKey],
+     * o ingresada directamente en [anthropicApiKey] o [openAiApiKey] con prefijo 'AIza' o 'AQ.').
+     */
+    fun resolveActiveGeminiKey(): String {
+        val gKey = normalizeGeminiKey(geminiApiKey)
+        if (gKey.isNotEmpty()) return gKey
+        val aKey = normalizeGeminiKey(anthropicApiKey)
+        if (isLikelyGeminiKey(aKey)) return aKey
+        val oKey = normalizeGeminiKey(openAiApiKey)
+        if (isLikelyGeminiKey(oKey)) return oKey
+        return ""
+    }
+
+    /**
+     * Indica si existe una clave válida para transcripción de audio del ESP32 (Whisper, Groq o Gemini).
+     */
+    fun hasSttCapability(): Boolean {
+        val oKey = openAiApiKey.trim()
+        if (oKey.isNotEmpty() && !oKey.startsWith("sk-ant-")) return true
+        return resolveActiveGeminiKey().isNotEmpty()
+    }
+
     // ═════════════════════════════════════════════════
-    //  1. SPEECH-TO-TEXT (Whisper)
+    //  1. SPEECH-TO-TEXT (Whisper / Groq / Gemini Multimodal)
     // ═════════════════════════════════════════════════
 
     /**
-     * Transcribe audio WAV a texto usando Whisper.
-     * Si no hay API key de OpenAI, usa un endpoint alternativo.
+     * Transcribe audio WAV a texto usando Whisper (OpenAI/Groq) o Gemini Multimodal.
      *
      * @param wavData Audio en formato WAV (header + PCM)
      * @param language Código de idioma (ej: "es", "en")
@@ -162,8 +207,16 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
      */
     suspend fun transcribe(wavData: ByteArray, language: String = "es"): String {
         val key = openAiApiKey.trim()
+        val activeGeminiKey = resolveActiveGeminiKey()
+
+        // Si la clave de STT es una clave de Gemini o no hay clave Whisper pero sí hay Gemini, usar Gemini Multimodal
+        if (isLikelyGeminiKey(key) || ((key.isEmpty() || key.startsWith("sk-ant-")) && activeGeminiKey.isNotEmpty())) {
+            val geminiKeyToUse = if (isLikelyGeminiKey(key)) normalizeGeminiKey(key) else activeGeminiKey
+            return transcribeWithGemini(wavData, language, geminiKeyToUse)
+        }
+
         if (key.isEmpty() || key.startsWith("sk-ant-")) {
-            Log.w(TAG, "No hay API key válida para Whisper (OpenAI o Groq). Clave actual: ${if (key.startsWith("sk-ant-")) "Pertenece a Anthropic, no a Whisper" else "Vacía"}")
+            Log.w(TAG, "No hay API key válida para STT (Whisper, Groq o Gemini). Clave actual: ${if (key.startsWith("sk-ant-")) "Pertenece a Anthropic" else "Vacía"}")
             return "[KEY_STT_FALTANTE]"
         }
 
@@ -203,7 +256,7 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
 
             val json = JsonParser.parseString(body).asJsonObject
             val text = json.get("text")?.asString ?: ""
-            Log.i(TAG, "Transcripción: $text")
+            Log.i(TAG, "Transcripción (Whisper): $text")
             text
         } catch (e: Exception) {
             Log.e(TAG, "Error en transcripción: ${e.message}", e)
@@ -211,15 +264,239 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
         }
     }
 
+    /**
+     * Transcribe audio WAV directamente con Google Gemini Multimodal (inlineData audio/wav).
+     */
+    private suspend fun transcribeWithGemini(
+        wavData: ByteArray,
+        language: String = "es",
+        apiKey: String
+    ): String {
+        val base64Audio = android.util.Base64.encodeToString(wavData, android.util.Base64.NO_WRAP)
+        val promptText = "Transcribe exactamente en español ($language) lo que dice la voz principal en este audio. " +
+                "Ignora el ruido de fondo. Si no hay voz humana clara, responde únicamente con una cadena vacía. " +
+                "No agregues comentarios ni comillas, devuelve solo las palabras dichas."
+
+        val payload = mapOf(
+            "contents" to listOf(
+                mapOf(
+                    "role" to "user",
+                    "parts" to listOf(
+                        mapOf(
+                            "inlineData" to mapOf(
+                                "mimeType" to "audio/wav",
+                                "data" to base64Audio
+                            )
+                        ),
+                        mapOf("text" to promptText)
+                    )
+                )
+            ),
+            "generationConfig" to mapOf(
+                "maxOutputTokens" to 128,
+                "temperature" to 0.1
+            )
+        )
+
+        val jsonBody = gson.toJson(payload)
+        val url = "$GEMINI_BASE_URL/$GEMINI_MODEL:generateContent"
+
+        val request = Request.Builder()
+            .url(url)
+            .header("x-goog-api-key", apiKey.trim())
+            .header("content-type", "application/json")
+            .post(jsonBody.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        return try {
+            val response = httpClient.newCall(request).executeSuspend()
+            val body = response.body?.string() ?: ""
+            if (!response.isSuccessful) {
+                Log.e(TAG, "Gemini STT error ${response.code}: $body")
+                return "[Error de transcripción]"
+            }
+
+            val json = JsonParser.parseString(body).asJsonObject
+            val candidates = json.getAsJsonArray("candidates")
+            val text = candidates?.firstOrNull()?.asJsonObject
+                ?.getAsJsonObject("content")
+                ?.getAsJsonArray("parts")
+                ?.firstOrNull()?.asJsonObject
+                ?.get("text")?.asString?.trim() ?: ""
+
+            Log.i(TAG, "Transcripción (Gemini): $text")
+            text
+        } catch (e: Exception) {
+            Log.e(TAG, "Error en transcripción Gemini: ${e.message}", e)
+            "[Error de conexión]"
+        }
+    }
+
     // ═════════════════════════════════════════════════
-    //  2. LLM AGENT (Claude - Anthropic)
+    //  2. LLM AGENT (Google Gemini / Claude Anthropic)
     // ═════════════════════════════════════════════════
 
     /**
-     * Envía el texto del usuario a Claude de forma directa y asíncrona,
+     * Envía el texto del usuario al LLM configurado (Google Gemini o Claude Anthropic),
      * soportando Function Calling / Tools mediante [FifoSkillRegistry].
      */
     suspend fun chat(
+        userText: String,
+        skillRegistry: com.fifo.voicepipeline.skills.FifoSkillRegistry? = null
+    ): String {
+        val activeGemini = resolveActiveGeminiKey()
+        val activeClaude = anthropicApiKey.trim()
+
+        // Preferir Gemini si se configuró una clave de Gemini (o si la clave ingresada es de formato Gemini)
+        if (activeGemini.isNotEmpty() && (geminiApiKey.isNotBlank() || isLikelyGeminiKey(activeClaude) || activeClaude.isEmpty())) {
+            return chatWithGemini(userText, skillRegistry, activeGemini)
+        }
+
+        // Si no hay clave de Claude pero sí de Gemini, usar Gemini
+        if (activeClaude.isEmpty() && activeGemini.isNotEmpty()) {
+            return chatWithGemini(userText, skillRegistry, activeGemini)
+        }
+
+        return chatWithClaude(userText, skillRegistry)
+    }
+
+    /**
+     * Envía el texto del usuario a Google Gemini (gemini-2.5-flash) con soporte completo
+     * de System Prompt, memoria conversacional y Function Calling ([FifoSkillRegistry]).
+     */
+    private suspend fun chatWithGemini(
+        userText: String,
+        skillRegistry: com.fifo.voicepipeline.skills.FifoSkillRegistry? = null,
+        apiKey: String
+    ): String {
+        conversationHistory.add(mapOf("role" to "user", "content" to userText))
+
+        val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 5)
+        val enrichedSystemPrompt = if (compactContext.isNotBlank()) {
+            "$SYSTEM_PROMPT\n\n$compactContext"
+        } else {
+            SYSTEM_PROMPT
+        }
+
+        // Convertir historial al formato de Gemini ("user" y "model")
+        val geminiContents = conversationHistory.map { msg ->
+            val geminiRole = if (msg["role"] == "assistant") "model" else "user"
+            mapOf(
+                "role" to geminiRole,
+                "parts" to listOf(mapOf("text" to (msg["content"] ?: "")))
+            )
+        }
+
+        val contentsJson = gson.toJson(geminiContents)
+        val systemInstructionJson = gson.toJson(
+            mapOf("parts" to listOf(mapOf("text" to enrichedSystemPrompt)))
+        )
+        val toolsFragment = if (skillRegistry != null) {
+            """, "tools": ${skillRegistry.getGeminiToolsJson()}"""
+        } else {
+            ""
+        }
+
+        val jsonBody = """
+        {
+            "systemInstruction": $systemInstructionJson,
+            "contents": $contentsJson$toolsFragment,
+            "generationConfig": {
+                "maxOutputTokens": 384,
+                "temperature": 0.7
+            }
+        }
+        """.trimIndent()
+
+        return try {
+            var response = callGeminiGenerateContent(GEMINI_MODEL, apiKey, jsonBody)
+            var body = response.body?.string() ?: ""
+
+            // Fallback automático a gemini-2.0-flash si el modelo primario devuelve 404
+            if (response.code == 404) {
+                Log.w(TAG, "Modelo $GEMINI_MODEL no encontrado, intentando con $GEMINI_FALLBACK_MODEL")
+                response = callGeminiGenerateContent(GEMINI_FALLBACK_MODEL, apiKey, jsonBody)
+                body = response.body?.string() ?: ""
+            }
+
+            if (!response.isSuccessful) {
+                Log.e(TAG, "Gemini error ${response.code}: $body")
+                return "Disculpa, tuve un problema al conectarme con Gemini. Verifica tu clave de API e intenta de nuevo."
+            }
+
+            val json = JsonParser.parseString(body).asJsonObject
+            val candidates = json.getAsJsonArray("candidates")
+            val parts = candidates?.firstOrNull()?.asJsonObject
+                ?.getAsJsonObject("content")
+                ?.getAsJsonArray("parts")
+
+            var textReply = ""
+            var toolFeedback = ""
+
+            parts?.forEach { element ->
+                val partObj = element.asJsonObject
+                if (partObj.has("text") && !partObj.get("text").isJsonNull) {
+                    textReply += partObj.get("text").asString
+                }
+                if (partObj.has("functionCall") && skillRegistry != null) {
+                    val fnCall = partObj.getAsJsonObject("functionCall")
+                    val toolName = fnCall.get("name")?.asString ?: ""
+                    val toolArgs = fnCall.getAsJsonObject("args")
+                    val argsMap = mutableMapOf<String, Any?>()
+                    toolArgs?.keySet()?.forEach { key ->
+                        val elementVal = toolArgs.get(key)
+                        if (elementVal != null && elementVal.isJsonPrimitive) {
+                            val prim = elementVal.asJsonPrimitive
+                            argsMap[key] = when {
+                                prim.isNumber -> prim.asInt
+                                prim.isBoolean -> prim.asBoolean
+                                else -> prim.asString
+                            }
+                        } else if (elementVal != null && !elementVal.isJsonNull) {
+                            argsMap[key] = elementVal.toString()
+                        }
+                    }
+                    val result = skillRegistry.executeSkill(toolName, argsMap)
+                    if (result.spokenFeedback.isNotBlank()) {
+                        toolFeedback = if (toolFeedback.isBlank()) result.spokenFeedback else "$toolFeedback ${result.spokenFeedback}"
+                    }
+                }
+            }
+
+            val combinedReply = when {
+                toolFeedback.isNotBlank() && textReply.isNotBlank() -> "$textReply $toolFeedback".trim()
+                toolFeedback.isNotBlank() -> toolFeedback.trim()
+                textReply.isNotBlank() -> textReply.trim()
+                else -> "Listo, he registrado los cambios."
+            }
+
+            val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(combinedReply)
+            conversationHistory.add(mapOf("role" to "assistant", "content" to reply))
+            reply
+        } catch (e: Exception) {
+            Log.e(TAG, "Error llamando a Gemini: ${e.message}", e)
+            "Hubo un error de conexión con Gemini. Intenta de nuevo."
+        }
+    }
+
+    private suspend fun callGeminiGenerateContent(
+        model: String,
+        apiKey: String,
+        jsonBody: String
+    ): Response {
+        val request = Request.Builder()
+            .url("$GEMINI_BASE_URL/$model:generateContent")
+            .header("x-goog-api-key", apiKey.trim())
+            .header("content-type", "application/json")
+            .post(jsonBody.toRequestBody("application/json".toMediaType()))
+            .build()
+        return httpClient.newCall(request).executeSuspend()
+    }
+
+    /**
+     * Envía el texto del usuario a Claude (Anthropic) soportando Function Calling.
+     */
+    private suspend fun chatWithClaude(
         userText: String,
         skillRegistry: com.fifo.voicepipeline.skills.FifoSkillRegistry? = null
     ): String {
@@ -320,16 +597,61 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
     }
 
     /**
-     * Prueba la validez de la clave de Claude realizando una consulta mínima de prueba.
+     * Prueba la validez de una clave de Google Gemini realizando una consulta mínima de prueba.
+     * Retorna Pair(éxito, mensaje descriptivo).
+     */
+    suspend fun testGeminiConnection(overrideKey: String? = null): Pair<Boolean, String> {
+        val key = normalizeGeminiKey(overrideKey ?: resolveActiveGeminiKey())
+        if (key.isEmpty()) {
+            return Pair(false, "La clave de Gemini no puede estar vacía.")
+        }
+        if (key.startsWith("sk-ant-")) {
+            return Pair(false, "Esta clave pertenece a Claude ('sk-ant-'), no a Google Gemini.")
+        }
+
+        val testBody = """
+        {
+            "contents": [{"role": "user", "parts": [{"text": "Hola"}]}],
+            "generationConfig": {"maxOutputTokens": 10}
+        }
+        """.trimIndent()
+
+        return try {
+            var response = callGeminiGenerateContent(GEMINI_MODEL, key, testBody)
+            if (response.code == 404) {
+                response = callGeminiGenerateContent(GEMINI_FALLBACK_MODEL, key, testBody)
+            }
+            val body = response.body?.string() ?: ""
+            if (response.isSuccessful) {
+                Pair(true, "¡Conexión exitosa con Google Gemini!")
+            } else {
+                val errorMsg = try {
+                    val json = JsonParser.parseString(body).asJsonObject
+                    json.getAsJsonObject("error")?.get("message")?.asString ?: "Error ${response.code}"
+                } catch (e: Exception) {
+                    "Error HTTP ${response.code}"
+                }
+                Pair(false, "Gemini rechazó la clave ($errorMsg)")
+            }
+        } catch (e: Exception) {
+            Pair(false, "Fallo de red: ${e.message}")
+        }
+    }
+
+    /**
+     * Prueba la validez de la clave de IA (detecta automáticamente si es Google Gemini 'AIza...' / 'AQ....' o Claude 'sk-ant-...').
      * Retorna Pair(éxito, mensaje descriptivo).
      */
     suspend fun testAnthropicConnection(overrideKey: String? = null): Pair<Boolean, String> {
-        val key = (overrideKey ?: anthropicApiKey).trim()
+        val key = (overrideKey ?: anthropicApiKey.ifBlank { geminiApiKey }).trim()
         if (key.isEmpty()) {
-            return Pair(false, "La clave de Claude no puede estar vacía.")
+            return Pair(false, "La clave de API no puede estar vacía.")
+        }
+        if (isLikelyGeminiKey(key)) {
+            return testGeminiConnection(key)
         }
         if (!key.startsWith("sk-ant-")) {
-            return Pair(false, "La clave debe comenzar con 'sk-ant-'.")
+            return Pair(false, "La clave debe comenzar con 'AIza'/'AQ.' (Gemini) o 'sk-ant-' (Claude).")
         }
 
         val testBody = """

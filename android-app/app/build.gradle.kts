@@ -17,6 +17,10 @@ val anthropicKey: String = localProps.getProperty("ANTHROPIC_API_KEY")
     ?: (project.findProperty("ANTHROPIC_API_KEY") as? String)
     ?: System.getenv("ANTHROPIC_API_KEY") ?: ""
 
+val geminiKey: String = localProps.getProperty("GEMINI_API_KEY")
+    ?: (project.findProperty("GEMINI_API_KEY") as? String)
+    ?: System.getenv("GEMINI_API_KEY") ?: ""
+
 val openAiKey: String = localProps.getProperty("OPENAI_API_KEY")
     ?: (project.findProperty("OPENAI_API_KEY") as? String)
     ?: System.getenv("OPENAI_API_KEY") ?: ""
@@ -33,6 +37,7 @@ android {
         versionName = "1.0"
 
         buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicKey\"")
+        buildConfigField("String", "GEMINI_API_KEY", "\"$geminiKey\"")
         buildConfigField("String", "OPENAI_API_KEY", "\"$openAiKey\"")
     }
 

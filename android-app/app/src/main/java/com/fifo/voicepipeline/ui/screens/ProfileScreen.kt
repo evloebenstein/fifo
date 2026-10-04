@@ -61,6 +61,9 @@ fun ProfileScreen(
     currentClaudeKey: String = "",
     onSaveClaudeKey: (String) -> Unit = {},
     onTestClaudeKey: (suspend (String) -> Pair<Boolean, String>)? = null,
+    currentGeminiKey: String = "",
+    onSaveGeminiKey: (String) -> Unit = {},
+    onTestGeminiKey: (suspend (String) -> Pair<Boolean, String>)? = null,
     isMicMuted: Boolean = false,
     onToggleMicMute: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -219,6 +222,12 @@ fun ProfileScreen(
 
     // Opciones técnicas avanzadas colapsables
     var isAdvancedTechOpen by remember { mutableStateOf(false) }
+    var geminiInput by remember { mutableStateOf(currentGeminiKey) }
+    var isTestingGeminiKey by remember { mutableStateOf(false) }
+    var geminiTestResultText by remember { mutableStateOf<String?>(null) }
+    var geminiTestResultSuccess by remember { mutableStateOf(false) }
+    var geminiKeySavedSuccess by remember { mutableStateOf(false) }
+
     var claudeInput by remember { mutableStateOf(currentClaudeKey) }
     var isTestingKey by remember { mutableStateOf(false) }
     var testResultText by remember { mutableStateOf<String?>(null) }
@@ -594,6 +603,98 @@ fun ProfileScreen(
 
                     AnimatedVisibility(visible = isAdvancedTechOpen) {
                         Column(modifier = Modifier.padding(top = 16.dp)) {
+                            // ── 1. Clave de Google Gemini (Recomendada) ─────────────
+                            Text(
+                                text = "Clave de Inteligencia Google Gemini (API Key)",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = FifoColors.LightTextPrimary
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Configura tu clave de Google Gemini (AIza...) para inteligencia conversacional, herramientas y transcripción de voz.",
+                                fontSize = 12.sp,
+                                color = FifoColors.LightTextSecondary
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            OutlinedTextField(
+                                value = geminiInput,
+                                onValueChange = {
+                                    geminiInput = it
+                                    geminiKeySavedSuccess = false
+                                    geminiTestResultText = null
+                                },
+                                placeholder = { Text("AIzaSy...", fontSize = 12.sp) },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+
+                            if (geminiKeySavedSuccess) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("✓ Clave de Gemini guardada y activa", fontSize = 12.sp, color = FifoColors.StatusListening, fontWeight = FontWeight.Bold)
+                            }
+
+                            if (geminiTestResultText != null) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = geminiTestResultText!!,
+                                    fontSize = 12.sp,
+                                    color = if (geminiTestResultSuccess) FifoColors.StatusListening else Color(0xFFEF4444),
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val keyToTest = geminiInput.trim()
+                                        if (keyToTest.isBlank()) {
+                                            geminiTestResultText = "Ingresa tu clave de Gemini (AIza...) primero."
+                                            geminiTestResultSuccess = false
+                                            return@OutlinedButton
+                                        }
+                                        isTestingGeminiKey = true
+                                        geminiTestResultText = null
+                                        coroutineScope.launch {
+                                            val result = onTestGeminiKey?.invoke(keyToTest)
+                                                ?: onTestClaudeKey?.invoke(keyToTest)
+                                                ?: Pair(false, "Prueba no disponible")
+                                            isTestingGeminiKey = false
+                                            geminiTestResultSuccess = result.first
+                                            geminiTestResultText = result.second
+                                        }
+                                    },
+                                    enabled = !isTestingGeminiKey,
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(if (isTestingGeminiKey) "Probando..." else "Probar Clave", fontSize = 12.sp)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        onSaveGeminiKey(geminiInput.trim())
+                                        geminiKeySavedSuccess = true
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(containerColor = FifoColors.NavyPrimary),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Guardar Gemini", fontSize = 12.sp)
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(18.dp))
+                            HorizontalDivider(color = Color(0xFFF1F5F9))
+                            Spacer(modifier = Modifier.height(18.dp))
+
+                            // ── 2. Clave de Claude (Anthropic API - Alternativa) ────
                             Text(
                                 text = "Clave de Inteligencia Claude (Anthropic API)",
                                 fontSize = 13.sp,
@@ -602,7 +703,7 @@ fun ProfileScreen(
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Configura la clave API de Claude para la inteligencia conversacional.",
+                                text = "Alternativamente, puedes usar una clave API de Claude (sk-ant-...).",
                                 fontSize = 12.sp,
                                 color = FifoColors.LightTextSecondary
                             )
@@ -645,7 +746,7 @@ fun ProfileScreen(
                                     onClick = {
                                         val keyToTest = claudeInput.trim()
                                         if (keyToTest.isBlank()) {
-                                            testResultText = "Ingresa tu clave de Claude primero."
+                                            testResultText = "Ingresa tu clave primero."
                                             testResultSuccess = false
                                             return@OutlinedButton
                                         }

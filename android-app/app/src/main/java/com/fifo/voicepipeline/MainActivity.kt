@@ -34,6 +34,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val DEFAULT_ANTHROPIC_KEY = ""
+        private const val DEFAULT_GEMINI_KEY = ""
     }
 
     private lateinit var pipeline: VoicePipelineManager
@@ -89,6 +90,11 @@ class MainActivity : ComponentActivity() {
             BuildConfig.ANTHROPIC_API_KEY.ifEmpty { DEFAULT_ANTHROPIC_KEY }
         }
 
+        val savedGeminiKey = prefs.getString("gemini_api_key", "") ?: ""
+        val geminiKey = savedGeminiKey.ifEmpty {
+            BuildConfig.GEMINI_API_KEY.ifEmpty { DEFAULT_GEMINI_KEY }
+        }
+
         val savedSttKey = prefs.getString("stt_api_key", "") ?: ""
         val openAiKey = savedSttKey.ifEmpty { BuildConfig.OPENAI_API_KEY }
 
@@ -96,7 +102,8 @@ class MainActivity : ComponentActivity() {
         pipeline = VoicePipelineManager(
             context = applicationContext,
             initialAnthropicApiKey = anthropicKey,
-            initialOpenAiApiKey = openAiKey
+            initialOpenAiApiKey = openAiKey,
+            initialGeminiApiKey = geminiKey
         )
 
         // ── UI ──────────────────────────────────────
@@ -115,6 +122,7 @@ class MainActivity : ComponentActivity() {
             val isMicMuted by pipeline.isMicMuted.collectAsState()
 
             var currentClaudeKey by remember { mutableStateOf(anthropicKey) }
+            var currentGeminiKey by remember { mutableStateOf(geminiKey) }
 
             MainScreen(
                 state = state,
@@ -132,13 +140,32 @@ class MainActivity : ComponentActivity() {
                 onSleep = { pipeline.goToSleep() },
                 currentClaudeKey = currentClaudeKey,
                 onSaveClaudeKey = { newKey ->
-                    prefs.edit().putString("anthropic_api_key", newKey).apply()
-                    currentClaudeKey = newKey
-                    pipeline.setAnthropicApiKey(newKey)
-                    Toast.makeText(this, "Clave de Claude guardada y activada", Toast.LENGTH_SHORT).show()
+                    val trimmed = newKey.trim()
+                    if (trimmed.startsWith("AIza") || trimmed.startsWith("AQ.")) {
+                        prefs.edit().putString("gemini_api_key", trimmed).apply()
+                        currentGeminiKey = trimmed
+                        pipeline.setGeminiApiKey(trimmed)
+                        Toast.makeText(this, "Clave de Google Gemini guardada y activada", Toast.LENGTH_SHORT).show()
+                    } else {
+                        prefs.edit().putString("anthropic_api_key", trimmed).apply()
+                        currentClaudeKey = trimmed
+                        pipeline.setAnthropicApiKey(trimmed)
+                        Toast.makeText(this, "Clave de Claude guardada y activada", Toast.LENGTH_SHORT).show()
+                    }
                 },
                 onTestClaudeKey = { keyToTest ->
                     pipeline.testClaudeConnection(keyToTest)
+                },
+                currentGeminiKey = currentGeminiKey,
+                onSaveGeminiKey = { newKey ->
+                    val trimmed = newKey.trim()
+                    prefs.edit().putString("gemini_api_key", trimmed).apply()
+                    currentGeminiKey = trimmed
+                    pipeline.setGeminiApiKey(trimmed)
+                    Toast.makeText(this, "Clave de Google Gemini guardada y activada", Toast.LENGTH_SHORT).show()
+                },
+                onTestGeminiKey = { keyToTest ->
+                    pipeline.testGeminiConnection(keyToTest)
                 },
                 onConnectBle = {
                     checkAndRequestBlePermissions()

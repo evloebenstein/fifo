@@ -64,6 +64,25 @@ class FifoSkillRegistry(private val context: Context) {
     }
 
     /**
+     * Genera la lista de herramientas en formato JSON compatible con Google Gemini API (functionDeclarations).
+     */
+    fun getGeminiToolsJson(): String {
+        val declarations = skills.values.map { skill ->
+            val schemaObj = try {
+                JsonParser.parseString(skill.parameterSchemaJson)
+            } catch (e: Exception) {
+                JsonParser.parseString("{}")
+            }
+            mapOf(
+                "name" to skill.name,
+                "description" to skill.description,
+                "parameters" to schemaObj
+            )
+        }
+        return gson.toJson(listOf(mapOf("functionDeclarations" to declarations)))
+    }
+
+    /**
      * Ejecuta una herramienta por nombre con los argumentos recibidos.
      */
     suspend fun executeSkill(name: String, args: Map<String, Any?>): SkillResult {

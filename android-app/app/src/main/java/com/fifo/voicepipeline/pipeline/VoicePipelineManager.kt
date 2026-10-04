@@ -29,7 +29,8 @@ import kotlinx.coroutines.flow.asStateFlow
 class VoicePipelineManager(
     private val context: Context,
     initialAnthropicApiKey: String,
-    initialOpenAiApiKey: String = ""
+    initialOpenAiApiKey: String = "",
+    initialGeminiApiKey: String = ""
 ) {
     companion object {
         private const val TAG = "VoicePipeline"
@@ -39,6 +40,9 @@ class VoicePipelineManager(
         private set
 
     var openAiApiKey: String = initialOpenAiApiKey
+        private set
+
+    var geminiApiKey: String = initialGeminiApiKey
         private set
 
     // ── Estado observable (para la UI) ──────────────
@@ -154,11 +158,12 @@ class VoicePipelineManager(
      * - Reconocedor de voz nativo de Google (0 claves requeridas)
      */
     fun start() {
-        Log.i(TAG, "Iniciando pipeline de voz FIFO (100% BLE + Claude)...")
+        Log.i(TAG, "Iniciando pipeline de voz FIFO (100% BLE + Gemini/Claude)...")
 
         cloudClient = CloudApiClient(
             anthropicApiKey = anthropicApiKey,
-            openAiApiKey = openAiApiKey
+            openAiApiKey = openAiApiKey,
+            geminiApiKey = geminiApiKey
         )
 
         // Inicializar reproductor de audio del celular
@@ -568,28 +573,57 @@ class VoicePipelineManager(
     }
 
     /**
-     * Permite actualizar dinámicamente la clave para Claude (Anthropic).
+     * Permite actualizar dinámicamente la clave para Claude (Anthropic) o Gemini si empieza con AIza.
      */
     fun setAnthropicApiKey(key: String) {
         val trimmed = key.trim()
+        if (trimmed.startsWith("AIza") || trimmed.startsWith("AQ.")) {
+            setGeminiApiKey(trimmed)
+            return
+        }
         anthropicApiKey = trimmed
-        cloudClient.anthropicApiKey = trimmed
+        if (::cloudClient.isInitialized) {
+            cloudClient.anthropicApiKey = trimmed
+        }
         Log.i(TAG, "Nueva API key para Claude configurada: ${trimmed.take(12)}...")
     }
 
     /**
-     * Prueba la conexión con Claude con la clave actual o una clave específica.
+     * Permite actualizar dinámicamente la clave para Google Gemini (AIza...).
+     */
+    fun setGeminiApiKey(key: String) {
+        val trimmed = key.trim()
+        geminiApiKey = trimmed
+        if (::cloudClient.isInitialized) {
+            cloudClient.geminiApiKey = trimmed
+        }
+        Log.i(TAG, "Nueva API key para Google Gemini configurada: ${trimmed.take(10)}...")
+    }
+
+    /**
+     * Prueba la conexión con Gemini o Claude con la clave actual o una clave específica.
      */
     suspend fun testClaudeConnection(overrideKey: String? = null): Pair<Boolean, String> {
         return cloudClient.testAnthropicConnection(overrideKey)
     }
 
     /**
+     * Prueba la conexión específicamente con Google Gemini.
+     */
+    suspend fun testGeminiConnection(overrideKey: String? = null): Pair<Boolean, String> {
+        return cloudClient.testGeminiConnection(overrideKey)
+    }
+
+    /**
      * Permite actualizar dinámicamente la clave para STT (OpenAI o Groq) opcional.
      */
     fun setOpenAiApiKey(key: String) {
-        cloudClient.openAiApiKey = key.trim()
-        Log.i(TAG, "Nueva API key para STT opcional configurada: ${key.take(8)}...")
+        val trimmed = key.trim()
+        openAiApiKey = trimmed
+        if (::cloudClient.isInitialized) {
+            cloudClient.openAiApiKey = trimmed
+        }
+        Log.i(TAG, "Nueva API key para STT opcional configurada: ${trimmed.take(8)}...")
     }
 
     /**
@@ -672,15 +706,15 @@ class VoicePipelineManager(
             updateEspDisplay(state = "PENSANDO")
 
             try {
-                // Si no hay clave de Whisper/Groq, no insistir con voz de error
-                if (cloudClient.openAiApiKey.isBlank()) {
-                    Log.d(TAG, "Audio de ESP32 omitido: no hay clave Whisper configurada. Se usa reconocimiento de voz nativo de Google.")
+                // Si no hay clave de STT (Whisper, Groq o Gemini), se usa reconocimiento nativo de Google
+                if (!cloudClient.hasSttCapability()) {
+                    Log.d(TAG, "Audio de ESP32 omitido: no hay clave Whisper/Groq/Gemini configurada. Se usa reconocimiento de voz nativo de Google.")
                     _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
                     updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
                     return@launch
                 }
 
-                // 1. STT Whisper con timeout estricto de 10s
+                // 1. STT (Whisper / Groq / Gemini Multimodal) con timeout estricto de 10s
                 val transcript = withTimeoutOrNull(10000L) {
                     cloudClient.transcribe(wavAudio)
                 } ?: "[TIMEOUT_STT]"
@@ -758,7 +792,7 @@ class VoicePipelineManager(
     }
 
     /**
-     * Consulta a Claude y reproduce la respuesta mediante voz,
+     * Consulta al LLM activo (Google Gemini o Claude) y reproduce la respuesta mediante voz,
      * ejecutando herramientas nativas del teléfono y mutaciones de BD mediante [skillRegistry].
      */
     private suspend fun consultClaudeAndRespond(query: String) {
@@ -774,14 +808,18 @@ class VoicePipelineManager(
             return
         }
 
-        // 2. Si no es un comando directo, consultar a Claude con el catálogo de herramientas
+        // 2. Si no es un comando directo, consultar a Gemini o Claude con el catálogo de herramientas
+        val isGeminiActive = cloudClient.resolveActiveGeminiKey().isNotEmpty() &&
+                (geminiApiKey.isNotBlank() || anthropicApiKey.startsWith("AIza") || anthropicApiKey.startsWith("AQ.") || anthropicApiKey.isBlank())
+        val providerName = if (isGeminiActive) "Gemini" else "Claude"
+
         _state.value = PipelineState.PROCESSING
-        _statusMessage.value = "Consultando a Claude..."
+        _statusMessage.value = "Consultando a $providerName..."
         updateEspDisplay(state = "PENSANDO", transcript = query)
 
         val reply = withTimeoutOrNull(15000L) {
             cloudClient.chat(query, skillRegistry)
-        } ?: "Disculpa, la respuesta de Claude tardó demasiado tiempo. Intenta de nuevo."
+        } ?: "Disculpa, la respuesta de $providerName tardó demasiado tiempo. Intenta de nuevo."
 
         val cleanReply = TextSanitizer.cleanForSpeech(reply)
         _aiResponse.value = cleanReply

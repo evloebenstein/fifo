@@ -52,6 +52,9 @@ fun MainScreen(
     currentClaudeKey: String = "",
     onSaveClaudeKey: (String) -> Unit = {},
     onTestClaudeKey: (suspend (String) -> Pair<Boolean, String>)? = null,
+    currentGeminiKey: String = "",
+    onSaveGeminiKey: (String) -> Unit = {},
+    onTestGeminiKey: (suspend (String) -> Pair<Boolean, String>)? = null,
     isMicMuted: Boolean = false,
     onToggleMicMute: () -> Unit = {}
 ) {
@@ -153,6 +156,9 @@ fun MainScreen(
                                     currentClaudeKey = currentClaudeKey,
                                     onSaveClaudeKey = onSaveClaudeKey,
                                     onTestClaudeKey = onTestClaudeKey,
+                                    currentGeminiKey = currentGeminiKey,
+                                    onSaveGeminiKey = onSaveGeminiKey,
+                                    onTestGeminiKey = onTestGeminiKey,
                                     isMicMuted = isMicMuted,
                                     onToggleMicMute = onToggleMicMute
                                 )
