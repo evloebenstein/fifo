@@ -531,7 +531,7 @@ fun VoiceInteractionSheet(
                                 onClick = onToggleMicMute,
                                 shape = RoundedCornerShape(22.dp),
                                 color = FifoColors.DarkInputBg,
-                                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFEF4444).copy(alpha = 0.45f)),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.DarkInputBorder),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .defaultMinSize(minHeight = 52.dp)
@@ -544,15 +544,15 @@ fun VoiceInteractionSheet(
                                     Icon(
                                         imageVector = Icons.Default.MicOff,
                                         contentDescription = null,
-                                        tint = Color(0xFFF87171),
+                                        tint = Color.White,
                                         modifier = Modifier.size(22.dp)
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
                                     Text(
-                                        text = "Silenciar micrófono (Pausar a Fifo)",
+                                        text = "Silenciar micrófono",
                                         fontSize = 15.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        color = Color(0xFFFCA5A5)
+                                        color = Color.White
                                     )
                                 }
                             }
