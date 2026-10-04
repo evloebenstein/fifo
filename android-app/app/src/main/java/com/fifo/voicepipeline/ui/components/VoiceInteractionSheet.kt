@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -564,30 +565,51 @@ fun VoiceInteractionSheet(
                             Spacer(modifier = Modifier.height(10.dp))
                             Surface(
                                 onClick = { showDeviceFinderDialog = true },
-                                shape = RoundedCornerShape(20.dp),
-                                color = Color(0xFF78350F).copy(alpha = 0.25f),
+                                shape = RoundedCornerShape(22.dp),
+                                color = Color(0xFF1E293B).copy(alpha = 0.5f),
                                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.45f)),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .defaultMinSize(minHeight = 50.dp)
+                                    .defaultMinSize(minHeight = 54.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .background(Color(0xFFF59E0B).copy(alpha = 0.20f), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.LocationSearching,
+                                            contentDescription = null,
+                                            tint = Color(0xFFFBBF24),
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "¿Dónde dejé a mi robot? (Buscar Fifo)",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color(0xFFFDE68A)
+                                        )
+                                        Text(
+                                            text = "Ver última ubicación GPS o hacerlo sonar",
+                                            fontSize = 11.sp,
+                                            color = Color(0xFFFBBF24).copy(alpha = 0.85f)
+                                        )
+                                    }
                                     Icon(
-                                        imageVector = Icons.Default.LocationSearching,
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowForward,
                                         contentDescription = null,
-                                        tint = Color(0xFFFBBF24),
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(
-                                        text = "¿Dónde dejé a mi robot? (Buscar Fifo)",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color(0xFFFDE68A)
+                                        tint = Color(0xFFFBBF24).copy(alpha = 0.70f),
+                                        modifier = Modifier.size(16.dp)
                                     )
                                 }
                             }
@@ -596,34 +618,52 @@ fun VoiceInteractionSheet(
                             Spacer(modifier = Modifier.height(10.dp))
                             Surface(
                                 onClick = onTalkFromPhone,
-                                shape = RoundedCornerShape(20.dp),
-                                color = if (micSource == MicSource.PHONE) Color(0xFF0284C7).copy(alpha = 0.3f) else FifoColors.DarkInputBg,
+                                shape = RoundedCornerShape(22.dp),
+                                color = if (micSource == MicSource.PHONE) Color(0xFF0284C7).copy(alpha = 0.25f) else FifoColors.DarkInputBg,
                                 border = androidx.compose.foundation.BorderStroke(
                                     1.dp,
                                     if (micSource == MicSource.PHONE) Color(0xFF0284C7) else FifoColors.DarkInputBorder
                                 ),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .defaultMinSize(minHeight = 50.dp)
+                                    .defaultMinSize(minHeight = 54.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.PhoneAndroid,
-                                        contentDescription = null,
-                                        tint = if (micSource == MicSource.PHONE) Color(0xFF38BDF8) else FifoColors.BlueAccent,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(
-                                        text = if (micSource == MicSource.PHONE) "Escuchando desde este celular" else "¿Robot lejos? Hablar desde este celular",
-                                        fontSize = 14.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .background(
+                                                (if (micSource == MicSource.PHONE) Color(0xFF38BDF8) else FifoColors.BlueAccent).copy(alpha = 0.20f),
+                                                CircleShape
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PhoneAndroid,
+                                            contentDescription = null,
+                                            tint = if (micSource == MicSource.PHONE) Color(0xFF38BDF8) else FifoColors.BlueAccent,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = if (micSource == MicSource.PHONE) "Escuchando desde este celular" else "¿Robot lejos? Hablar desde este celular",
+                                            fontSize = 14.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = if (micSource == MicSource.PHONE) "Micrófono del teléfono activo" else "Usa el micrófono del teléfono para responder",
+                                            fontSize = 11.sp,
+                                            color = FifoColors.DarkBadgeText
+                                        )
+                                    }
                                 }
                             }
                         }

@@ -9,11 +9,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
@@ -101,11 +104,13 @@ fun FifoDeviceFinderDialog(
                             onClick = onDismiss,
                             color = FifoColors.DarkInputBg,
                             shape = RoundedCornerShape(20.dp),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.DarkInputBorder),
-                            modifier = Modifier.defaultMinSize(minHeight = 40.dp)
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF334155)),
+                            modifier = Modifier
+                                .defaultMinSize(minHeight = 42.dp)
+                                .shadow(elevation = 2.dp, shape = RoundedCornerShape(20.dp))
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Icon(
@@ -114,7 +119,7 @@ fun FifoDeviceFinderDialog(
                                     tint = Color.White,
                                     modifier = Modifier.size(16.dp)
                                 )
-                                Spacer(modifier = Modifier.width(4.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
                                     text = "Cerrar",
                                     color = Color.White,
@@ -176,31 +181,76 @@ fun FifoDeviceFinderDialog(
 
                                 Spacer(modifier = Modifier.height(18.dp))
 
-                                Button(
+                                Surface(
                                     onClick = {
                                         isBeepTriggered = true
                                         FifoDataRepository.triggerDeviceBeep(true)
                                     },
-                                    shape = RoundedCornerShape(18.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = Color(0xFF10B981),
-                                        contentColor = Color.White
-                                    ),
+                                    shape = RoundedCornerShape(22.dp),
+                                    color = Color.Transparent,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(52.dp)
+                                        .defaultMinSize(minHeight = 56.dp)
+                                        .shadow(
+                                            elevation = 6.dp,
+                                            shape = RoundedCornerShape(22.dp),
+                                            spotColor = Color(0xFF10B981).copy(alpha = 0.5f)
+                                        )
+                                        .background(
+                                            brush = Brush.horizontalGradient(
+                                                colors = listOf(Color(0xFF059669), Color(0xFF10B981))
+                                            ),
+                                            shape = RoundedCornerShape(22.dp)
+                                        )
+                                        .border(
+                                            width = 1.dp,
+                                            color = Color.White.copy(alpha = 0.30f),
+                                            shape = RoundedCornerShape(22.dp)
+                                        )
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.VolumeUp,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(
-                                        text = if (isBeepTriggered) "¡Sonando! Bip bip bip..." else "Hacer sonar a Fifo",
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 18.dp, vertical = 12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(38.dp)
+                                                .background(Color.White.copy(alpha = 0.22f), CircleShape),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.AutoMirrored.Filled.VolumeUp,
+                                                contentDescription = null,
+                                                tint = Color.White,
+                                                modifier = Modifier.size(22.dp)
+                                            )
+                                        }
+
+                                        Spacer(modifier = Modifier.width(14.dp))
+
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = if (isBeepTriggered) "¡Sonando! Bip bip bip..." else "Hacer sonar a Fifo",
+                                                fontSize = 15.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color.White
+                                            )
+                                            Text(
+                                                text = "Emitir sonido audible por el parlante",
+                                                fontSize = 12.sp,
+                                                color = Color.White.copy(alpha = 0.85f)
+                                            )
+                                        }
+
+                                        Icon(
+                                            imageVector = Icons.Default.Hearing,
+                                            contentDescription = null,
+                                            tint = Color.White.copy(alpha = 0.85f),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -299,8 +349,8 @@ fun FifoDeviceFinderDialog(
 
                     Spacer(modifier = Modifier.height(22.dp))
 
-                    // Acciones Principales
-                    Button(
+                    // Acciones Principales con estética impecable y táctil
+                    Surface(
                         onClick = {
                             FifoLocationHelper.openMapPin(
                                 context = context,
@@ -309,55 +359,128 @@ fun FifoDeviceFinderDialog(
                                 label = "Última ubicación de Fifo"
                             )
                         },
-                        shape = RoundedCornerShape(20.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF0284C7),
-                            contentColor = Color.White
-                        ),
+                        shape = RoundedCornerShape(22.dp),
+                        color = Color.Transparent,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(54.dp)
+                            .defaultMinSize(minHeight = 58.dp)
+                            .shadow(
+                                elevation = 6.dp,
+                                shape = RoundedCornerShape(22.dp),
+                                spotColor = Color(0xFF0284C7).copy(alpha = 0.5f)
+                            )
+                            .background(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(Color(0xFF0284C7), Color(0xFF2563EB))
+                                ),
+                                shape = RoundedCornerShape(22.dp)
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = Color.White.copy(alpha = 0.30f),
+                                shape = RoundedCornerShape(22.dp)
+                            )
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Map,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Ver en Google Maps",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .background(Color.White.copy(alpha = 0.20f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Place,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(14.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Ver en Google Maps",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "Abrir GPS para llegar al robot",
+                                    fontSize = 12.sp,
+                                    color = Color.White.copy(alpha = 0.85f)
+                                )
+                            }
+
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+                                contentDescription = null,
+                                tint = Color.White.copy(alpha = 0.85f),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(14.dp))
 
-                    OutlinedButton(
-                        onClick = {
-                            onScanBle()
-                        },
-                        shape = RoundedCornerShape(20.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = Color.White
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.DarkInputBorder),
+                    Surface(
+                        onClick = onScanBle,
+                        shape = RoundedCornerShape(22.dp),
+                        color = FifoColors.DarkInputBg,
+                        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF38BDF8).copy(alpha = 0.40f)),
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(52.dp)
+                            .defaultMinSize(minHeight = 56.dp)
+                            .shadow(elevation = 2.dp, shape = RoundedCornerShape(22.dp))
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.BluetoothSearching,
-                            contentDescription = null,
-                            tint = FifoColors.BlueAccent,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = "Buscar señal Bluetooth ahora",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 18.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(38.dp)
+                                    .background(Color(0xFF0284C7).copy(alpha = 0.20f), CircleShape),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Bluetooth,
+                                    contentDescription = null,
+                                    tint = Color(0xFF38BDF8),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(14.dp))
+
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "Buscar señal Bluetooth ahora",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White
+                                )
+                                Text(
+                                    text = "Escanear si el robot está cerca en casa",
+                                    fontSize = 12.sp,
+                                    color = FifoColors.DarkBadgeText
+                                )
+                            }
+
+                            Icon(
+                                imageVector = Icons.Default.NearMe,
+                                contentDescription = null,
+                                tint = Color(0xFF38BDF8),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(18.dp))
