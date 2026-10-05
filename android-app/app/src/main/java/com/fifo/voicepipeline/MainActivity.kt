@@ -73,6 +73,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        // ── Inicializar Base de Datos Relacional Local SQLite ─────────
+        com.fifo.voicepipeline.data.FifoDataRepository.initialize(applicationContext)
+
         // ── Iniciar Foreground Service para ejecución continua 24/7 de forma segura ──
         try {
             FifoVoiceService.start(applicationContext)
@@ -123,6 +126,10 @@ class MainActivity : ComponentActivity() {
 
             var currentClaudeKey by remember { mutableStateOf(groqKey.ifEmpty { anthropicKey }) }
 
+            val testConnectionFn: suspend (String) -> Pair<Boolean, String> = { keyToTest ->
+                pipeline.testConnection(keyToTest)
+            }
+
             MainScreen(
                 state = state,
                 micSource = micSource,
@@ -138,7 +145,7 @@ class MainActivity : ComponentActivity() {
                 onWakeUp = { pipeline.wakeUpManually() },
                 onSleep = { pipeline.goToSleep() },
                 currentClaudeKey = currentClaudeKey,
-                onSaveClaudeKey = { newKey ->
+                onSaveClaudeKey = { newKey: String ->
                     val trimmed = newKey.trim()
                     if (trimmed.startsWith("gsk_")) {
                         prefs.edit().putString("groq_api_key", trimmed).apply()
@@ -152,9 +159,7 @@ class MainActivity : ComponentActivity() {
                         Toast.makeText(this, "Clave guardada y activada", Toast.LENGTH_SHORT).show()
                     }
                 },
-                onTestClaudeKey = { keyToTest ->
-                    pipeline.testConnection(keyToTest)
-                },
+                onTestClaudeKey = testConnectionFn,
                 onConnectBle = {
                     checkAndRequestBlePermissions()
                 },

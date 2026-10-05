@@ -45,6 +45,7 @@ class FifoVoiceService : Service() {
         super.onCreate()
         Log.i(TAG, "Iniciando FifoVoiceService para ejecución continua en segundo plano")
 
+        com.fifo.voicepipeline.data.FifoDataRepository.initialize(applicationContext)
         createNotificationChannel()
         try {
             val notification = buildNotification("FIFO está activo · Di 'Fifo' para hablar")

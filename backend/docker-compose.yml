@@ -1,0 +1,74 @@
+services:
+  fifo-mysql:
+    image: mysql:8.4
+    container_name: fifo-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-fifo_root_secret_2026}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-fifo_db}
+      MYSQL_USER: ${MYSQL_USER:-fifo_app}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-fifo_app_secret_2026}
+      TZ: America/Santiago
+    ports:
+      - "${MYSQL_PORT:-3306}:3306"
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_es_0900_ai_ci
+      - --default-time-zone=-03:00
+      - --innodb-ft-min-token-size=2
+      - --ngram-token-size=2
+    volumes:
+      - fifo_mysql_data:/var/lib/mysql
+      - ./init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$${MYSQL_ROOT_PASSWORD:-fifo_root_secret_2026}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - fifo-net
+
+  fifo-adminer:
+    image: adminer:4.8.1
+    container_name: fifo-adminer
+    restart: unless-stopped
+    depends_on:
+      fifo-mysql:
+        condition: service_healthy
+    environment:
+      ADMINER_DEFAULT_SERVER: fifo-mysql
+      ADMINER_DESIGN: pepa-linha
+    ports:
+      - "${ADMINER_PORT:-8080}:8080"
+    networks:
+      - fifo-net
+
+  fifo-api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: fifo-api
+    restart: unless-stopped
+    depends_on:
+      fifo-mysql:
+        condition: service_healthy
+    environment:
+      DB_HOST: fifo-mysql
+      DB_PORT: 3306
+      DB_NAME: ${MYSQL_DATABASE:-fifo_db}
+      DB_USER: ${MYSQL_USER:-fifo_app}
+      DB_PASSWORD: ${MYSQL_PASSWORD:-fifo_app_secret_2026}
+    ports:
+      - "${API_PORT:-8090}:8090"
+    networks:
+      - fifo-net
+
+volumes:
+  fifo_mysql_data:
+    name: fifo_mysql_data
+
+networks:
+  fifo-net:
+    name: fifo-net
+    driver: bridge

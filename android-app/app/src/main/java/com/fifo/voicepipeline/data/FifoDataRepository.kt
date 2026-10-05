@@ -4,6 +4,7 @@ import com.fifo.voicepipeline.ui.model.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 /**
@@ -15,6 +16,42 @@ import java.util.UUID
  * 3. La sincronización futura bidireccional con backend en la nube (Firestore / Supabase)
  */
 object FifoDataRepository {
+
+    private var dbHelper: com.fifo.voicepipeline.data.local.FifoDatabaseHelper? = null
+    private val repositoryScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
+
+    /**
+     * Inicializa la base de datos local SQLite y carga los datos persistidos en el teléfono.
+     */
+    fun initialize(context: android.content.Context) {
+        if (dbHelper != null) return
+        val app = context.applicationContext
+        val helper = com.fifo.voicepipeline.data.local.FifoDatabaseHelper.getInstance(app)
+        dbHelper = helper
+
+        try {
+            _userProfile.value = helper.getUserProfile()
+            val localTastes = helper.getTastes()
+            if (localTastes.isNotEmpty()) _tastes.value = localTastes
+            val localStories = helper.getTasteStories()
+            if (localStories.isNotEmpty()) _tasteStories.value = localStories
+            val localPosts = helper.getSocialPosts()
+            if (localPosts.isNotEmpty()) _socialPosts.value = localPosts
+            val localMemories = helper.getMemories()
+            if (localMemories.isNotEmpty()) _memories.value = localMemories
+            val localReminders = helper.getReminders()
+            if (localReminders.isNotEmpty()) _reminders.value = localReminders
+            _deviceLocation.value = helper.getDeviceLocation()
+            android.util.Log.i("FifoDataRepository", "Base de datos local SQLite cargada correctamente")
+
+            // Sincronizar en segundo plano con el backend Docker si está disponible
+            repositoryScope.launch {
+                com.fifo.voicepipeline.data.remote.FifoApiClient.syncAll(app)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FifoDataRepository", "Error inicializando base de datos SQLite: ${e.message}")
+        }
+    }
 
     // ── 1. Perfil del Usuario ──────────────────────────────────
     private val _userProfile = MutableStateFlow(
@@ -254,13 +291,25 @@ object FifoDataRepository {
         val newYear = birthYear ?: current.birthYear
         val newAge = if (birthYear != null) (2026 - birthYear) else current.estimatedAge
 
-        _userProfile.value = current.copy(
+        val updated = current.copy(
             fullName = fullName?.trim()?.ifBlank { current.fullName } ?: current.fullName,
             birthDate = birthDate?.trim()?.ifBlank { current.birthDate } ?: current.birthDate,
             birthYear = newYear,
             estimatedAge = newAge,
             genderIdentity = gender?.trim()?.ifBlank { current.genderIdentity } ?: current.genderIdentity,
             city = city?.trim()?.ifBlank { current.city } ?: current.city
+        )
+        _userProfile.value = updated
+
+        // Guardar en SQLite local
+        dbHelper?.updateDemographics(
+            userId = current.id,
+            fullName = fullName,
+            birthDate = birthDate,
+            birthYear = newYear,
+            estimatedAge = newAge,
+            gender = gender,
+            city = city
         )
     }
 
@@ -269,7 +318,9 @@ object FifoDataRepository {
      */
     fun updateBio(newBio: String) {
         if (newBio.isNotBlank()) {
-            _userProfile.value = _userProfile.value.copy(bioAi = newBio.trim())
+            val clean = newBio.trim()
+            _userProfile.value = _userProfile.value.copy(bioAi = clean)
+            dbHelper?.updateBio(_userProfile.value.id, clean)
         }
     }
 
@@ -282,6 +333,7 @@ object FifoDataRepository {
         val current = _tastes.value
         if (!current.any { it.equals(clean, ignoreCase = true) }) {
             _tastes.value = current + clean
+            dbHelper?.addTaste(name = clean)
             return true
         }
         return false
@@ -296,6 +348,7 @@ object FifoDataRepository {
         val filtered = current.filterNot { it.equals(clean, ignoreCase = true) }
         if (filtered.size != current.size) {
             _tastes.value = filtered
+            dbHelper?.removeTaste(name = clean)
             return true
         }
         return false
@@ -306,6 +359,7 @@ object FifoDataRepository {
      */
     fun addTasteStory(story: FifoTasteStory) {
         _tasteStories.value = listOf(story) + _tasteStories.value
+        dbHelper?.addTasteStory(story = story)
     }
 
     /**
@@ -325,6 +379,7 @@ object FifoDataRepository {
             accentColorHex = 0xFF38BDF8
         )
         _socialPosts.value = listOf(newPost) + _socialPosts.value
+        dbHelper?.addSocialPost(post = newPost)
         return newPost
     }
 
@@ -340,6 +395,7 @@ object FifoDataRepository {
             learnedDate = "Aprendido recién"
         )
         _memories.value = listOf(newMem) + _memories.value
+        dbHelper?.addMemory(item = newMem)
     }
 
     /**
@@ -355,6 +411,7 @@ object FifoDataRepository {
             createdAt = "Hoy"
         )
         _reminders.value = listOf(item) + _reminders.value
+        dbHelper?.addReminder(reminder = item)
         return item
     }
 
@@ -365,6 +422,7 @@ object FifoDataRepository {
         _reminders.value = _reminders.value.map {
             if (it.id == id) it.copy(isCompleted = true) else it
         }
+        dbHelper?.completeReminder(reminderId = id, completed = true)
     }
 
     /**
@@ -576,7 +634,7 @@ object FifoDataRepository {
         rssi: Int? = null
     ) {
         val current = _deviceLocation.value
-        _deviceLocation.value = current.copy(
+        val updatedLoc = current.copy(
             isConnected = connected,
             lastConnectedTime = if (connected) "Conectado ahora" else "Hoy a las 18:30",
             lastKnownLatitude = latitude ?: current.lastKnownLatitude,
@@ -586,13 +644,17 @@ object FifoDataRepository {
             signalStrengthRssi = rssi ?: current.signalStrengthRssi,
             isBeeping = if (!connected) false else current.isBeeping
         )
+        _deviceLocation.value = updatedLoc
+        dbHelper?.updateDeviceLocation(loc = updatedLoc)
     }
 
     /**
      * Activa o desactiva la alarma sonora en el robot para encontrarlo cuando se pierde.
      */
     fun triggerDeviceBeep(beeping: Boolean) {
-        _deviceLocation.value = _deviceLocation.value.copy(isBeeping = beeping)
+        val updatedLoc = _deviceLocation.value.copy(isBeeping = beeping)
+        _deviceLocation.value = updatedLoc
+        dbHelper?.updateDeviceLocation(loc = updatedLoc)
     }
 
     // ══════════════════════════════════════════════════════════════
