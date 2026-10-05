@@ -90,15 +90,14 @@ class NativeSpeechRecognizer(
             val langTag = if (isSpanish) defaultLocale.toLanguageTag() else "es-419"
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, langTag)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, langTag)
-            putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("es-419", "es-ES", "es-US", "es-CL", "es"))
+            // Permitir español y también inglés de respaldo para evitar error 12 en emuladores o entornos sin pack descargado
+            putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("es-419", "es-ES", "es-US", "es-CL", "es", "en-US"))
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             // IMPORTANTE: Android espera tipos Int para los milisegundos de silencio.
-            // Si se pasa Long (ej: 2000L), GoogleTTSRecognitionService falla la lectura del Bundle y usa 0 ms por defecto,
-            // cortando la voz inmediatamente ante cualquier mínima pausa.
             putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1500)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3000)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 5000)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
         }
     }
@@ -206,28 +205,28 @@ class NativeSpeechRecognizer(
                 if (!shouldKeepListening) return
 
                 when (error) {
-                    // Silencio normal del usuario o fin de tiempo: la instancia sigue sana, no destruirla
+                    // Silencio normal del usuario o fin de tiempo: reiniciar de inmediato para no perder palabras
                     SpeechRecognizer.ERROR_NO_MATCH,
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
-                        restartListening(200L)
+                        restartListening(50L)
                     }
-                    // Idioma no descargado sin conexión: reintentar con delay sin forzar inglés
+                    // Idioma no descargado sin conexión: reintentar con delay
                     13 -> {
-                        restartListening(1000L)
+                        restartListening(500L)
                     }
                     // Errores recuperables con pausa breve
                     SpeechRecognizer.ERROR_NETWORK,
                     SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
                     SpeechRecognizer.ERROR_SERVER -> {
-                        restartListening(1200L)
+                        restartListening(800L)
                     }
                     // Errores de cliente o busy: destruir y recrear limpiamente con delay
                     SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
                     SpeechRecognizer.ERROR_CLIENT -> {
-                        destroyAndRecreateAfterDelay(800L)
+                        destroyAndRecreateAfterDelay(600L)
                     }
                     else -> {
-                        restartListening(500L)
+                        restartListening(200L)
                     }
                 }
             }
@@ -238,7 +237,10 @@ class NativeSpeechRecognizer(
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: arrayListOf()
                 Log.i(TAG, "Candidatos reconocidos por Google: $matches")
 
-                val wakeWords = listOf("fifo", "fifa", "fito", "feefo", "fido", "vivo", "filo", "fijo", "pipo", "kiko", "sifo", "fio")
+                val wakeWords = listOf(
+                    "fifo", "fifa", "fito", "feefo", "fido", "vivo", "filo", "fijo", "pipo", "kiko", "sifo", "fio",
+                    "fee for", "fit for", "people", "free for", "feed for", "bebo", "feefa", "fefa", "phifo", "vibo"
+                )
                 val bestMatch = matches.firstOrNull { candidate ->
                     val lower = candidate.lowercase()
                     wakeWords.any { lower.contains(it) }
@@ -249,14 +251,17 @@ class NativeSpeechRecognizer(
                 }
 
                 if (shouldKeepListening) {
-                    restartListening(300L)
+                    restartListening(100L)
                 }
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
                 if (generation != currentGeneration) return
                 val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: arrayListOf()
-                val wakeWords = listOf("fifo", "fifa", "fito", "feefo")
+                val wakeWords = listOf(
+                    "fifo", "fifa", "fito", "feefo", "fido", "vivo", "filo", "fijo", "pipo",
+                    "fee for", "fit for", "feefa", "fefa", "phifo"
+                )
                 val bestPartial = matches.firstOrNull { candidate ->
                     val lower = candidate.lowercase()
                     wakeWords.any { lower.contains(it) }

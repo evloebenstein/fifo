@@ -389,7 +389,7 @@ fun HomeScreen(
 
                 // BOTÓN PRINCIPAL — grande, accesible, premium
                 Button(
-                    onClick = onStartVoiceChat,
+                    onClick = if (!isBleConnected) onConnectBle else onStartVoiceChat,
                     shape = RoundedCornerShape(20.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = FifoColors.NavyPrimary,

@@ -365,23 +365,29 @@ class VoicePipelineManager(
     }
 
     /**
-     * Permite al usuario hablar directamente a Fifo a través del micrófono del celular.
+     * Activa el modo de interacción a través del micrófono del celular.
+     * En este modo Fifo NO se activa directamente a escuchar; inicia en reposo (SLEEPING)
+     * y requiere estrictamente que el usuario pronuncie la palabra de activación ("Fifo").
      */
     fun talkFromPhone() {
         if (_isMicMuted.value) {
             _isMicMuted.value = false
         }
-        _isAwake.value = true
-        oneShotPushedToTalk = true
+        _isAwake.value = false
+        oneShotPushedToTalk = false
+        expectFollowUpQuestion = false
         _micSource.value = MicSource.PHONE
-        _state.value = PipelineState.LISTENING
-        _statusMessage.value = "Escuchando por el celular... hable ahora"
-        resetAutoSleepTimer()
+        _state.value = PipelineState.SLEEPING
+        _statusMessage.value = "Modo celular activo · Di 'Fifo' para despertar"
+        autoSleepJob?.cancel()
         vad.reset()
         pcmBuffer.clear()
-        phoneMicRecorder.stop()
+        
+        // Iniciar captura de audio para VAD + Groq Whisper
+        startPhoneMic()
+        // Iniciar también reconocedor nativo
         nativeRecognizer?.startContinuousListening()
-        updateEspDisplay(state = "ESCUCHANDO")
+        updateEspDisplay(state = "DURMIENDO", transcript = "", response = "")
     }
 
     /**
@@ -564,7 +570,10 @@ class VoicePipelineManager(
      */
     private fun isWakeWord(text: String): Boolean {
         val lower = text.lowercase().trim()
-        val wakeWords = listOf("fifo", "feefo", "fito", "fifa", "fido", "fio")
+        val wakeWords = listOf(
+            "fifo", "feefo", "fito", "fifa", "fido", "fio",
+            "fee for", "fit for", "people", "free for", "feed for", "bebo", "feefa", "fefa", "phifo", "vibo", "vivo", "filo", "fijo", "pipo", "kiko"
+        )
         return wakeWords.any { word ->
             lower.contains(Regex("\\b$word\\b")) ||
             lower.startsWith("$word ") ||
@@ -577,8 +586,8 @@ class VoicePipelineManager(
      * Extrae la consulta eliminando prefijos de activación como "Fifo", "Hola Fifo", "Fifa", etc.
      */
     private fun extractQuery(text: String): String {
-        return text.replace(Regex("(?i)\\b(hola|oye|hey|che|ok|bueno|dime|saludos)\\s+(fifo|feefo|fito|fifa|fido|fio)\\b"), "")
-            .replace(Regex("(?i)\\b(fifo|feefo|fito|fifa|fido|fio)\\b"), "")
+        return text.replace(Regex("(?i)\\b(hola|oye|hey|che|ok|bueno|dime|saludos)\\s+(fifo|feefo|fito|fifa|fido|fio|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko)\\b"), "")
+            .replace(Regex("(?i)\\b(fifo|feefo|fito|fifa|fido|fio|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko)\\b"), "")
             .trim()
             .trimStart(',', '.', ':', ';', '!', '?', ' ')
             .trim()

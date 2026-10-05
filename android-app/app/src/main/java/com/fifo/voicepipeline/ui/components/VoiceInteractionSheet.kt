@@ -38,6 +38,7 @@ fun VoiceInteractionSheet(
     rmsLevel: Float,
     isBleConnected: Boolean,
     isBleConnecting: Boolean = false,
+    initialPhoneMicMode: Boolean = false,
     onDismiss: () -> Unit,
     onConnectBle: () -> Unit,
     onTalkFromPhone: () -> Unit = {},
@@ -47,14 +48,16 @@ fun VoiceInteractionSheet(
 ) {
     // Si se abrió sin conexión y se conecta exitosamente, notificar y cerrar automáticamente
     val wasEverDisconnected by remember { mutableStateOf(!isBleConnected) }
-    var isPhoneMicMode by remember(micSource) { mutableStateOf(micSource == MicSource.PHONE) }
+    var isPhoneMicMode by remember(initialPhoneMicMode, isBleConnected) {
+        mutableStateOf(initialPhoneMicMode && !isBleConnected)
+    }
     var showDeviceFinderDialog by remember { mutableStateOf(false) }
 
     val isContinuousListening by com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.collectAsState()
     val incomingCall by com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.collectAsState()
 
     LaunchedEffect(isBleConnected) {
-        if (wasEverDisconnected && isBleConnected && !isPhoneMicMode && micSource != MicSource.PHONE) {
+        if (wasEverDisconnected && isBleConnected && !isPhoneMicMode) {
             delay(1200)
             onDismiss()
         }
@@ -85,7 +88,7 @@ fun VoiceInteractionSheet(
                         .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    if (!isBleConnected && !isPhoneMicMode && micSource != MicSource.PHONE) {
+                    if (!isBleConnected && !isPhoneMicMode) {
                         // ══════════════════════════════════════════════════════════
                         // PANTALLA 1: CONECTAR A FIFO O HABLAR DESDE EL CELULAR
                         // ══════════════════════════════════════════════════════════
@@ -465,7 +468,7 @@ fun VoiceInteractionSheet(
                                 )
                                 PipelineState.PROCESSING -> Triple("Fifo está pensando...", FifoColors.StatusProcessing.copy(alpha = 0.2f), FifoColors.StatusProcessing)
                                 PipelineState.SPEAKING -> Triple("Fifo le responde...", FifoColors.StatusSpeaking.copy(alpha = 0.2f), FifoColors.StatusSpeaking)
-                                PipelineState.SLEEPING -> Triple("En reposo · Diga 'Fifo' al robot", FifoColors.NavyPrimary.copy(alpha = 0.3f), Color(0xFF93C5FD))
+                                PipelineState.SLEEPING -> Triple("En reposo · Diga 'Fifo' para despertar", FifoColors.NavyPrimary.copy(alpha = 0.3f), Color(0xFF93C5FD))
                                 PipelineState.IDLE -> Triple("Listo para escuchar", FifoColors.DarkInputBg, Color(0xFF94A3B8))
                                 PipelineState.DISCONNECTED -> Triple("Fifo desconectado", Color(0xFFF59E0B).copy(alpha = 0.2f), Color(0xFFF59E0B))
                                 PipelineState.ERROR -> Triple("Reintentando conexión...", FifoColors.StatusError.copy(alpha = 0.2f), FifoColors.StatusError)
@@ -766,7 +769,7 @@ fun VoiceInteractionSheet(
                                     )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
-                                        text = "Diga 'Fifo' a su robot o use el botón de arriba para hablar por su celular.",
+                                        text = "Diga 'Fifo' para despertar y comenzar a conversar conmigo.",
                                         fontSize = 14.sp,
                                         color = FifoColors.DarkBadgeText,
                                         textAlign = TextAlign.Center,

@@ -67,6 +67,7 @@ fun MainScreen(
     // Control de ventanas modales interactivas
     var isVoiceSheetOpen by remember { mutableStateOf(false) }
     var isBreathingOpen by remember { mutableStateOf(false) }
+    var initialPhoneMicMode by remember { mutableStateOf(false) }
 
     // Si el pipeline entra en estado activo por detección de voz o ESP32, abrir automáticamente el diálogo de Fifo
     LaunchedEffect(state) {
@@ -120,10 +121,12 @@ fun MainScreen(
                                 HomeScreen(
                                     userName = userName,
                                     onStartVoiceChat = {
+                                        initialPhoneMicMode = false
                                         onWakeUp()
                                         isVoiceSheetOpen = true
                                     },
                                     onTalkFromPhone = {
+                                        initialPhoneMicMode = true
                                         onTalkFromPhone()
                                         isVoiceSheetOpen = true
                                     },
@@ -131,7 +134,11 @@ fun MainScreen(
                                     isMicMuted = isMicMuted,
                                     onToggleMicMute = onToggleMicMute,
                                     isBleConnected = isBleConnected,
-                                    onConnectBle = onConnectBle
+                                    onConnectBle = {
+                                        initialPhoneMicMode = false
+                                        onConnectBle()
+                                        isVoiceSheetOpen = true
+                                    }
                                 )
                             }
                             FifoTab.FRIENDS -> {
@@ -174,6 +181,7 @@ fun MainScreen(
                 rmsLevel = rmsLevel.toFloat(),
                 isBleConnected = isBleConnected,
                 isBleConnecting = isBleConnecting,
+                initialPhoneMicMode = initialPhoneMicMode,
                 onDismiss = { isVoiceSheetOpen = false },
                 onTalkFromPhone = onTalkFromPhone,
                 onConnectBle = onConnectBle,

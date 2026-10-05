@@ -59,20 +59,40 @@ class PhoneMicRecorder(
 
             val bufferSize = maxOf(minBufferSize, chunkBytes * 4)
 
-            audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                sampleRate,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize
+            val audioSources = listOf(
+                MediaRecorder.AudioSource.MIC,
+                MediaRecorder.AudioSource.DEFAULT,
+                MediaRecorder.AudioSource.VOICE_RECOGNITION
             )
 
-            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                Log.e(TAG, "No se pudo inicializar AudioRecord")
-                audioRecord?.release()
-                audioRecord = null
+            var initializedRecord: AudioRecord? = null
+            for (source in audioSources) {
+                try {
+                    val record = AudioRecord(
+                        source,
+                        sampleRate,
+                        AudioFormat.CHANNEL_IN_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT,
+                        bufferSize
+                    )
+                    if (record.state == AudioRecord.STATE_INITIALIZED) {
+                        initializedRecord = record
+                        Log.i(TAG, "AudioRecord inicializado exitosamente con fuente de audio: $source")
+                        break
+                    } else {
+                        record.release()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "No se pudo inicializar AudioRecord con fuente $source: ${e.message}")
+                }
+            }
+
+            if (initializedRecord == null) {
+                Log.e(TAG, "No se pudo inicializar AudioRecord con ninguna fuente de audio")
                 return false
             }
+
+            audioRecord = initializedRecord
 
             val sessionId = audioRecord?.audioSessionId ?: 0
             if (sessionId != 0) {
