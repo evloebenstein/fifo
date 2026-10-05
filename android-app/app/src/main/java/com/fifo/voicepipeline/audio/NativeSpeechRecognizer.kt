@@ -42,7 +42,6 @@ class NativeSpeechRecognizer(
     private var isListening = false
     private var shouldKeepListening = false
     private var currentGeneration = 0
-    private var useFallbackLocale = false
 
     fun isAvailable(): Boolean {
         return SpeechRecognizer.isRecognitionAvailable(context)
@@ -86,22 +85,20 @@ class NativeSpeechRecognizer(
     private fun buildRecognizerIntent(): Intent {
         return Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            if (useFallbackLocale) {
-                val sysLocale = java.util.Locale.getDefault().toLanguageTag()
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, sysLocale)
-            } else {
-                val defaultLocale = java.util.Locale.getDefault()
-                val isSpanish = defaultLocale.language.equals("es", ignoreCase = true)
-                val langTag = if (isSpanish) defaultLocale.toLanguageTag() else "es"
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE, langTag)
-                putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, langTag)
-                putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("es", "es-419", "es-ES", "es-US", "es-CL"))
-            }
+            val defaultLocale = java.util.Locale.getDefault()
+            val isSpanish = defaultLocale.language.equals("es", ignoreCase = true)
+            val langTag = if (isSpanish) defaultLocale.toLanguageTag() else "es-419"
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, langTag)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, langTag)
+            putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("es-419", "es-ES", "es-US", "es-CL", "es"))
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1000L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 1200L)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 2000L)
+            // IMPORTANTE: Android espera tipos Int para los milisegundos de silencio.
+            // Si se pasa Long (ej: 2000L), GoogleTTSRecognitionService falla la lectura del Bundle y usa 0 ms por defecto,
+            // cortando la voz inmediatamente ante cualquier mínima pausa.
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1500)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 2000)
+            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 3000)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
         }
     }
@@ -214,10 +211,9 @@ class NativeSpeechRecognizer(
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
                         restartListening(200L)
                     }
-                    // Idioma no descargado: cambiar a locale del sistema y recrear
+                    // Idioma no descargado sin conexión: reintentar con delay sin forzar inglés
                     13 -> {
-                        useFallbackLocale = true
-                        destroyAndRecreateAfterDelay(600L)
+                        restartListening(1000L)
                     }
                     // Errores recuperables con pausa breve
                     SpeechRecognizer.ERROR_NETWORK,
