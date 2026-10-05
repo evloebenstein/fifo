@@ -174,49 +174,20 @@ fun HomeScreen(
                 )
             }
 
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            // Botón notificaciones táctil grande (48dp)
+            Surface(
+                shape = CircleShape,
+                color = Color.White,
+                border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.LightCardBorder),
+                modifier = Modifier.size(48.dp)
             ) {
-                // Botón táctil grande (48dp) para silenciar/activar micrófono
-                if (isBleConnected || isMicMuted) {
-                    Surface(
-                        shape = CircleShape,
-                        color = if (isMicMuted) Color(0xFFFEE2E2) else Color.White,
-                        border = androidx.compose.foundation.BorderStroke(
-                            1.5.dp,
-                            if (isMicMuted) Color(0xFFDC2626) else FifoColors.LightCardBorder
-                        ),
-                        modifier = Modifier
-                            .size(48.dp)
-                            .clickable { onToggleMicMute() }
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                imageVector = if (isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
-                                contentDescription = if (isMicMuted) "Micrófono silenciado. Toque para activar" else "Micrófono activo. Toque para silenciar",
-                                tint = if (isMicMuted) Color(0xFFDC2626) else FifoColors.NavyPrimary,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-                    }
-                }
-
-                // Botón notificaciones táctil grande (48dp)
-                Surface(
-                    shape = CircleShape,
-                    color = Color.White,
-                    border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.LightCardBorder),
-                    modifier = Modifier.size(48.dp)
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            imageVector = Icons.Outlined.Notifications,
-                            contentDescription = "Notificaciones",
-                            tint = FifoColors.LightTextPrimary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        imageVector = Icons.Outlined.Notifications,
+                        contentDescription = "Notificaciones",
+                        tint = FifoColors.LightTextPrimary,
+                        modifier = Modifier.size(22.dp)
+                    )
                 }
             }
         }
@@ -359,142 +330,122 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
 
-        // ── HERO CARD: Dinámica según conexión ("Conecte a Fifo" o "Tu Fifo está conectado") ───
-        Surface(
-            color = FifoColors.HeroBlueCard,
-            shape = RoundedCornerShape(28.dp),
-            modifier = Modifier.fillMaxWidth()
+        // ── HERO CARD: Premium redesign ───────────────────────────────────────
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(28.dp))
+                .background(
+                    brush = androidx.compose.ui.graphics.Brush.verticalGradient(
+                        colors = listOf(
+                            if (isBleConnected) Color(0xFFD1F0E8) else Color(0xFFD6E8FA),
+                            if (isBleConnected) Color(0xFFEAFBF5) else Color(0xFFEBF4FF)
+                        )
+                    )
+                )
         ) {
-            Column(modifier = Modifier.padding(24.dp)) {
+            Column(modifier = Modifier.padding(22.dp)) {
+                // Fila principal: Título y descripción a la izquierda, rostro de Fifo a la derecha
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .padding(end = 12.dp)
+                    ) {
                         Text(
-                            text = if (isBleConnected) "Tu Fifo está conectado" else "Prende a tu Fifo",
-                            fontSize = 24.sp,
+                            text = if (isBleConnected) "Tu Fifo está listo" else "Prende a tu Fifo",
+                            fontSize = 25.sp,
                             lineHeight = 30.sp,
-                            fontWeight = FontWeight.Bold,
+                            fontWeight = FontWeight.ExtraBold,
                             color = FifoColors.NavyPrimary
                         )
 
-                        Spacer(modifier = Modifier.height(10.dp))
+                        Spacer(modifier = Modifier.height(6.dp))
 
                         Text(
                             text = if (isBleConnected)
-                                "¿No lo tienes cerca? Habla con él desde aquí en tu celular o dile 'Fifo' a su micrófono."
+                                "Dile 'Fifo' cuando quieras hablar, o toca el botón de abajo."
                             else
-                                "Enciende el robot y dale click al botón para que te acompañe hoy.",
+                                "Enciende el robot y toca el botón para que Fifo te acompañe hoy.",
                             fontSize = 14.sp,
                             lineHeight = 20.sp,
-                            color = FifoColors.NavyPrimary.copy(alpha = 0.90f)
+                            color = FifoColors.NavyPrimary.copy(alpha = 0.75f)
                         )
                     }
 
-                    // Rostro de Fifo animado y expresivo
-                    Box(modifier = Modifier.padding(start = 14.dp)) {
-                        FifoFace(
-                            size = 80.dp,
-                            isDarkTheme = false,
-                            state = if (!isBleConnected) PipelineState.DISCONNECTED else PipelineState.IDLE
-                        )
-                    }
-                }
-
-                // Banner de micrófono silenciado si está activo el mute
-                if (isMicMuted) {
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Surface(
-                        color = Color(0xFFFEE2E2),
-                        shape = RoundedCornerShape(16.dp),
-                        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFFCA5A5)),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onToggleMicMute() }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.MicOff,
-                                contentDescription = null,
-                                tint = Color(0xFFDC2626),
-                                modifier = Modifier.size(20.dp)
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "El micrófono está en silencio · Toque aquí para activarlo",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = Color(0xFFDC2626)
-                            )
-                        }
-                    }
+                    // Fifo face a la derecha
+                    FifoFace(
+                        size = 76.dp,
+                        isDarkTheme = false,
+                        state = if (!isBleConnected) PipelineState.DISCONNECTED else PipelineState.IDLE
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // BOTÓN PRINCIPAL: "Conectar con Fifo" o "Hablar con Fifo"
+                // BOTÓN PRINCIPAL — grande, accesible, premium
                 Button(
                     onClick = onStartVoiceChat,
-                    shape = RoundedCornerShape(22.dp),
+                    shape = RoundedCornerShape(20.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = FifoColors.NavyPrimary,
                         contentColor = Color.White
                     ),
+                    elevation = ButtonDefaults.buttonElevation(
+                        defaultElevation = 4.dp,
+                        pressedElevation = 2.dp
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp)
+                        .height(60.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        if (!isBleConnected) {
-                            Icon(Icons.Default.Bluetooth, contentDescription = null, modifier = Modifier.size(20.dp))
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = "Conectar con Fifo",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                        } else {
-                            Text(
-                                text = "Hablar con Fifo",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Icon(
-                                imageVector = Icons.Default.ArrowForward,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        }
+                    if (!isBleConnected) {
+                        Icon(Icons.Default.Bluetooth, contentDescription = null, modifier = Modifier.size(22.dp))
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Conectar con Fifo",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.3.sp
+                        )
+                    } else {
+                        Icon(
+                            imageVector = Icons.Default.RecordVoiceOver,
+                            contentDescription = null,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Hablar con Fifo",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.3.sp
+                        )
                     }
                 }
 
-                // ACCIONES RÁPIDAS SI NO ESTÁ CONECTADO: Hablar por celular o buscar dónde está
+                // ACCIÓN SECUNDARIA — solo cuando no está conectado
                 if (!isBleConnected) {
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(10.dp))
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        // Hablar por celular
                         OutlinedButton(
                             onClick = onTalkFromPhone,
-                            shape = RoundedCornerShape(18.dp),
+                            shape = RoundedCornerShape(16.dp),
                             colors = ButtonDefaults.outlinedButtonColors(
                                 contentColor = FifoColors.NavyPrimary
                             ),
-                            border = androidx.compose.foundation.BorderStroke(1.2.dp, FifoColors.NavyPrimary.copy(alpha = 0.40f)),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.2.dp, FifoColors.NavyPrimary.copy(alpha = 0.35f)
+                            ),
+                            modifier = Modifier.weight(1f).height(50.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.PhoneAndroid,
@@ -502,24 +453,25 @@ fun HomeScreen(
                                 modifier = Modifier.size(18.dp),
                                 tint = FifoColors.NavyPrimary
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "Por celular",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
                         }
 
+                        // Dónde está
                         OutlinedButton(
                             onClick = { isFinderOpen = true },
-                            shape = RoundedCornerShape(18.dp),
+                            shape = RoundedCornerShape(16.dp),
                             colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = FifoColors.NavyPrimary
+                                contentColor = Color(0xFFD97706)
                             ),
-                            border = androidx.compose.foundation.BorderStroke(1.2.dp, Color(0xFFD97706).copy(alpha = 0.60f)),
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(48.dp)
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.2.dp, Color(0xFFD97706).copy(alpha = 0.50f)
+                            ),
+                            modifier = Modifier.weight(1f).height(50.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.LocationSearching,
@@ -527,12 +479,12 @@ fun HomeScreen(
                                 modifier = Modifier.size(18.dp),
                                 tint = Color(0xFFD97706)
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
                             Text(
                                 text = "¿Dónde está?",
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = FifoColors.NavyPrimary
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFD97706)
                             )
                         }
                     }
