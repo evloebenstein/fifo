@@ -4,6 +4,8 @@ import com.fifo.voicepipeline.ui.model.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.util.UUID
 
 /**
@@ -236,6 +238,36 @@ object FifoDataRepository {
     )
     val conversations: StateFlow<List<PastConversationItem>> = _conversations.asStateFlow()
 
+    private val repoScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.IO)
+
+    private val _isBackendConnected = MutableStateFlow(false)
+    val isBackendConnected: StateFlow<Boolean> = _isBackendConnected.asStateFlow()
+
+    /**
+     * Sincroniza todos los datos del usuario desde el contenedor MySQL + REST API (fifo-api).
+     * Permite cambiar entre cualquiera de los usuarios de prueba (usr_lucia_01, usr_sofia_02,
+     * usr_mateo_03, usr_valentina_04, usr_diego_05).
+     */
+    fun syncFromBackend(userId: String = _userProfile.value.id) {
+        repoScope.launch {
+            val bundle = com.fifo.voicepipeline.network.FifoBackendClient.fetchUserBundle(userId)
+            if (bundle != null) {
+                _isBackendConnected.value = true
+                _userProfile.value = bundle.userProfile
+                _tastes.value = bundle.tastes
+                if (bundle.tasteStories.isNotEmpty()) _tasteStories.value = bundle.tasteStories
+                if (bundle.socialPosts.isNotEmpty()) _socialPosts.value = bundle.socialPosts
+                if (bundle.memories.isNotEmpty()) _memories.value = bundle.memories
+                if (bundle.reminders.isNotEmpty()) _reminders.value = bundle.reminders
+                if (bundle.pastConversations.isNotEmpty()) _conversations.value = bundle.pastConversations
+                if (bundle.conversationFragments.isNotEmpty()) _conversationFragments.value = bundle.conversationFragments
+                bundle.deviceLocation?.let { _deviceLocation.value = it }
+            } else {
+                _isBackendConnected.value = false
+            }
+        }
+    }
+
     // ══════════════════════════════════════════════════════════
     //  MUTACIONES (Llamadas por los Skills de Fifo o por la UI)
     // ══════════════════════════════════════════════════════════
@@ -262,6 +294,11 @@ object FifoDataRepository {
             genderIdentity = gender?.trim()?.ifBlank { current.genderIdentity } ?: current.genderIdentity,
             city = city?.trim()?.ifBlank { current.city } ?: current.city
         )
+        repoScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.patchDemographics(
+                current.id, fullName, birthDate, birthYear, gender, city
+            )
+        }
     }
 
     /**
@@ -269,7 +306,11 @@ object FifoDataRepository {
      */
     fun updateBio(newBio: String) {
         if (newBio.isNotBlank()) {
-            _userProfile.value = _userProfile.value.copy(bioAi = newBio.trim())
+            val clean = newBio.trim()
+            _userProfile.value = _userProfile.value.copy(bioAi = clean)
+            repoScope.launch {
+                com.fifo.voicepipeline.network.FifoBackendClient.putBio(_userProfile.value.id, clean)
+            }
         }
     }
 
@@ -282,6 +323,9 @@ object FifoDataRepository {
         val current = _tastes.value
         if (!current.any { it.equals(clean, ignoreCase = true) }) {
             _tastes.value = current + clean
+            repoScope.launch {
+                com.fifo.voicepipeline.network.FifoBackendClient.postTaste(_userProfile.value.id, "add", clean)
+            }
             return true
         }
         return false
@@ -296,6 +340,9 @@ object FifoDataRepository {
         val filtered = current.filterNot { it.equals(clean, ignoreCase = true) }
         if (filtered.size != current.size) {
             _tastes.value = filtered
+            repoScope.launch {
+                com.fifo.voicepipeline.network.FifoBackendClient.postTaste(_userProfile.value.id, "remove", clean)
+            }
             return true
         }
         return false
@@ -306,6 +353,9 @@ object FifoDataRepository {
      */
     fun addTasteStory(story: FifoTasteStory) {
         _tasteStories.value = listOf(story) + _tasteStories.value
+        repoScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.postTasteStory(_userProfile.value.id, story)
+        }
     }
 
     /**
@@ -325,6 +375,9 @@ object FifoDataRepository {
             accentColorHex = 0xFF38BDF8
         )
         _socialPosts.value = listOf(newPost) + _socialPosts.value
+        repoScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.postSocialPost(user.id, content.trim(), category)
+        }
         return newPost
     }
 
@@ -340,6 +393,9 @@ object FifoDataRepository {
             learnedDate = "Aprendido recién"
         )
         _memories.value = listOf(newMem) + _memories.value
+        repoScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.postMemory(_userProfile.value.id, newMem.emoji, newMem.title, newMem.detail)
+        }
     }
 
     /**
@@ -355,6 +411,9 @@ object FifoDataRepository {
             createdAt = "Hoy"
         )
         _reminders.value = listOf(item) + _reminders.value
+        repoScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.postReminder(_userProfile.value.id, item.title, item.timeStr, item.category)
+        }
         return item
     }
 
@@ -510,6 +569,19 @@ object FifoDataRepository {
      * @return DeepContextResult con extractos relevantes encontrados
      */
     fun searchDeepContext(query: String): DeepContextResult {
+        val serverResult = runCatching {
+            runBlocking {
+                com.fifo.voicepipeline.network.FifoBackendClient.queryDeepContextFromServer(
+                    _userProfile.value.id,
+                    query
+                )
+            }
+        }.getOrNull()
+
+        if (serverResult != null && serverResult.relevantExcerpts.isNotEmpty()) {
+            return serverResult
+        }
+
         val queryLower = query.lowercase().trim()
         val allFragments = _conversationFragments.value
 
@@ -662,6 +734,10 @@ object FifoDataRepository {
             isFlashlightOn = isFlashlightOn ?: current.isFlashlightOn,
             volumePercent = volumePercent ?: current.volumePercent
         )
+    }
+
+    init {
+        syncFromBackend("usr_lucia_01")
     }
 }
 

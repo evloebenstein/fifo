@@ -106,6 +106,7 @@ pio run -d esp32-firmware -t upload --upload-port COM9
 1. Copia `android-app/local.properties.example` como `android-app/local.properties` y coloca tus claves:
 
 ```properties
+GEMINI_API_KEY=AIzaSy-...
 ANTHROPIC_API_KEY=sk-ant-api03-...
 OPENAI_API_KEY=gsk_...
 ```
@@ -123,8 +124,11 @@ cd android-app
 
 ## 🛡️ Claves de API Soportadas
 
-- **Cerebro (LLM):** Anthropic Claude (`sk-ant-...`).
+- **Cerebro (LLM + Function Calling):**
+  - **Google Gemini (Recomendado):** Clave `AIza...` / `AQ....` (`gemini-3.8-flash`). También habilita transcripción multimodal de voz para el micrófono del ESP32 sin requerir claves adicionales.
+  - **Anthropic Claude:** Clave `sk-ant-...` (`claude-haiku-4-5-20251001`).
 - **Oídos (STT):**
-  - **Groq Whisper (Recomendado y Gratuito):** Clave `gsk_...` de [console.groq.com/keys](https://console.groq.com/keys).
+  - **Google Gemini Multimodal:** Usa automáticamente tu `GEMINI_API_KEY` (`AIza...`) si no hay clave de Whisper configurada.
+  - **Groq Whisper (Gratuito):** Clave `gsk_...` de [console.groq.com/keys](https://console.groq.com/keys).
   - **OpenAI Whisper:** Clave `sk-...`.
-  - *Nota:* Se puede configurar directamente en la pantalla de Perfil -> Configuraciones de la app móvil.
+  - *Nota:* Se puede configurar y probar en vivo directamente en la pantalla de **Perfil -> Configuración fácil -> Ajustes avanzados para familiares / técnicos** de la app móvil.
