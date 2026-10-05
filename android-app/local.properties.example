@@ -1,5 +1,14 @@
 ## Ejemplo de configuración local
 # Copia este archivo como 'local.properties' y completa tus claves:
+
+# Clave principal gratuita de Groq (para LLM ultra-rápido y Whisper STT)
+# Obtén tu clave en: https://console.groq.com/keys
+GROQ_API_KEY=gsk_tu-clave-groq-aqui
+
+# Opcional (si deseas usar Anthropic Claude como respaldo)
 ANTHROPIC_API_KEY=sk-ant-api03-tu-clave-claude-aqui
-OPENAI_API_KEY=gsk_tu-clave-groq-o-openai-aqui
+
+# Opcional (si deseas usar Whisper oficial de OpenAI en lugar de Groq Whisper)
+OPENAI_API_KEY=sk-tu-clave-openai-aqui
+
 sdk.dir=C\:\\Users\\tu_usuario\\AppData\\Local\\Android\\Sdk

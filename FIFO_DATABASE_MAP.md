@@ -38,11 +38,12 @@
                                     │
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│             3. CEREBRO IA CON FUNCTION CALLING (CLAUDE)                │
-│   • Modelo: Claude Haiku 4.5                                           │
+│             3. CEREBRO IA CON FUNCTION CALLING (GROQ LPU / CLAUDE)     │
+│   • Modelo Principal: Groq LPU (GPT-OSS 120B / LLaMA 3.3 Versatile)    │
+│   • Modelo Fallback: Claude Haiku 4.5                                  │
 │   • System Prompt empático para tercera edad                           │
 │   • Catálogo de Skills (Tools API con JSON Schema)                     │
-│   • Claude decide qué Tool ejecutar según lo conversado                │
+│   • El modelo decide qué Tool ejecutar según lo conversado             │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                   ┌─────────────────┴─────────────────┐
