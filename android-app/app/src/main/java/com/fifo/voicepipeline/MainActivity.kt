@@ -34,6 +34,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val DEFAULT_ANTHROPIC_KEY = ""
+        private const val DEFAULT_GROQ_KEY = ""
     }
 
     private lateinit var pipeline: VoicePipelineManager
@@ -84,6 +85,11 @@ class MainActivity : ComponentActivity() {
 
         // ── Obtener API keys desde SharedPreferences o BuildConfig ────
         val prefs = getSharedPreferences("fifo_prefs", MODE_PRIVATE)
+        val savedGroqKey = prefs.getString("groq_api_key", "") ?: ""
+        val groqKey = savedGroqKey.ifEmpty {
+            BuildConfig.GROQ_API_KEY.ifEmpty { DEFAULT_GROQ_KEY }
+        }
+
         val savedClaudeKey = prefs.getString("anthropic_api_key", "") ?: ""
         val anthropicKey = savedClaudeKey.ifEmpty {
             BuildConfig.ANTHROPIC_API_KEY.ifEmpty { DEFAULT_ANTHROPIC_KEY }
@@ -95,6 +101,7 @@ class MainActivity : ComponentActivity() {
         // ── Inicializar pipeline ────────────────────
         pipeline = VoicePipelineManager(
             context = applicationContext,
+            initialGroqApiKey = groqKey,
             initialAnthropicApiKey = anthropicKey,
             initialOpenAiApiKey = openAiKey
         )
@@ -114,7 +121,7 @@ class MainActivity : ComponentActivity() {
             val isBleConnecting = bleState is BleConnectionState.Connecting || bleState is BleConnectionState.Scanning
             val isMicMuted by pipeline.isMicMuted.collectAsState()
 
-            var currentClaudeKey by remember { mutableStateOf(anthropicKey) }
+            var currentClaudeKey by remember { mutableStateOf(groqKey.ifEmpty { anthropicKey }) }
 
             MainScreen(
                 state = state,
@@ -132,13 +139,21 @@ class MainActivity : ComponentActivity() {
                 onSleep = { pipeline.goToSleep() },
                 currentClaudeKey = currentClaudeKey,
                 onSaveClaudeKey = { newKey ->
-                    prefs.edit().putString("anthropic_api_key", newKey).apply()
-                    currentClaudeKey = newKey
-                    pipeline.setAnthropicApiKey(newKey)
-                    Toast.makeText(this, "Clave de Claude guardada y activada", Toast.LENGTH_SHORT).show()
+                    val trimmed = newKey.trim()
+                    if (trimmed.startsWith("gsk_")) {
+                        prefs.edit().putString("groq_api_key", trimmed).apply()
+                        pipeline.setGroqApiKey(trimmed)
+                        currentClaudeKey = trimmed
+                        Toast.makeText(this, "Cerebro Groq (GPT-OSS 120B) guardado y activado", Toast.LENGTH_SHORT).show()
+                    } else {
+                        prefs.edit().putString("anthropic_api_key", trimmed).apply()
+                        pipeline.setAnthropicApiKey(trimmed)
+                        currentClaudeKey = trimmed
+                        Toast.makeText(this, "Clave guardada y activada", Toast.LENGTH_SHORT).show()
+                    }
                 },
                 onTestClaudeKey = { keyToTest ->
-                    pipeline.testClaudeConnection(keyToTest)
+                    pipeline.testConnection(keyToTest)
                 },
                 onConnectBle = {
                     checkAndRequestBlePermissions()
@@ -152,6 +167,21 @@ class MainActivity : ComponentActivity() {
 
         // Solicitar permisos de Bluetooth y conectar al iniciar la app
         checkAndRequestBlePermissions()
+        handleIntent(intent)
+    }
+
+    override fun onNewIntent(intent: android.content.Intent?) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: android.content.Intent?) {
+        val testQuery = intent?.getStringExtra("query")
+        if (!testQuery.isNullOrBlank()) {
+            Log.i(TAG, "Ejecutando consulta recibida por Intent: $testQuery")
+            pipeline.wakeUpManually()
+            pipeline.processTextQuery(testQuery)
+        }
     }
 
     private fun checkAndRequestBlePermissions() {

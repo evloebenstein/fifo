@@ -595,14 +595,14 @@ fun ProfileScreen(
                     AnimatedVisibility(visible = isAdvancedTechOpen) {
                         Column(modifier = Modifier.padding(top = 16.dp)) {
                             Text(
-                                text = "Clave de Inteligencia Claude (Anthropic API)",
+                                text = "Cerebro de Inteligencia Artificial (Groq LPU)",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = FifoColors.LightTextPrimary
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Configura la clave API de Claude para la inteligencia conversacional.",
+                                text = "Motor gratuito y ultrarrápido (OpenAI GPT-OSS 120B con respaldo Qwen 27B) y transcripción Whisper.",
                                 fontSize = 12.sp,
                                 color = FifoColors.LightTextSecondary
                             )
@@ -615,7 +615,7 @@ fun ProfileScreen(
                                     keySavedSuccess = false
                                     testResultText = null
                                 },
-                                placeholder = { Text("sk-ant-api03-...", fontSize = 12.sp) },
+                                placeholder = { Text("gsk_...", fontSize = 12.sp) },
                                 singleLine = true,
                                 modifier = Modifier.fillMaxWidth()
                             )
@@ -645,7 +645,7 @@ fun ProfileScreen(
                                     onClick = {
                                         val keyToTest = claudeInput.trim()
                                         if (keyToTest.isBlank()) {
-                                            testResultText = "Ingresa tu clave de Claude primero."
+                                            testResultText = "Ingresa tu clave de Groq o Claude primero."
                                             testResultSuccess = false
                                             return@OutlinedButton
                                         }
@@ -662,7 +662,7 @@ fun ProfileScreen(
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Text(if (isTestingKey) "Probando..." else "Probar Clave", fontSize = 12.sp)
+                                    Text(if (isTestingKey) "Probando..." else "Probar Cerebro", fontSize = 12.sp)
                                 }
 
                                 Button(

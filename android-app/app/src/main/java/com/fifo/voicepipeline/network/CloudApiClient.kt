@@ -24,19 +24,43 @@ import java.nio.ByteOrder
  * Soporta streaming para minimizar latencia.
  */
 class CloudApiClient(
-    var anthropicApiKey: String,
+    var groqApiKey: String = "",
+    var anthropicApiKey: String = "",
     var openAiApiKey: String = ""
 ) {
+    /**
+     * Clave efectiva para Groq: verifica groqApiKey o si openAiApiKey / anthropicApiKey inician con 'gsk_'.
+     */
+    val effectiveGroqKey: String
+        get() = when {
+            groqApiKey.trim().startsWith("gsk_") -> groqApiKey.trim()
+            openAiApiKey.trim().startsWith("gsk_") -> openAiApiKey.trim()
+            anthropicApiKey.trim().startsWith("gsk_") -> anthropicApiKey.trim()
+            groqApiKey.isNotBlank() -> groqApiKey.trim()
+            else -> ""
+        }
+
+    val isGroqActive: Boolean
+        get() = effectiveGroqKey.isNotBlank()
+
     companion object {
         private const val TAG = "CloudApiClient"
 
         // ── Endpoints ───────────────────────────────
+        private const val GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+        private const val GROQ_WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
         private const val ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
         private const val ANTHROPIC_VERSION = "2023-06-01"
         private const val WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions"
         private const val TTS_URL = "https://api.openai.com/v1/audio/speech"
 
-        // ── Modelo ──────────────────────────────────
+        // ── Modelos ──────────────────────────────────
+        // Modelo principal de Groq: OpenAI GPT-OSS 120B (120B params, 131k context, tools y reasoning)
+        const val GROQ_PRIMARY_MODEL = "openai/gpt-oss-120b"
+        // Modelo de respaldo si hay rate limit: Qwen 27B
+        const val GROQ_FALLBACK_MODEL = "qwen/qwen3.8-27b"
+        const val GROQ_WHISPER_MODEL = "whisper-large-v3-turbo"
+
         private const val CLAUDE_MODEL = "claude-haiku-4-5-20251001"
         private const val WHISPER_MODEL = "whisper-1"
         private const val TTS_MODEL = "tts-1"
@@ -154,22 +178,30 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
 
     /**
      * Transcribe audio WAV a texto usando Whisper.
-     * Si no hay API key de OpenAI, usa un endpoint alternativo.
+     * Prioriza Groq Whisper Large V3 Turbo si hay clave de Groq (100% gratuito y veloz).
      *
      * @param wavData Audio en formato WAV (header + PCM)
      * @param language Código de idioma (ej: "es", "en")
      * @return Texto transcrito
      */
     suspend fun transcribe(wavData: ByteArray, language: String = "es"): String {
-        val key = openAiApiKey.trim()
-        if (key.isEmpty() || key.startsWith("sk-ant-")) {
-            Log.w(TAG, "No hay API key válida para Whisper (OpenAI o Groq). Clave actual: ${if (key.startsWith("sk-ant-")) "Pertenece a Anthropic, no a Whisper" else "Vacía"}")
-            return "[KEY_STT_FALTANTE]"
-        }
+        val groqKey = effectiveGroqKey
+        val openKey = openAiApiKey.trim()
 
-        val isGroq = key.startsWith("gsk_")
-        val endpoint = if (isGroq) "https://api.groq.com/openai/v1/audio/transcriptions" else WHISPER_URL
-        val model = if (isGroq) "whisper-large-v3-turbo" else WHISPER_MODEL
+        val (authKey, endpoint, model) = when {
+            groqKey.isNotBlank() -> Triple(groqKey, GROQ_WHISPER_URL, GROQ_WHISPER_MODEL)
+            openKey.isNotBlank() && !openKey.startsWith("sk-ant-") -> {
+                if (openKey.startsWith("gsk_")) {
+                    Triple(openKey, GROQ_WHISPER_URL, GROQ_WHISPER_MODEL)
+                } else {
+                    Triple(openKey, WHISPER_URL, WHISPER_MODEL)
+                }
+            }
+            else -> {
+                Log.w(TAG, "No hay API key válida para Whisper (Groq u OpenAI).")
+                return "[KEY_STT_FALTANTE]"
+            }
+        }
 
         val requestBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
@@ -188,7 +220,7 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
 
         val request = Request.Builder()
             .url(endpoint)
-            .header("Authorization", "Bearer $openAiApiKey")
+            .header("Authorization", "Bearer $authKey")
             .post(requestBody)
             .build()
 
@@ -197,13 +229,13 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
             val body = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
-                Log.e(TAG, "Whisper error ${response.code}: $body")
+                Log.e(TAG, "Whisper error ($model) ${response.code}: $body")
                 return "[Error de transcripción]"
             }
 
             val json = JsonParser.parseString(body).asJsonObject
             val text = json.get("text")?.asString ?: ""
-            Log.i(TAG, "Transcripción: $text")
+            Log.i(TAG, "Transcripción ($model): $text")
             text
         } catch (e: Exception) {
             Log.e(TAG, "Error en transcripción: ${e.message}", e)
@@ -212,11 +244,11 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
     }
 
     // ═════════════════════════════════════════════════
-    //  2. LLM AGENT (Claude - Anthropic)
+    //  2. LLM AGENT (Groq LPU / Claude)
     // ═════════════════════════════════════════════════
 
     /**
-     * Envía el texto del usuario a Claude de forma directa y asíncrona,
+     * Envía el texto del usuario al cerebro de IA (Groq si está activo, o Claude como alternativa),
      * soportando Function Calling / Tools mediante [FifoSkillRegistry].
      */
     suspend fun chat(
@@ -224,17 +256,152 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
         skillRegistry: com.fifo.voicepipeline.skills.FifoSkillRegistry? = null
     ): String {
         conversationHistory.add(mapOf("role" to "user", "content" to userText))
-        val messagesJson = gson.toJson(conversationHistory)
 
+        return if (isGroqActive) {
+            chatWithGroq(userText, skillRegistry)
+        } else {
+            chatWithClaude(userText, skillRegistry)
+        }
+    }
+
+    /**
+     * Motor conversacional principal con Groq LPU (gratuito, ultrarrápido).
+     * Utiliza OpenAI GPT-OSS 120B con failover automático a Qwen 27B.
+     */
+    private suspend fun chatWithGroq(
+        userText: String,
+        skillRegistry: com.fifo.voicepipeline.skills.FifoSkillRegistry?,
+        modelToUse: String = GROQ_PRIMARY_MODEL
+    ): String {
+        val apiKey = effectiveGroqKey
+        val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 5)
+        val enrichedSystemPrompt = if (compactContext.isNotBlank()) {
+            "$SYSTEM_PROMPT\n\n$compactContext"
+        } else {
+            SYSTEM_PROMPT
+        }
+
+        val messagesList = mutableListOf<Map<String, String>>()
+        messagesList.add(mapOf("role" to "system", "content" to enrichedSystemPrompt))
+        messagesList.addAll(conversationHistory)
+
+        val messagesJson = gson.toJson(messagesList)
+        val toolsFragment = if (skillRegistry != null) {
+            """, "tools": ${skillRegistry.getOpenAiToolsJson()}, "tool_choice": "auto""""
+        } else {
+            ""
+        }
+
+        val jsonBody = """
+        {
+            "model": "$modelToUse",
+            "messages": $messagesJson$toolsFragment,
+            "max_tokens": 512,
+            "temperature": 0.6
+        }
+        """.trimIndent()
+
+        val request = Request.Builder()
+            .url(GROQ_CHAT_URL)
+            .header("Authorization", "Bearer $apiKey")
+            .header("Content-Type", "application/json")
+            .post(jsonBody.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        return try {
+            val response = httpClient.newCall(request).executeSuspend()
+            val body = response.body?.string() ?: ""
+
+            if (!response.isSuccessful) {
+                Log.e(TAG, "Groq error ($modelToUse) ${response.code}: $body")
+                // Si el modelo principal falla por rate-limit (429) o error del servidor, intentar con el modelo de respaldo
+                if (modelToUse == GROQ_PRIMARY_MODEL && (response.code == 429 || response.code >= 500 || response.code == 404)) {
+                    Log.w(TAG, "Groq: Activando fallback a $GROQ_FALLBACK_MODEL...")
+                    return chatWithGroq(userText, skillRegistry, modelToUse = GROQ_FALLBACK_MODEL)
+                }
+                return "Disculpa, tuve un problema al conectarme con el cerebro de Groq. Intenta de nuevo."
+            }
+
+            val json = JsonParser.parseString(body).asJsonObject
+            val choices = json.getAsJsonArray("choices")
+            if (choices == null || choices.size() == 0) {
+                return "Disculpa, no recibí respuesta del servidor."
+            }
+
+            val messageObj = choices[0].asJsonObject.getAsJsonObject("message")
+            var textReply = messageObj.get("content")?.run { if (isJsonNull) "" else asString } ?: ""
+            var toolFeedback = ""
+
+            val toolCalls = messageObj.getAsJsonArray("tool_calls")
+            if (toolCalls != null && toolCalls.size() > 0 && skillRegistry != null) {
+                for (toolElement in toolCalls) {
+                    val callObj = toolElement.asJsonObject
+                    val funcObj = callObj.getAsJsonObject("function") ?: continue
+                    val toolName = funcObj.get("name")?.asString ?: continue
+                    val argsString = funcObj.get("arguments")?.asString ?: "{}"
+
+                    val argsMap = mutableMapOf<String, Any?>()
+                    try {
+                        val parsedArgs = JsonParser.parseString(argsString).asJsonObject
+                        parsedArgs.keySet().forEach { k ->
+                            val elem = parsedArgs.get(k)
+                            if (elem.isJsonPrimitive) {
+                                val prim = elem.asJsonPrimitive
+                                argsMap[k] = when {
+                                    prim.isNumber -> prim.asInt
+                                    prim.isBoolean -> prim.asBoolean
+                                    else -> prim.asString
+                                }
+                            } else {
+                                argsMap[k] = elem.toString()
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error parseando argumentos de tool '$toolName': ${e.message}")
+                    }
+
+                    Log.i(TAG, "Ejecutando tool desde Groq: $toolName con args=$argsMap")
+                    val result = skillRegistry.executeSkill(toolName, argsMap)
+                    if (result.spokenFeedback.isNotBlank()) {
+                        toolFeedback = if (toolFeedback.isBlank()) result.spokenFeedback else "$toolFeedback ${result.spokenFeedback}"
+                    }
+                }
+            }
+
+            val combinedReply = when {
+                toolFeedback.isNotBlank() && textReply.isNotBlank() -> "$textReply $toolFeedback".trim()
+                toolFeedback.isNotBlank() -> toolFeedback.trim()
+                textReply.isNotBlank() -> textReply.trim()
+                else -> "Listo, he registrado los cambios."
+            }
+
+            val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(combinedReply)
+            conversationHistory.add(mapOf("role" to "assistant", "content" to reply))
+            reply
+        } catch (e: Exception) {
+            Log.e(TAG, "Error llamando a Groq: ${e.message}", e)
+            if (modelToUse == GROQ_PRIMARY_MODEL) {
+                Log.w(TAG, "Groq: Error de red con $modelToUse, probando fallback...")
+                return chatWithGroq(userText, skillRegistry, modelToUse = GROQ_FALLBACK_MODEL)
+            }
+            "Hubo un error de conexión con Groq. Intenta de nuevo."
+        }
+    }
+
+    /**
+     * Motor conversacional secundario / alternativo con Anthropic Claude.
+     */
+    private suspend fun chatWithClaude(
+        userText: String,
+        skillRegistry: com.fifo.voicepipeline.skills.FifoSkillRegistry?
+    ): String {
+        val messagesJson = gson.toJson(conversationHistory)
         val toolsFragment = if (skillRegistry != null) {
             """, "tools": ${skillRegistry.getAnthropicToolsJson()}"""
         } else {
             ""
         }
 
-        // Inyectar la ventana de contexto compacto (fragmentos livianos de charlas pasadas)
-        // para que Claude tenga continuidad conversacional sin descargar transcripciones completas.
-        // Si necesita más detalle, usará el skill recall_past_context.
         val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 5)
         val enrichedSystemPrompt = if (compactContext.isNotBlank()) {
             "$SYSTEM_PROMPT\n\n$compactContext"
@@ -320,6 +487,65 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
     }
 
     /**
+     * Prueba la conexión del cerebro de IA configurado.
+     */
+    suspend fun testConnection(overrideKey: String? = null): Pair<Boolean, String> {
+        val key = (overrideKey ?: effectiveGroqKey.ifEmpty { anthropicApiKey }).trim()
+        return if (key.startsWith("gsk_") || (overrideKey == null && isGroqActive)) {
+            testGroqConnection(key)
+        } else {
+            testAnthropicConnection(key)
+        }
+    }
+
+    /**
+     * Prueba la validez de la clave de Groq realizando una consulta mínima de prueba.
+     * Retorna Pair(éxito, mensaje descriptivo).
+     */
+    suspend fun testGroqConnection(overrideKey: String? = null): Pair<Boolean, String> {
+        val key = (overrideKey ?: effectiveGroqKey).trim()
+        if (key.isEmpty()) {
+            return Pair(false, "La clave de Groq no puede estar vacía.")
+        }
+        if (!key.startsWith("gsk_")) {
+            return Pair(false, "La clave de Groq debe comenzar con 'gsk_'.")
+        }
+
+        val testBody = """
+        {
+            "model": "$GROQ_PRIMARY_MODEL",
+            "max_tokens": 10,
+            "messages": [{"role": "user", "content": "Hola"}]
+        }
+        """.trimIndent()
+
+        val request = Request.Builder()
+            .url(GROQ_CHAT_URL)
+            .header("Authorization", "Bearer $key")
+            .header("Content-Type", "application/json")
+            .post(testBody.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        return try {
+            val response = httpClient.newCall(request).executeSuspend()
+            val body = response.body?.string() ?: ""
+            if (response.isSuccessful) {
+                Pair(true, "¡Conexión exitosa con Groq! (Cerebro LPU activo: GPT-OSS 120B)")
+            } else {
+                val errorMsg = try {
+                    val json = JsonParser.parseString(body).asJsonObject
+                    json.getAsJsonObject("error")?.get("message")?.asString ?: "Error ${response.code}"
+                } catch (e: Exception) {
+                    "Error HTTP ${response.code}"
+                }
+                Pair(false, "Groq rechazó la clave ($errorMsg)")
+            }
+        } catch (e: Exception) {
+            Pair(false, "Fallo de red al conectar con Groq: ${e.message}")
+        }
+    }
+
+    /**
      * Prueba la validez de la clave de Claude realizando una consulta mínima de prueba.
      * Retorna Pair(éxito, mensaje descriptivo).
      */
@@ -368,14 +594,7 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
     }
 
     /**
-     * Envía el texto del usuario a Claude y recibe la respuesta en streaming.
-     * Llama [onChunk] con cada fragmento de texto a medida que llega.
-     * Llama [onComplete] con la respuesta completa al final.
-     *
-     * @param userText Texto transcrito del usuario
-     * @param onChunk Callback por cada fragmento de texto (para TTS streaming)
-     * @param onComplete Callback con la respuesta completa
-     * @param onError Callback si hay error
+     * Envía el texto del usuario al cerebro de IA y recibe la respuesta en streaming.
      */
     fun chatStreaming(
         userText: String,
@@ -383,12 +602,117 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
         onComplete: (String) -> Unit,
         onError: (Exception) -> Unit
     ) {
-        // Agregar mensaje del usuario al historial
+        if (isGroqActive) {
+            chatStreamingGroq(userText, onChunk, onComplete, onError)
+        } else {
+            chatStreamingClaude(userText, onChunk, onComplete, onError)
+        }
+    }
+
+    private fun chatStreamingGroq(
+        userText: String,
+        onChunk: (String) -> Unit,
+        onComplete: (String) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
+        conversationHistory.add(mapOf("role" to "user", "content" to userText))
+
+        val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 5)
+        val enrichedSystemPrompt = if (compactContext.isNotBlank()) {
+            "$SYSTEM_PROMPT\n\n$compactContext"
+        } else {
+            SYSTEM_PROMPT
+        }
+
+        val messagesList = mutableListOf<Map<String, String>>()
+        messagesList.add(mapOf("role" to "system", "content" to enrichedSystemPrompt))
+        messagesList.addAll(conversationHistory)
+        val messagesJson = gson.toJson(messagesList)
+
+        val jsonBody = """
+        {
+            "model": "$GROQ_PRIMARY_MODEL",
+            "messages": $messagesJson,
+            "max_tokens": 512,
+            "temperature": 0.6,
+            "stream": true
+        }
+        """.trimIndent()
+
+        val request = Request.Builder()
+            .url(GROQ_CHAT_URL)
+            .header("Authorization", "Bearer $effectiveGroqKey")
+            .header("Content-Type", "application/json")
+            .post(jsonBody.toRequestBody("application/json".toMediaType()))
+            .build()
+
+        val fullResponse = StringBuilder()
+        val sentenceBuffer = StringBuilder()
+
+        val factory = EventSources.createFactory(httpClient)
+        factory.newEventSource(request, object : EventSourceListener() {
+            override fun onEvent(
+                eventSource: EventSource,
+                id: String?,
+                type: String?,
+                data: String
+            ) {
+                if (data == "[DONE]") {
+                    if (sentenceBuffer.isNotEmpty()) {
+                        onChunk(sentenceBuffer.toString().trim())
+                        sentenceBuffer.clear()
+                    }
+                    val response = fullResponse.toString()
+                    conversationHistory.add(mapOf("role" to "assistant", "content" to response))
+                    onComplete(response)
+                    return
+                }
+
+                try {
+                    val json = JsonParser.parseString(data).asJsonObject
+                    val choices = json.getAsJsonArray("choices") ?: return
+                    if (choices.size() == 0) return
+                    val delta = choices[0].asJsonObject.getAsJsonObject("delta") ?: return
+
+                    // Solo hablar el contenido real (ignorar razonamiento interno del modelo)
+                    val text = delta.get("content")?.run { if (isJsonNull) null else asString } ?: return
+                    if (text.isEmpty()) return
+
+                    fullResponse.append(text)
+                    sentenceBuffer.append(text)
+
+                    val bufferStr = sentenceBuffer.toString()
+                    if (shouldFlush(bufferStr)) {
+                        onChunk(bufferStr.trim())
+                        sentenceBuffer.clear()
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error parseando SSE Groq: ${e.message}")
+                }
+            }
+
+            override fun onFailure(
+                eventSource: EventSource,
+                t: Throwable?,
+                response: Response?
+            ) {
+                val error = t ?: Exception("Error desconocido en stream Groq (HTTP ${response?.code})")
+                Log.e(TAG, "Error streaming Groq: ${error.message}")
+                onError(error as Exception)
+            }
+        })
+    }
+
+    private fun chatStreamingClaude(
+        userText: String,
+        onChunk: (String) -> Unit,
+        onComplete: (String) -> Unit,
+        onError: (Exception) -> Unit
+    ) {
         conversationHistory.add(mapOf("role" to "user", "content" to userText))
 
         val messagesJson = gson.toJson(conversationHistory)
 
-        // Inyectar contexto compacto para streaming
         val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 5)
         val enrichedSystemPrompt = if (compactContext.isNotBlank()) {
             "$SYSTEM_PROMPT\n\n$compactContext"
@@ -415,8 +739,6 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
             .build()
 
         val fullResponse = StringBuilder()
-
-        // Buffer para acumular texto hasta encontrar un delimitador natural
         val sentenceBuffer = StringBuilder()
 
         val factory = EventSources.createFactory(httpClient)
@@ -441,9 +763,6 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
                             fullResponse.append(text)
                             sentenceBuffer.append(text)
 
-                            // ── Estrategia de fragmentación ─────
-                            // Enviar al TTS cuando encontramos un delimitador
-                            // natural (para prosodia correcta)
                             val bufferStr = sentenceBuffer.toString()
                             if (shouldFlush(bufferStr)) {
                                 onChunk(bufferStr.trim())
@@ -451,14 +770,12 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
                             }
                         }
                         "message_stop" -> {
-                            // Flush del texto restante
                             if (sentenceBuffer.isNotEmpty()) {
                                 onChunk(sentenceBuffer.toString().trim())
                                 sentenceBuffer.clear()
                             }
 
                             val response = fullResponse.toString()
-                            // Agregar respuesta al historial
                             conversationHistory.add(
                                 mapOf("role" to "assistant", "content" to response)
                             )

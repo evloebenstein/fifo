@@ -28,12 +28,16 @@ import kotlinx.coroutines.flow.asStateFlow
  */
 class VoicePipelineManager(
     private val context: Context,
-    initialAnthropicApiKey: String,
+    initialGroqApiKey: String = "",
+    initialAnthropicApiKey: String = "",
     initialOpenAiApiKey: String = ""
 ) {
     companion object {
         private const val TAG = "VoicePipeline"
     }
+
+    var groqApiKey: String = initialGroqApiKey
+        private set
 
     var anthropicApiKey: String = initialAnthropicApiKey
         private set
@@ -154,9 +158,10 @@ class VoicePipelineManager(
      * - Reconocedor de voz nativo de Google (0 claves requeridas)
      */
     fun start() {
-        Log.i(TAG, "Iniciando pipeline de voz FIFO (100% BLE + Claude)...")
+        Log.i(TAG, "Iniciando pipeline de voz FIFO (Groq LPU / GPT-OSS 120B)...")
 
         cloudClient = CloudApiClient(
+            groqApiKey = groqApiKey,
             anthropicApiKey = anthropicApiKey,
             openAiApiKey = openAiApiKey
         )
@@ -568,20 +573,46 @@ class VoicePipelineManager(
     }
 
     /**
+     * Permite actualizar dinámicamente la clave para Groq LPU (Cerebro IA principal).
+     */
+    fun setGroqApiKey(key: String) {
+        val trimmed = key.trim()
+        groqApiKey = trimmed
+        cloudClient.groqApiKey = trimmed
+        // Si no había clave Whisper separada o era Groq, sincronizar también para STT
+        if (cloudClient.openAiApiKey.isBlank() || cloudClient.openAiApiKey.startsWith("gsk_")) {
+            cloudClient.openAiApiKey = trimmed
+        }
+        Log.i(TAG, "Nueva API key para Groq configurada: ${trimmed.take(12)}...")
+    }
+
+    /**
      * Permite actualizar dinámicamente la clave para Claude (Anthropic).
      */
     fun setAnthropicApiKey(key: String) {
         val trimmed = key.trim()
+        if (trimmed.startsWith("gsk_")) {
+            // El usuario pegó una clave de Groq en el campo general
+            setGroqApiKey(trimmed)
+            return
+        }
         anthropicApiKey = trimmed
         cloudClient.anthropicApiKey = trimmed
         Log.i(TAG, "Nueva API key para Claude configurada: ${trimmed.take(12)}...")
     }
 
     /**
-     * Prueba la conexión con Claude con la clave actual o una clave específica.
+     * Prueba la conexión con el cerebro de IA configurado (Groq o Claude).
+     */
+    suspend fun testConnection(overrideKey: String? = null): Pair<Boolean, String> {
+        return cloudClient.testConnection(overrideKey)
+    }
+
+    /**
+     * Prueba la conexión con Claude o Groq.
      */
     suspend fun testClaudeConnection(overrideKey: String? = null): Pair<Boolean, String> {
-        return cloudClient.testAnthropicConnection(overrideKey)
+        return cloudClient.testConnection(overrideKey)
     }
 
     /**
@@ -590,6 +621,13 @@ class VoicePipelineManager(
     fun setOpenAiApiKey(key: String) {
         cloudClient.openAiApiKey = key.trim()
         Log.i(TAG, "Nueva API key para STT opcional configurada: ${key.take(8)}...")
+    }
+
+    /**
+     * Permite inyectar texto directamente al pipeline (útil para pruebas en emulador y accesibilidad).
+     */
+    fun processTextQuery(query: String) {
+        processUserText(query)
     }
 
     /**
@@ -774,14 +812,15 @@ class VoicePipelineManager(
             return
         }
 
-        // 2. Si no es un comando directo, consultar a Claude con el catálogo de herramientas
+        // 2. Si no es un comando directo, consultar al cerebro de IA (Groq LPU / Claude)
         _state.value = PipelineState.PROCESSING
-        _statusMessage.value = "Consultando a Claude..."
+        val brainName = if (cloudClient.isGroqActive) "Groq (GPT-OSS 120B)" else "Claude"
+        _statusMessage.value = "Consultando a $brainName..."
         updateEspDisplay(state = "PENSANDO", transcript = query)
 
         val reply = withTimeoutOrNull(15000L) {
             cloudClient.chat(query, skillRegistry)
-        } ?: "Disculpa, la respuesta de Claude tardó demasiado tiempo. Intenta de nuevo."
+        } ?: "Disculpa, la respuesta de $brainName tardó demasiado tiempo. Intenta de nuevo."
 
         val cleanReply = TextSanitizer.cleanForSpeech(reply)
         _aiResponse.value = cleanReply

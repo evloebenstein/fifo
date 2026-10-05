@@ -64,6 +64,28 @@ class FifoSkillRegistry(private val context: Context) {
     }
 
     /**
+     * Genera la lista de herramientas en formato JSON compatible con OpenAI y Groq API.
+     */
+    fun getOpenAiToolsJson(): String {
+        val toolsList = skills.values.map { skill ->
+            val schemaObj = try {
+                JsonParser.parseString(skill.parameterSchemaJson)
+            } catch (e: Exception) {
+                JsonParser.parseString("{}")
+            }
+            mapOf(
+                "type" to "function",
+                "function" to mapOf(
+                    "name" to skill.name,
+                    "description" to skill.description,
+                    "parameters" to schemaObj
+                )
+            )
+        }
+        return gson.toJson(toolsList)
+    }
+
+    /**
      * Ejecuta una herramienta por nombre con los argumentos recibidos.
      */
     suspend fun executeSkill(name: String, args: Map<String, Any?>): SkillResult {

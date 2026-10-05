@@ -21,6 +21,10 @@ val openAiKey: String = localProps.getProperty("OPENAI_API_KEY")
     ?: (project.findProperty("OPENAI_API_KEY") as? String)
     ?: System.getenv("OPENAI_API_KEY") ?: ""
 
+val groqKey: String = localProps.getProperty("GROQ_API_KEY")
+    ?: (project.findProperty("GROQ_API_KEY") as? String)
+    ?: System.getenv("GROQ_API_KEY") ?: ""
+
 android {
     namespace = "com.fifo.voicepipeline"
     compileSdk = 34
@@ -34,6 +38,7 @@ android {
 
         buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicKey\"")
         buildConfigField("String", "OPENAI_API_KEY", "\"$openAiKey\"")
+        buildConfigField("String", "GROQ_API_KEY", "\"$groqKey\"")
     }
 
     buildTypes {
