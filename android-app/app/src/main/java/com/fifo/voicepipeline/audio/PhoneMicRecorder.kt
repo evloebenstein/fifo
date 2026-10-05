@@ -19,6 +19,7 @@ import kotlinx.coroutines.*
  * que los que enviaría el ESP32 (1024 bytes = 512 muestras = 32ms).
  */
 class PhoneMicRecorder(
+    private val context: android.content.Context? = null,
     private val sampleRate: Int = AudioConfig.SAMPLE_RATE,
     private val chunkBytes: Int = AudioConfig.CHUNK_BYTES
 ) {
@@ -32,19 +33,36 @@ class PhoneMicRecorder(
     private var gainControl: AutomaticGainControl? = null
     private var recordingJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var lastOnChunkCallback: ((ByteArray) -> Unit)? = null
 
     @Volatile
     var isRecording: Boolean = false
         private set
 
     /**
+     * Reconfigura la fuente de grabación para modo llamada (VOICE_COMMUNICATION con AEC de hardware)
+     * o modo normal, manteniendo la captura activa si ya estaba grabando.
+     */
+    fun switchToCallMode(inCall: Boolean, onChunk: ((ByteArray) -> Unit)? = null) {
+        val callback = onChunk ?: lastOnChunkCallback
+        if (callback == null) return
+        Log.i(TAG, "Reconfigurando captura de audio de celular para inCall=$inCall...")
+        stop()
+        start(forceCallSource = inCall, onChunk = callback)
+    }
+
+    fun start(onChunk: (ByteArray) -> Unit): Boolean = start(forceCallSource = null, onChunk = onChunk)
+
+    /**
      * Inicia la captura continua de audio desde el micrófono del celular.
      * Requiere el permiso android.permission.RECORD_AUDIO.
      *
+     * @param forceCallSource Si es true, prioriza VOICE_COMMUNICATION para llamadas activas/video llamadas.
      * @param onChunk Callback invocado con cada buffer PCM capturado.
      */
     @SuppressLint("MissingPermission")
-    fun start(onChunk: (ByteArray) -> Unit): Boolean {
+    fun start(forceCallSource: Boolean? = null, onChunk: (ByteArray) -> Unit): Boolean {
+        lastOnChunkCallback = onChunk
         if (isRecording) {
             Log.w(TAG, "La grabación ya está en curso")
             return true
@@ -59,11 +77,31 @@ class PhoneMicRecorder(
 
             val bufferSize = maxOf(minBufferSize, chunkBytes * 4)
 
-            val audioSources = listOf(
-                MediaRecorder.AudioSource.MIC,
-                MediaRecorder.AudioSource.DEFAULT,
-                MediaRecorder.AudioSource.VOICE_RECOGNITION
+            val audioManager = context?.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+            val inCallMode = forceCallSource ?: (
+                audioManager?.mode == android.media.AudioManager.MODE_IN_CALL ||
+                audioManager?.mode == android.media.AudioManager.MODE_IN_COMMUNICATION ||
+                com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
             )
+
+            // Cuando hay una llamada en curso o entrante, VOICE_COMMUNICATION es la ÚNICA fuente permitida
+            // por la política de audio de Android para captura concurrente con cancelación de eco de hardware.
+            val audioSources = if (inCallMode) {
+                Log.i(TAG, "Modo llamada detectado: priorizando MediaRecorder.AudioSource.VOICE_COMMUNICATION")
+                listOf(
+                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                    MediaRecorder.AudioSource.MIC,
+                    MediaRecorder.AudioSource.DEFAULT,
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION
+                )
+            } else {
+                listOf(
+                    MediaRecorder.AudioSource.MIC,
+                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                    MediaRecorder.AudioSource.DEFAULT,
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION
+                )
+            }
 
             var initializedRecord: AudioRecord? = null
             for (source in audioSources) {
@@ -77,7 +115,7 @@ class PhoneMicRecorder(
                     )
                     if (record.state == AudioRecord.STATE_INITIALIZED) {
                         initializedRecord = record
-                        Log.i(TAG, "AudioRecord inicializado exitosamente con fuente de audio: $source")
+                        Log.i(TAG, "AudioRecord inicializado exitosamente con fuente de audio: $source (inCallMode=$inCallMode)")
                         break
                     } else {
                         record.release()
@@ -136,6 +174,7 @@ class PhoneMicRecorder(
                             bytesRead += read
                         } else if (read < 0) {
                             Log.e(TAG, "Error leyendo AudioRecord: $read")
+                            delay(50)
                             break
                         }
                     }
@@ -184,10 +223,18 @@ class PhoneMicRecorder(
             gainControl = null
 
             audioRecord?.apply {
-                if (state == AudioRecord.STATE_INITIALIZED) {
-                    stop()
+                try {
+                    if (recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                        stop()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "AudioRecord ya detenido o inactivo: ${e.message}")
                 }
-                release()
+                try {
+                    release()
+                } catch (e: Exception) {
+                    Log.w(TAG, "AudioRecord release error: ${e.message}")
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error al detener AudioRecord: ${e.message}", e)

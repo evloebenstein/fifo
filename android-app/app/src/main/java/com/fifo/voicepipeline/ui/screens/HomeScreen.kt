@@ -194,7 +194,7 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(18.dp))
 
-        // ── BANNER DE LLAMADA ENTRANTE ACTIVA TIPO ALEXA ─────────────
+        // ── BANNER DE LLAMADA ENTRANTE / EN CURSO TIPO ALEXA ─────────────
         incomingCall?.let { call ->
             if (call.isRinging) {
                 Surface(
@@ -228,7 +228,7 @@ fun HomeScreen(
                                     color = Color(0xFF991B1B)
                                 )
                                 Text(
-                                    text = "Diga 'Fifo contesta' o use los botones de abajo",
+                                    text = "Diga 'contesta' o 'cuelga', o use los botones",
                                     fontSize = 13.sp,
                                     color = Color(0xFFB91C1C)
                                 )
@@ -267,6 +267,63 @@ fun HomeScreen(
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("Colgar", fontWeight = FontWeight.Bold, color = Color(0xFFDC2626))
                             }
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+            } else {
+                // LLAMADA ACTIVA / EN CURSO
+                Surface(
+                    color = Color(0xFFF0FDF4),
+                    shape = RoundedCornerShape(24.dp),
+                    border = androidx.compose.foundation.BorderStroke(2.dp, Color(0xFF16A34A)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(20.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Surface(
+                                shape = CircleShape,
+                                color = Color(0xFF16A34A),
+                                modifier = Modifier.size(46.dp)
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    Icon(
+                                        imageVector = Icons.Default.PhoneInTalk,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "En llamada con ${call.callerName}",
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF166534)
+                                )
+                                Text(
+                                    text = "Fifo escuchando · Diga 'Fifo cuelga' para terminar",
+                                    fontSize = 13.sp,
+                                    color = Color(0xFF15803D)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        Button(
+                            onClick = { com.fifo.voicepipeline.data.FifoDataRepository.hangupCurrentCall() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                        ) {
+                            Icon(Icons.Default.CallEnd, contentDescription = null, tint = Color.White, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Colgar llamada", fontWeight = FontWeight.Bold, color = Color.White)
                         }
                     }
                 }

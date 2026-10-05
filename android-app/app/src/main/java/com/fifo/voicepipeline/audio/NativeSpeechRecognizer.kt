@@ -214,6 +214,10 @@ class NativeSpeechRecognizer(
                     13 -> {
                         restartListening(500L)
                     }
+                    // Error de audio durante llamadas o bloqueo de mic por otra app: pausa de 1.5s
+                    SpeechRecognizer.ERROR_AUDIO -> {
+                        restartListening(1500L)
+                    }
                     // Errores recuperables con pausa breve
                     SpeechRecognizer.ERROR_NETWORK,
                     SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
@@ -241,9 +245,13 @@ class NativeSpeechRecognizer(
                     "fifo", "fifa", "fito", "feefo", "fido", "vivo", "filo", "fijo", "pipo", "kiko", "sifo", "fio",
                     "fee for", "fit for", "people", "free for", "feed for", "bebo", "feefa", "fefa", "phifo", "vibo"
                 )
+                val callKeywords = listOf(
+                    "contesta", "cuelga", "rechaza", "atiende", "corta", "colgar", "contestar", "finaliza", "acepta"
+                )
+
                 val bestMatch = matches.firstOrNull { candidate ->
                     val lower = candidate.lowercase()
-                    wakeWords.any { lower.contains(it) }
+                    wakeWords.any { lower.contains(it) } || callKeywords.any { lower.contains(it) }
                 } ?: matches.firstOrNull() ?: ""
 
                 if (bestMatch.isNotBlank()) {
@@ -262,9 +270,13 @@ class NativeSpeechRecognizer(
                     "fifo", "fifa", "fito", "feefo", "fido", "vivo", "filo", "fijo", "pipo",
                     "fee for", "fit for", "feefa", "fefa", "phifo"
                 )
+                val callKeywords = listOf(
+                    "contesta", "cuelga", "rechaza", "atiende", "corta", "colgar", "contestar", "finaliza", "acepta"
+                )
+
                 val bestPartial = matches.firstOrNull { candidate ->
                     val lower = candidate.lowercase()
-                    wakeWords.any { lower.contains(it) }
+                    wakeWords.any { lower.contains(it) } || callKeywords.any { lower.contains(it) }
                 } ?: matches.firstOrNull() ?: ""
 
                 if (bestPartial.isNotBlank()) {

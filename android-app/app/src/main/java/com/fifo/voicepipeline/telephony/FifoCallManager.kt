@@ -113,12 +113,21 @@ class FifoCallManager(
                 val current = FifoDataRepository.incomingCall.value
                 if (current != null) {
                     FifoDataRepository.setIncomingCall(current.copy(isRinging = false))
+                } else {
+                    FifoDataRepository.setIncomingCall(
+                        IncomingCallInfo(
+                            callerName = "Llamada en curso",
+                            phoneNumber = "",
+                            isRinging = false
+                        )
+                    )
                 }
             }
 
             TelephonyManager.CALL_STATE_IDLE -> {
                 Log.i(TAG, "Teléfono en reposo (llamada finalizada o colgada)")
                 FifoDataRepository.setIncomingCall(null)
+                resetCallAudioRouting()
             }
         }
     }
@@ -175,6 +184,50 @@ class FifoCallManager(
     }
 
     /**
+     * Enruta el audio de la llamada al altavoz manos libres del teléfono.
+     */
+    fun routeAudioToSpeaker() {
+        try {
+            audioManager?.mode = AudioManager.MODE_IN_COMMUNICATION
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val speakerDevice = audioManager?.availableCommunicationDevices?.firstOrNull {
+                    it.type == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER
+                }
+                if (speakerDevice != null) {
+                    audioManager?.setCommunicationDevice(speakerDevice)
+                    Log.i(TAG, "Audio de llamada enrutado a altavoz con setCommunicationDevice")
+                } else {
+                    @Suppress("DEPRECATION")
+                    audioManager?.isSpeakerphoneOn = true
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                audioManager?.isSpeakerphoneOn = true
+            }
+            Log.i(TAG, "Altavoz del celular activado para llamada")
+        } catch (e: Exception) {
+            Log.w(TAG, "Error enrutando audio al altavoz: ${e.message}")
+        }
+    }
+
+    /**
+     * Restablece el modo de audio del sistema tras finalizar la llamada.
+     */
+    fun resetCallAudioRouting() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                audioManager?.clearCommunicationDevice()
+            }
+            @Suppress("DEPRECATION")
+            audioManager?.isSpeakerphoneOn = false
+            audioManager?.mode = AudioManager.MODE_NORMAL
+            Log.i(TAG, "Audio del teléfono restablecido a MODE_NORMAL")
+        } catch (e: Exception) {
+            Log.w(TAG, "Error restableciendo audio routing: ${e.message}")
+        }
+    }
+
+    /**
      * Contesta la llamada entrante y activa automáticamente el altavoz del celular.
      */
     @SuppressLint("MissingPermission")
@@ -190,14 +243,11 @@ class FifoCallManager(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && hasAnswerPermission) {
                 telecomManager?.acceptRingingCall()
             } else {
-                // En versiones previas o fallback
                 Log.w(TAG, "No se cuenta con permiso ANSWER_PHONE_CALLS directo.")
             }
 
-            // Activar altavoz del teléfono para que el usuario no tenga que pegar el celular a la oreja
-            audioManager?.mode = AudioManager.MODE_IN_COMMUNICATION
-            audioManager?.isSpeakerphoneOn = true
-            Log.i(TAG, "Altavoz del celular activado para llamada")
+            // Activar altavoz del teléfono para que el usuario pueda hablar manos libres
+            routeAudioToSpeaker()
             true
         } catch (e: Exception) {
             Log.e(TAG, "Error contestando llamada: ${e.message}")
@@ -213,6 +263,7 @@ class FifoCallManager(
         Log.i(TAG, "Intentando colgar / rechazar llamada...")
 
         return try {
+            var ended = false
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val hasAnswerPermission = ContextCompat.checkSelfPermission(
                     context,
@@ -220,19 +271,19 @@ class FifoCallManager(
                 ) == PackageManager.PERMISSION_GRANTED
 
                 if (hasAnswerPermission) {
-                    val ended = telecomManager?.endCall() ?: false
+                    ended = telecomManager?.endCall() ?: false
                     Log.i(TAG, "Llamada finalizada vía TelecomManager: $ended")
-                    true
                 } else {
                     Log.w(TAG, "Falta permiso ANSWER_PHONE_CALLS para endCall.")
-                    false
                 }
             } else {
                 Log.w(TAG, "endCall directo requiere Android 9+.")
-                false
             }
+            resetCallAudioRouting()
+            ended
         } catch (e: Exception) {
             Log.e(TAG, "Error colgando llamada: ${e.message}")
+            resetCallAudioRouting()
             false
         }
     }

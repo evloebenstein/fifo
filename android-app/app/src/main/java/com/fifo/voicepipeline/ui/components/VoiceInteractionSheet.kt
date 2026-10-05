@@ -431,6 +431,61 @@ fun VoiceInteractionSheet(
                                     }
                                 }
                                 Spacer(modifier = Modifier.height(14.dp))
+                            } else {
+                                // LLAMADA ACTIVA / EN CURSO
+                                Surface(
+                                    color = Color(0xFF064E3B),
+                                    shape = RoundedCornerShape(20.dp),
+                                    border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF10B981)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = Color(0xFF10B981),
+                                                modifier = Modifier.size(40.dp)
+                                            ) {
+                                                Box(contentAlignment = Alignment.Center) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.PhoneInTalk,
+                                                        contentDescription = null,
+                                                        tint = Color.White,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = "En llamada con ${call.callerName}",
+                                                    fontSize = 15.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color.White
+                                                )
+                                                Text(
+                                                    text = "Diga 'Fifo cuelga' para terminar",
+                                                    fontSize = 12.sp,
+                                                    color = Color(0xFFA7F3D0)
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        Button(
+                                            onClick = { com.fifo.voicepipeline.data.FifoDataRepository.hangupCurrentCall() },
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
+                                            shape = RoundedCornerShape(14.dp),
+                                            modifier = Modifier.fillMaxWidth().height(42.dp)
+                                        ) {
+                                            Icon(Icons.Default.CallEnd, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Colgar llamada", fontWeight = FontWeight.Bold, color = Color.White, fontSize = 13.sp)
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(14.dp))
                             }
                         }
 

@@ -134,13 +134,33 @@ class FifoSkillRegistry(private val context: Context) {
         }
 
         // 0.1 GESTIÓN DE LLAMADAS TELEFÓNICAS TIPO ALEXA (Contestar / Colgar / Saber quién llama)
-        if (text.contains("contesta") || text.contains("contestar") || text.contains("atiende") || text.contains("atender") || text.contains("acepta la llamada") || text.contains("sí contesta")) {
+        val isCallAnswerIntent = text.contains("contesta") || text.contains("contestar") || text.contains("contéstame") ||
+                text.contains("atiende") || text.contains("atender") || text.contains("atiéndeme") ||
+                text.contains("acepta la llamada") || text.contains("aceptar la llamada") || text.contains("acepta") ||
+                text.contains("aceptar") || text.contains("sí contesta") || text.contains("si contesta") ||
+                text.contains("responder la llamada") || text.contains("responde la llamada") ||
+                text.contains("responde") || text.contains("responder") ||
+                text.contains("toma la llamada") || text.contains("tomar la llamada")
+
+        if (isCallAnswerIntent) {
             return executeSkill("manage_phone_call", mapOf("action" to "answer"))
         }
-        if (text.contains("cuelga") || text.contains("colgar") || text.contains("rechaza") || text.contains("rechazar") || text.contains("deten la llamada") || text.contains("detener llamada") || text.contains("no contestes") || text.contains("corta la llamada")) {
+
+        val isCallHangupIntent = text.contains("cuelga") || text.contains("colgar") ||
+                text.contains("rechaza") || text.contains("rechazar") || text.contains("recházale") ||
+                text.contains("deten la llamada") || text.contains("detén la llamada") || text.contains("detener llamada") ||
+                text.contains("no contestes") || text.contains("no contestar") ||
+                text.contains("corta la llamada") || text.contains("cortar la llamada") || text.contains("corta llamada") ||
+                text.contains("termina la llamada") || text.contains("terminar la llamada") ||
+                text.contains("finaliza la llamada") || text.contains("finalizar la llamada") ||
+                text.contains("finaliza") || text.contains("cancela la llamada") ||
+                (text.contains("corta") && (text.contains("llamada") || text.contains("fifo") || text.length <= 8))
+
+        if (isCallHangupIntent) {
             return executeSkill("manage_phone_call", mapOf("action" to "hangup"))
         }
-        if (text.contains("quién llama") || text.contains("quien llama") || text.contains("quién está llamando") || text.contains("quien esta llamando")) {
+
+        if (text.contains("quién llama") || text.contains("quien llama") || text.contains("quién está llamando") || text.contains("quien esta llamando") || text.contains("quién me llama") || text.contains("quien me llama")) {
             return executeSkill("manage_phone_call", mapOf("action" to "status"))
         }
 
