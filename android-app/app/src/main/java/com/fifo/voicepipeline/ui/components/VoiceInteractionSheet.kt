@@ -494,8 +494,8 @@ fun VoiceInteractionSheet(
                             Surface(
                                 onClick = onToggleMicMute,
                                 shape = RoundedCornerShape(22.dp),
-                                color = Color(0xFFDC2626),
-                                shadowElevation = 4.dp,
+                                color = Color(0xFFEF4444).copy(alpha = 0.20f),
+                                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFEF4444).copy(alpha = 0.60f)),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .defaultMinSize(minHeight = 56.dp)
@@ -505,12 +505,19 @@ fun VoiceInteractionSheet(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.Center
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Mic,
-                                        contentDescription = null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(26.dp)
-                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .size(34.dp)
+                                            .background(Color(0xFFEF4444).copy(alpha = 0.25f), CircleShape),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.MicOff,
+                                            contentDescription = null,
+                                            tint = Color(0xFFEF4444),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Column {
                                         Text(
@@ -522,7 +529,7 @@ fun VoiceInteractionSheet(
                                         Text(
                                             text = "El micrófono está pausado en este momento",
                                             fontSize = 12.sp,
-                                            color = Color.White.copy(alpha = 0.9f)
+                                            color = Color(0xFFFCA5A5)
                                         )
                                     }
                                 }
@@ -543,9 +550,9 @@ fun VoiceInteractionSheet(
                                     horizontalArrangement = Arrangement.Center
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.MicOff,
+                                        imageVector = Icons.Default.Mic,
                                         contentDescription = null,
-                                        tint = Color.White,
+                                        tint = Color.White.copy(alpha = 0.9f),
                                         modifier = Modifier.size(22.dp)
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
