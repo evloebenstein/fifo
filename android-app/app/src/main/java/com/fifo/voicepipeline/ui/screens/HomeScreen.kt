@@ -228,7 +228,7 @@ fun HomeScreen(
                                     color = Color(0xFF991B1B)
                                 )
                                 Text(
-                                    text = "Diga 'contesta' o 'cuelga', o use los botones",
+                                    text = "Diga 'Fifo contesta' o 'Fifo cuelga', o use los botones",
                                     fontSize = 13.sp,
                                     color = Color(0xFFB91C1C)
                                 )

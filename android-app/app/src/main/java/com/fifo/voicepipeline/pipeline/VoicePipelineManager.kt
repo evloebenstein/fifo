@@ -262,9 +262,8 @@ class VoicePipelineManager(
             },
             onPartialResult = { partial ->
                 if (_isMicMuted.value) return@NativeSpeechRecognizer
-                val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
                 val hasWakeWord = isWakeWord(partial)
-                if (isContinuous || hasWakeWord || expectFollowUpQuestion || oneShotPushedToTalk) {
+                if (hasWakeWord || oneShotPushedToTalk) {
                     _transcription.value = partial
                     if (_state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
                         _state.value = PipelineState.LISTENING
@@ -308,11 +307,10 @@ class VoicePipelineManager(
                     _isAwake.value = true
                     _isMicMuted.value = false
                     _state.value = PipelineState.LISTENING
-                    _statusMessage.value = "Llamada de $callerName"
+                    _statusMessage.value = "Llamada de $callerName · Diga 'Fifo contesta' o 'Fifo cuelga'"
                     updateEspDisplay(state = "LLAMADA", transcript = "Llamada entrante", response = callerName)
-                    expectFollowUpQuestion = true
                     ensureCallListeningActive()
-                    speakResponseChunk("¡Lucía! Le está llamando $callerName. ¿Desea que conteste o que cuelgue la llamada?")
+                    speakResponseChunk("¡Lucía! Le está llamando $callerName. Diga 'Fifo contesta' o 'Fifo cuelga'.")
                 }
             }
         )
@@ -324,11 +322,10 @@ class VoicePipelineManager(
                 _isAwake.value = true
                 _isMicMuted.value = false
                 _state.value = PipelineState.LISTENING
-                _statusMessage.value = "Llamada de $callerName"
+                _statusMessage.value = "Llamada de $callerName · Diga 'Fifo contesta' o 'Fifo cuelga'"
                 updateEspDisplay(state = "LLAMADA", transcript = "Llamada entrante", response = callerName)
-                expectFollowUpQuestion = true
                 ensureCallListeningActive()
-                speakResponseChunk("¡Lucía! Le está llamando $callerName. ¿Desea que conteste o que cuelgue la llamada?")
+                speakResponseChunk("¡Lucía! Le está llamando $callerName. Diga 'Fifo contesta' o 'Fifo cuelga'.")
             }
         }
 
@@ -337,7 +334,6 @@ class VoicePipelineManager(
             com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.collect { callInfo ->
                 if (callInfo != null) {
                     if (callInfo.isRinging) {
-                        expectFollowUpQuestion = true
                         ensureCallListeningActive()
                     } else {
                         _statusMessage.value = "Llamada activa · Di 'Fifo cuelga' para terminar"
@@ -530,38 +526,37 @@ class VoicePipelineManager(
     /**
      * Determina si el texto reconocido corresponde a un comando de control de llamada
      * (contestar, colgar, rechazar, etc.).
+     * Requiere OBLIGATORIAMENTE que el usuario haya dicho 'Fifo' o 'Fio'.
      */
     private fun isCallActionCommand(text: String, isRinging: Boolean): Boolean {
-        val lower = text.lowercase().trim()
+        val normalized = java.text.Normalizer.normalize(text.lowercase().trim(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+        val hasWakeWord = isWakeWord(normalized)
+        // SI O SI se debe decir "Fifo" / "Fio"
+        if (!hasWakeWord) return false
+
         if (isRinging) {
             val answerWords = listOf(
-                "contesta", "contestar", "contéstame", "atiende", "atender", "atiéndeme",
-                "acepta", "aceptar", "responder", "responde", "sí contesta", "si contesta",
+                "contesta", "contestar", "contestame", "atiende", "atender", "atiendeme",
+                "acepta", "aceptar", "responder", "responde", "si contesta",
                 "toma la llamada", "tomar la llamada"
             )
             val hangupWords = listOf(
-                "cuelga", "colgar", "rechaza", "rechazar", "recházale", "corta", "cortar",
-                "no contestes", "no contestar", "detén la llamada", "deten la llamada", "detener llamada",
+                "cuelga", "colgar", "rechaza", "rechazar", "rechazale", "corta", "cortar",
+                "no contestes", "no contestar", "deten la llamada", "detener llamada",
                 "cancela la llamada", "termina la llamada", "finaliza la llamada"
             )
             val statusWords = listOf(
-                "quién llama", "quien llama", "quién es", "quien es", "quién está llamando", "quien esta llamando"
+                "quien llama", "quien es", "quien esta llamando"
             )
-            return answerWords.any { lower.contains(it) } ||
-                   hangupWords.any { lower.contains(it) } ||
-                   statusWords.any { lower.contains(it) }
+            return answerWords.any { normalized.contains(it) } ||
+                   hangupWords.any { normalized.contains(it) } ||
+                   statusWords.any { normalized.contains(it) }
         } else {
-            val hasWakeWord = isWakeWord(lower)
-            val explicitHangupPhrases = listOf(
-                "cuelga la llamada", "colgar la llamada", "corta la llamada", "cortar la llamada",
-                "termina la llamada", "terminar la llamada", "finaliza la llamada", "finalizar la llamada",
-                "detén la llamada", "deten la llamada", "corta llamada", "cuelga llamada"
-            )
-            if (explicitHangupPhrases.any { lower.contains(it) }) return true
-            if (hasWakeWord && (lower.contains("cuelga") || lower.contains("colgar") || lower.contains("corta") || lower.contains("cortar") || lower.contains("termina") || lower.contains("finaliza"))) {
-                return true
-            }
-            return false
+            return normalized.contains("cuelga") || normalized.contains("colgar") ||
+                   normalized.contains("corta") || normalized.contains("cortar") ||
+                   normalized.contains("termina") || normalized.contains("finaliza") ||
+                   normalized.contains("rechaza") || normalized.contains("deten")
         }
     }
 
@@ -676,27 +671,29 @@ class VoicePipelineManager(
 
     /**
      * Lista de palabras clave y aproximaciones fonéticas cuando hay música o ruido de fondo.
+     * Soporta 'Fifo', 'Fio', 'Fío', etc., normalizando acentos para máxima precisión.
      */
     private fun isWakeWord(text: String): Boolean {
-        val lower = text.lowercase().trim()
+        val normalized = java.text.Normalizer.normalize(text.lowercase().trim(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
         val wakeWords = listOf(
-            "fifo", "feefo", "fito", "fifa", "fido", "fio",
+            "fifo", "fio", "feefo", "fito", "fifa", "fido",
             "fee for", "fit for", "people", "free for", "feed for", "bebo", "feefa", "fefa", "phifo", "vibo", "vivo", "filo", "fijo", "pipo", "kiko"
         )
         return wakeWords.any { word ->
-            lower.contains(Regex("\\b$word\\b")) ||
-            lower.startsWith("$word ") ||
-            lower.endsWith(" $word") ||
-            lower == word
+            normalized.contains(Regex("\\b$word\\b")) ||
+            normalized.startsWith("$word ") ||
+            normalized.endsWith(" $word") ||
+            normalized == word
         }
     }
 
     /**
-     * Extrae la consulta eliminando prefijos de activación como "Fifo", "Hola Fifo", "Fifa", etc.
+     * Extrae la consulta eliminando prefijos de activación como "Fifo", "Fio", "Hola Fifo", etc.
      */
     private fun extractQuery(text: String): String {
-        return text.replace(Regex("(?i)\\b(hola|oye|hey|che|ok|bueno|dime|saludos)\\s+(fifo|feefo|fito|fifa|fido|fio|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko)\\b"), "")
-            .replace(Regex("(?i)\\b(fifo|feefo|fito|fifa|fido|fio|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko)\\b"), "")
+        return text.replace(Regex("(?i)\\b(hola|oye|hey|che|ok|bueno|dime|saludos)\\s+(fifo|fio|fío|fífo|feefo|fito|fifa|fido|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko)\\b"), "")
+            .replace(Regex("(?i)\\b(fifo|fio|fío|fífo|feefo|fito|fifa|fido|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko)\\b"), "")
             .trim()
             .trimStart(',', '.', ':', ';', '!', '?', ' ')
             .trim()
@@ -770,15 +767,15 @@ class VoicePipelineManager(
 
         val textLower = rawText.lowercase().trim()
         val hasWakeWord = isWakeWord(textLower)
-        val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
         val callInfo = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value
-        val isCallControl = callInfo != null && isCallActionCommand(textLower, isRinging = callInfo.isRinging)
+        val isCallControl = callInfo != null && hasWakeWord && isCallActionCommand(textLower, isRinging = callInfo.isRinging)
         val wasPushed = oneShotPushedToTalk
         oneShotPushedToTalk = false
 
-        // Si no está en modo continuo, no se dijo "Fifo", no se esperaba pregunta de seguimiento, no se presionó el botón y no es comando de llamada:
-        if (!isContinuous && !hasWakeWord && !expectFollowUpQuestion && !wasPushed && !isCallControl) {
-            Log.d(TAG, "Audio ignorado: Fifo en reposo y no se dijo 'Fifo'. Oído: $rawText")
+        // SI O SI se debe decir "Fifo" / "Fio" para que Fifo atienda cualquier consulta o llamada
+        // (única excepción: que el usuario haya presionado físicamente el botón táctil en pantalla de Push-To-Talk)
+        if (!hasWakeWord && !wasPushed) {
+            Log.d(TAG, "Audio ignorado: SI O SI se debe decir 'Fifo'/'Fio'. Oído: $rawText")
             // No actualizar _transcription ni hablar, mantener a Fifo en reposo
             return
         }
@@ -786,10 +783,10 @@ class VoicePipelineManager(
         // Si estábamos esperando la pregunta de seguimiento, consumirla
         expectFollowUpQuestion = false
 
-        // Si se dijo "Fifo" o está en modo de escucha continua / seguimiento / llamada:
+        // Si se dijo "Fifo" / "Fio" o se presionó el botón:
         _transcription.value = rawText
 
-        // Si es un comando de control de llamada directo:
+        // Si es un comando de control de llamada directo ("Fifo contesta", "Fifo cuelga", etc.):
         if (isCallControl) {
             _isMicMuted.value = false
             _isAwake.value = true
@@ -891,12 +888,12 @@ class VoicePipelineManager(
 
                 val textLower = transcript.lowercase().trim()
                 val hasWakeWord = isWakeWord(textLower)
-                val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
                 val callInfo = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value
-                val isCallControl = callInfo != null && isCallActionCommand(textLower, isRinging = callInfo.isRinging)
+                val isCallControl = callInfo != null && hasWakeWord && isCallActionCommand(textLower, isRinging = callInfo.isRinging)
 
-                if (!isContinuous && !hasWakeWord && !expectFollowUpQuestion && !isCallControl) {
-                    Log.d(TAG, "Audio ignorado: Fifo en reposo y no se detectó 'Fifo'. Oído: $transcript")
+                // SI O SI se debe decir "Fifo" / "Fio"
+                if (!hasWakeWord) {
+                    Log.d(TAG, "Audio ignorado: Fifo en reposo y no se detectó 'Fifo'/'Fio'. Oído: $transcript")
                     _state.value = PipelineState.SLEEPING
                     updateEspDisplay(state = "DURMIENDO")
                     return@launch

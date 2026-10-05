@@ -242,16 +242,13 @@ class NativeSpeechRecognizer(
                 Log.i(TAG, "Candidatos reconocidos por Google: $matches")
 
                 val wakeWords = listOf(
-                    "fifo", "fifa", "fito", "feefo", "fido", "vivo", "filo", "fijo", "pipo", "kiko", "sifo", "fio",
+                    "fifo", "fio", "fío", "fifa", "fito", "feefo", "fido", "vivo", "filo", "fijo", "pipo", "kiko", "sifo",
                     "fee for", "fit for", "people", "free for", "feed for", "bebo", "feefa", "fefa", "phifo", "vibo"
-                )
-                val callKeywords = listOf(
-                    "contesta", "cuelga", "rechaza", "atiende", "corta", "colgar", "contestar", "finaliza", "acepta"
                 )
 
                 val bestMatch = matches.firstOrNull { candidate ->
                     val lower = candidate.lowercase()
-                    wakeWords.any { lower.contains(it) } || callKeywords.any { lower.contains(it) }
+                    wakeWords.any { lower.contains(it) }
                 } ?: matches.firstOrNull() ?: ""
 
                 if (bestMatch.isNotBlank()) {
