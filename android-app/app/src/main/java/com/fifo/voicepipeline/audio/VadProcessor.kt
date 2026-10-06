@@ -19,10 +19,10 @@ import kotlin.math.sqrt
 class VadProcessor(
     private val silenceTimeoutMs: Long = AudioConfig.VAD_SILENCE_TIMEOUT_MS,
     private val maxSpeechDurationMs: Long = 8000L, // 8 segundos máx por turno
-    private val minSpeechDurationMs: Long = 350L   // Frases menores a 350ms se consideran ruido
+    private val minSpeechDurationMs: Long = 200L   // Frases menores a 200ms se consideran ruido (permite 'Fifo' y comandos cortos)
 ) {
     /** Piso de ruido ambiental estimado dinámicamente */
-    var ambientNoiseFloor: Double = 400.0
+    var ambientNoiseFloor: Double = 70.0
         private set
 
     /** ¿Se detectó voz en algún momento de la sesión actual? */
@@ -57,9 +57,9 @@ class VadProcessor(
 
         // Umbrales adaptativos basados en el ruido ambiente actual
         // Para empezar a hablar, la voz debe superar el ruido de fondo por un margen claro
-        val startThreshold = max(700.0, ambientNoiseFloor * 2.2 + 350.0)
+        val startThreshold = max(160.0, ambientNoiseFloor * 1.4 + 50.0)
         // Para continuar hablando, el umbral es menor (histéresis) para no cortar palabras suaves
-        val continueThreshold = max(500.0, ambientNoiseFloor * 1.45 + 180.0)
+        val continueThreshold = max(110.0, ambientNoiseFloor * 1.15 + 30.0)
 
         val threshold = if (inSpeech) continueThreshold else startThreshold
         val hasSpeechEnergy = rms > threshold
@@ -70,8 +70,8 @@ class VadProcessor(
             isSpeechDetected = true
 
             if (!inSpeech) {
-                // Requiere al menos 2 chunks consecutivos (~64ms) de energía sostenida para no dispararse por ruidos de impacto
-                if (consecutiveSpeechChunks >= 2) {
+                // Al primer chunk (~32ms) con energía clara de voz, iniciar la captura
+                if (consecutiveSpeechChunks >= 1) {
                     inSpeech = true
                     speechStartTimestamp = now
                     return VadResult.SpeechStart(rms)
@@ -98,7 +98,7 @@ class VadProcessor(
             // Filtro exponencial para seguir el ruido del entorno sin saltos bruscos
             ambientNoiseFloor = ambientNoiseFloor * 0.96 + rms * 0.04
             // Mantener el piso dentro de límites razonables
-            ambientNoiseFloor = min(2500.0, max(200.0, ambientNoiseFloor))
+            ambientNoiseFloor = min(800.0, max(25.0, ambientNoiseFloor))
             return VadResult.Silence(rms)
         }
 

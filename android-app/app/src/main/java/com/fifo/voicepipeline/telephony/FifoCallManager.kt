@@ -40,6 +40,7 @@ class FifoCallManager(
 
     private var telephonyCallback: Any? = null
     private var phoneStateListener: PhoneStateListener? = null
+    private var audioModeListener: Any? = null
 
     init {
         // Enlazar acciones en el repositorio central
@@ -48,9 +49,39 @@ class FifoCallManager(
     }
 
     /**
-     * Inicia la escucha de eventos telefónicos.
+     * Comprueba si el teléfono está actualmente en una llamada o videollamada activa
+     * (VoIP como WhatsApp, Google Meet, Zoom o llamada celular clásica).
+     */
+    fun isCommunicationModeActive(): Boolean {
+        val mode = audioManager?.mode ?: AudioManager.MODE_NORMAL
+        return mode == AudioManager.MODE_IN_COMMUNICATION ||
+                mode == AudioManager.MODE_IN_CALL ||
+                FifoDataRepository.incomingCall.value != null
+    }
+
+    /**
+     * Inicia la escucha de eventos telefónicos y llamadas VoIP/videollamadas.
      */
     fun startListening() {
+        // 1. Escuchar cambios de modo de audio para detectar videollamadas (WhatsApp, Meet, etc.)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val modeListener = AudioManager.OnModeChangedListener { mode ->
+                    handleAudioModeChanged(mode)
+                }
+                audioManager?.addOnModeChangedListener(context.mainExecutor, modeListener)
+                audioModeListener = modeListener
+            }
+            // Comprobación inicial de si ya estamos en videollamada o llamada
+            val currentMode = audioManager?.mode ?: AudioManager.MODE_NORMAL
+            if (currentMode == AudioManager.MODE_IN_COMMUNICATION || currentMode == AudioManager.MODE_IN_CALL) {
+                handleAudioModeChanged(currentMode)
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "No se pudo registrar listener de modo de audio: ${e.message}")
+        }
+
+        // 2. Escuchar llamadas celulares SIM tradicionales
         val hasPhonePermission = ContextCompat.checkSelfPermission(
             context,
             android.Manifest.permission.READ_PHONE_STATE
@@ -86,6 +117,35 @@ class FifoCallManager(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error iniciando escucha de telefonía: ${e.message}")
+        }
+    }
+
+    /**
+     * Procesa los cambios en el modo de audio del sistema (ej: inicio de videollamada WhatsApp o Meet).
+     */
+    fun handleAudioModeChanged(mode: Int) {
+        when (mode) {
+            AudioManager.MODE_IN_COMMUNICATION -> {
+                Log.i(TAG, "Detectada videollamada o llamada VoIP activa (WhatsApp, Meet, etc.)")
+                val current = FifoDataRepository.incomingCall.value
+                if (current == null) {
+                    FifoDataRepository.setIncomingCall(
+                        IncomingCallInfo(
+                            callerName = "Videollamada en curso",
+                            phoneNumber = "",
+                            isRinging = false
+                        )
+                    )
+                }
+            }
+            AudioManager.MODE_NORMAL -> {
+                val current = FifoDataRepository.incomingCall.value
+                if (current != null && current.callerName.contains("Videollamada")) {
+                    Log.i(TAG, "Videollamada finalizada (MODE_NORMAL)")
+                    FifoDataRepository.setIncomingCall(null)
+                    resetCallAudioRouting()
+                }
+            }
         }
     }
 
@@ -293,6 +353,10 @@ class FifoCallManager(
      */
     fun stopListening() {
         try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && audioModeListener != null) {
+                audioManager?.removeOnModeChangedListener(audioModeListener as AudioManager.OnModeChangedListener)
+                audioModeListener = null
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && telephonyCallback != null) {
                 telephonyManager?.unregisterTelephonyCallback(telephonyCallback as TelephonyCallback)
                 telephonyCallback = null

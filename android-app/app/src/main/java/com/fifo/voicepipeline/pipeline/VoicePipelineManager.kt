@@ -45,6 +45,10 @@ class VoicePipelineManager(
     var openAiApiKey: String = initialOpenAiApiKey
         private set
 
+    val hasCloudStt: Boolean
+        get() = (if (::cloudClient.isInitialized) (cloudClient.isGroqActive || cloudClient.openAiApiKey.isNotBlank()) else false) ||
+                groqApiKey.isNotBlank() || openAiApiKey.isNotBlank()
+
     // ── Estado observable (para la UI) ──────────────
     private val _state = MutableStateFlow(PipelineState.DISCONNECTED)
     val state: StateFlow<PipelineState> = _state.asStateFlow()
@@ -164,10 +168,11 @@ class VoicePipelineManager(
     fun start() {
         Log.i(TAG, "Iniciando pipeline de voz FIFO (Groq LPU / GPT-OSS 120B)...")
 
+        val effectiveOpenAiKey = if (openAiApiKey.isNotBlank()) openAiApiKey else if (groqApiKey.startsWith("gsk_")) groqApiKey else ""
         cloudClient = CloudApiClient(
             groqApiKey = groqApiKey,
             anthropicApiKey = anthropicApiKey,
-            openAiApiKey = openAiApiKey
+            openAiApiKey = effectiveOpenAiKey
         )
 
         // Inicializar reproductor de audio del celular
@@ -184,10 +189,11 @@ class VoicePipelineManager(
             onDone = {
                 if (_state.value == PipelineState.SPEAKING) {
                     val incomingCall = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value
-                    if (incomingCall != null) {
+                    val isCommActive = callManager?.isCommunicationModeActive() == true
+                    if (incomingCall != null || isCommActive) {
                         _isAwake.value = true
                         _state.value = PipelineState.LISTENING
-                        _statusMessage.value = if (incomingCall.isRinging) {
+                        _statusMessage.value = if (incomingCall?.isRinging == true) {
                             "Llamada de ${incomingCall.callerName} · Diga 'contesta' o 'cuelga'"
                         } else {
                             "Llamada activa · Diga 'Fifo cuelga' para terminar"
@@ -227,9 +233,18 @@ class VoicePipelineManager(
                         )
                         vad.reset()
 
-                        // Reanudar la escucha de voz nativa tras terminar de hablar solo si no está muteado
+                        // Reanudar la escucha de voz si no está silenciado
                         if (!_isMicMuted.value) {
-                            nativeRecognizer?.startContinuousListening()
+                            if (hasCloudStt || _micSource.value == MicSource.PHONE || !bleClient.isConnected) {
+                                nativeRecognizer?.stop()
+                                if (!phoneMicRecorder.isRecording) {
+                                    startPhoneMic()
+                                }
+                            } else if (phoneMicRecorder.isRecording) {
+                                // PhoneMicRecorder ya está capturando en segundo plano
+                            } else {
+                                nativeRecognizer?.startContinuousListening()
+                            }
                         }
                     }
                 }
@@ -237,7 +252,16 @@ class VoicePipelineManager(
             onError = { err ->
                 Log.e(TAG, "Error TTS nativo: $err")
                 if (!_isMicMuted.value) {
-                    nativeRecognizer?.startContinuousListening()
+                    if (hasCloudStt || _micSource.value == MicSource.PHONE || !bleClient.isConnected) {
+                        nativeRecognizer?.stop()
+                        if (!phoneMicRecorder.isRecording) {
+                            startPhoneMic()
+                        }
+                    } else if (phoneMicRecorder.isRecording) {
+                        // PhoneMicRecorder ya está capturando
+                    } else {
+                        nativeRecognizer?.startContinuousListening()
+                    }
                 }
             }
         )
@@ -277,12 +301,33 @@ class VoicePipelineManager(
             },
             onError = { code, msg ->
                 Log.d(TAG, "SpeechRecognizer: $msg ($code)")
+            },
+            onRepeatedFailure = {
+                // Si el reconocedor de Google falla continuamente o entra en silencio,
+                // usar PhoneMicRecorder silencioso con Groq Whisper.
+                if (!_isMicMuted.value && !phoneMicRecorder.isRecording) {
+                    Log.i(TAG, "Google SpeechRecognizer pausado. Cambiando a PhoneMicRecorder silencioso.")
+                    nativeRecognizer?.stop()
+                    if (hasCloudStt) {
+                        startPhoneMic()
+                        _statusMessage.value = "Modo celular activo · Di 'Fifo' para hablar"
+                    }
+                }
             }
         )
 
-        // Iniciar escucha continua de voz si no está silenciado
+        // Iniciar captura según disponibilidad: si hay videollamada o llamada activa, activar PhoneMicRecorder
         if (!_isMicMuted.value) {
-            nativeRecognizer?.startContinuousListening()
+            val isCommActive = callManager?.isCommunicationModeActive() == true
+            if (isCommActive) {
+                ensureCallListeningActive()
+            } else if (hasCloudStt || _micSource.value == MicSource.PHONE || !bleClient.isConnected) {
+                Log.i(TAG, "Iniciando captura silenciosa con PhoneMicRecorder (sin beeps ni chimes de Google).")
+                nativeRecognizer?.stop()
+                startPhoneMic()
+            } else {
+                nativeRecognizer?.startContinuousListening()
+            }
         }
 
         // Observar solicitud de beep / alarma sonora para encontrar a Fifo
@@ -385,8 +430,10 @@ class VoicePipelineManager(
         }
     }
 
-    private fun startPhoneMic() {
-        val started = phoneMicRecorder.start { chunk ->
+    private fun startPhoneMic(forceCallSource: Boolean? = null) {
+        // Detener nativeRecognizer para que no compitan por el hardware del micrófono
+        nativeRecognizer?.stop()
+        val started = phoneMicRecorder.start(forceCallSource = forceCallSource) { chunk ->
             handleIncomingAudio(chunk, MicSource.PHONE)
         }
         if (!started) {
@@ -397,7 +444,7 @@ class VoicePipelineManager(
     /**
      * Activa el modo de interacción a través del micrófono del celular.
      * En este modo Fifo NO se activa directamente a escuchar; inicia en reposo (SLEEPING)
-     * y requiere estrictamente que el usuario pronuncie la palabra de activación ("Fifo").
+     * y requiere que el usuario pronuncie la palabra de activación ("Fifo").
      */
     fun talkFromPhone() {
         if (_isMicMuted.value) {
@@ -412,11 +459,16 @@ class VoicePipelineManager(
         autoSleepJob?.cancel()
         vad.reset()
         pcmBuffer.clear()
-        
-        // Iniciar captura de audio para VAD + Groq Whisper
-        startPhoneMic()
-        // Iniciar también reconocedor nativo
-        nativeRecognizer?.startContinuousListening()
+
+        // Si disponemos de STT en la nube (Groq Whisper o OpenAI), usar PhoneMicRecorder silencioso.
+        // De lo contrario, usar el reconocedor nativo de Google sin ejecutar PhoneMicRecorder a la vez.
+        if (hasCloudStt) {
+            nativeRecognizer?.stop()
+            startPhoneMic()
+        } else {
+            phoneMicRecorder.stop()
+            nativeRecognizer?.startContinuousListening()
+        }
         updateEspDisplay(state = "DURMIENDO", transcript = "", response = "")
     }
 
@@ -459,9 +511,13 @@ class VoicePipelineManager(
             pcmBuffer.clear()
             resetAutoSleepTimer()
 
-            // Detener AudioRecord por si estaba activo para que SpeechRecognizer tenga acceso limpio al mic
-            phoneMicRecorder.stop()
-            nativeRecognizer?.startContinuousListening()
+            if (hasCloudStt || _micSource.value == MicSource.PHONE) {
+                nativeRecognizer?.stop()
+                startPhoneMic()
+            } else {
+                phoneMicRecorder.stop()
+                nativeRecognizer?.startContinuousListening()
+            }
 
             _statusMessage.value = "Fifo despierto — te escucho"
             updateEspDisplay(state = "ESCUCHANDO", transcript = "", response = "")
@@ -489,8 +545,9 @@ class VoicePipelineManager(
     }
 
     /**
-     * Asegura que la captura de audio esté activa durante llamadas o video llamadas,
+     * Asegura que la captura de audio esté activa durante llamadas o videollamadas,
      * priorizando VOICE_COMMUNICATION en el micrófono del celular para cancelación de eco.
+     * En llamadas, NUNCA usa SpeechRecognizer de Google porque Android lo bloquea con ERROR_AUDIO.
      */
     fun ensureCallListeningActive() {
         if (_isMicMuted.value) return
@@ -498,10 +555,10 @@ class VoicePipelineManager(
         if (_state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
             _state.value = PipelineState.LISTENING
         }
+        nativeRecognizer?.stop()
         phoneMicRecorder.switchToCallMode(inCall = true) { chunk ->
             handleIncomingAudio(chunk, MicSource.PHONE)
         }
-        nativeRecognizer?.startContinuousListening()
     }
 
     /**
@@ -509,14 +566,22 @@ class VoicePipelineManager(
      */
     private fun onCallEnded() {
         expectFollowUpQuestion = false
-        if (_micSource.value == MicSource.ESP32) {
+        if (_micSource.value == MicSource.ESP32 && bleClient.isConnected) {
             phoneMicRecorder.stop()
-            _statusMessage.value = if (bleClient.isConnected) "Usando micrófono de Fifo (ESP32)" else "Fifo en reposo"
-        } else {
-            phoneMicRecorder.switchToCallMode(inCall = false) { chunk ->
-                handleIncomingAudio(chunk, MicSource.PHONE)
+            _statusMessage.value = "Usando micrófono de Fifo (ESP32)"
+        } else if (_micSource.value == MicSource.PHONE || !bleClient.isConnected || hasCloudStt) {
+            if (hasCloudStt) {
+                phoneMicRecorder.switchToCallMode(inCall = false) { chunk ->
+                    handleIncomingAudio(chunk, MicSource.PHONE)
+                }
+            } else {
+                phoneMicRecorder.stop()
+                nativeRecognizer?.startContinuousListening()
             }
             _statusMessage.value = "Modo celular activo · Di 'Fifo' para hablar"
+        } else {
+            phoneMicRecorder.stop()
+            _statusMessage.value = if (bleClient.isConnected) "Fifo en reposo" else "Fifo desconectado · Conecte por Bluetooth"
         }
         _isAwake.value = false
         _state.value = PipelineState.SLEEPING
@@ -571,10 +636,11 @@ class VoicePipelineManager(
         // Si el micrófono está silenciado, ignorar cualquier audio entrante
         if (_isMicMuted.value) return
 
-        val isCallActive = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
-        // Si no hay llamada activa, respetar la fuente configurada (_micSource)
-        // Si HAY llamada activa, procesar el mic del celular (VOICE_COMMUNICATION con AEC) y también ESP32 si estuviera disponible
-        if (!isCallActive && source != _micSource.value) return
+        val isCallActive = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null ||
+                (callManager?.isCommunicationModeActive() == true)
+        // Si no hay llamada activa y el robot BLE está conectado, respetar la fuente configurada.
+        // Si hay llamada o el robot NO está conectado, procesar el mic del celular como fallback.
+        if (!isCallActive && source != _micSource.value && bleClient.isConnected) return
 
         // Supresión de eco: si el celular está hablando o procesando, silenciar micrófono
         if (_state.value == PipelineState.SPEAKING) return
@@ -629,7 +695,14 @@ class VoicePipelineManager(
         _isAwake.value = true
         _state.value = PipelineState.IDLE
         _statusMessage.value = "Fifo despierto — te escucho"
-        nativeRecognizer?.startContinuousListening()
+        if (hasCloudStt || _micSource.value == MicSource.PHONE || !bleClient.isConnected) {
+            nativeRecognizer?.stop()
+            if (!phoneMicRecorder.isRecording) {
+                startPhoneMic()
+            }
+        } else {
+            nativeRecognizer?.startContinuousListening()
+        }
         updateEspDisplay(state = "ESCUCHANDO", transcript = "", response = "")
         resetAutoSleepTimer()
     }
@@ -858,21 +931,21 @@ class VoicePipelineManager(
             updateEspDisplay(state = "PENSANDO")
 
             try {
-                // Si no hay clave de Whisper/Groq, no insistir con voz de error
-                if (cloudClient.openAiApiKey.isBlank()) {
-                    Log.d(TAG, "Audio de ESP32 omitido: no hay clave Whisper configurada. Se usa reconocimiento de voz nativo de Google.")
+                // Si no hay servicio de STT en la nube (Groq Whisper o OpenAI), no podemos transcribir WAV
+                if (!hasCloudStt) {
+                    Log.d(TAG, "Audio omitido: no hay clave Whisper/Groq configurada para transcribir audio.")
                     _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
                     updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
                     return@launch
                 }
 
-                // 1. STT Whisper con timeout estricto de 10s
+                // 1. STT Whisper (Groq LPU o OpenAI) con timeout estricto de 10s
                 val transcript = withTimeoutOrNull(10000L) {
                     cloudClient.transcribe(wavAudio)
                 } ?: "[TIMEOUT_STT]"
 
                 if (transcript == "[KEY_STT_FALTANTE]") {
-                    Log.d(TAG, "Clave STT no presente para ESP32.")
+                    Log.d(TAG, "Clave STT no presente para Whisper/Groq.")
                     _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
                     updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
                     return@launch
@@ -889,10 +962,14 @@ class VoicePipelineManager(
                 val textLower = transcript.lowercase().trim()
                 val hasWakeWord = isWakeWord(textLower)
                 val callInfo = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value
-                val isCallControl = callInfo != null && hasWakeWord && isCallActionCommand(textLower, isRinging = callInfo.isRinging)
+                val isCommActive = callManager?.isCommunicationModeActive() == true
+                val isCallControl = (callInfo != null || isCommActive) && isCallActionCommand(textLower, isRinging = callInfo?.isRinging == true)
+                val wasPushed = oneShotPushedToTalk
+                oneShotPushedToTalk = false
+                val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
 
-                // SI O SI se debe decir "Fifo" / "Fio"
-                if (!hasWakeWord) {
+                // Si no se dijo "Fifo", verificar si estábamos en conversación activa, pregunta pendiente, o modo continuo
+                if (!hasWakeWord && !wasPushed && !expectFollowUpQuestion && !isContinuous && !isCallControl) {
                     Log.d(TAG, "Audio ignorado: Fifo en reposo y no se detectó 'Fifo'/'Fio'. Oído: $transcript")
                     _state.value = PipelineState.SLEEPING
                     updateEspDisplay(state = "DURMIENDO")
@@ -1034,7 +1111,14 @@ class VoicePipelineManager(
                         )
                         vad.reset()
                         if (!_isMicMuted.value) {
-                            nativeRecognizer?.startContinuousListening()
+                            if (hasCloudStt || _micSource.value == MicSource.PHONE || !bleClient.isConnected) {
+                                nativeRecognizer?.stop()
+                                if (!phoneMicRecorder.isRecording) {
+                                    startPhoneMic()
+                                }
+                            } else {
+                                nativeRecognizer?.startContinuousListening()
+                            }
                         }
                     }
                 } else {

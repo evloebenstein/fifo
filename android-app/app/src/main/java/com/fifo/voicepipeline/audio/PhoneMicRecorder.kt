@@ -90,16 +90,19 @@ class PhoneMicRecorder(
                 Log.i(TAG, "Modo llamada detectado: priorizando MediaRecorder.AudioSource.VOICE_COMMUNICATION")
                 listOf(
                     MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
                     MediaRecorder.AudioSource.MIC,
-                    MediaRecorder.AudioSource.DEFAULT,
-                    MediaRecorder.AudioSource.VOICE_RECOGNITION
+                    MediaRecorder.AudioSource.CAMCORDER,
+                    MediaRecorder.AudioSource.UNPROCESSED,
+                    MediaRecorder.AudioSource.DEFAULT
                 )
             } else {
                 listOf(
                     MediaRecorder.AudioSource.MIC,
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
                     MediaRecorder.AudioSource.VOICE_COMMUNICATION,
-                    MediaRecorder.AudioSource.DEFAULT,
-                    MediaRecorder.AudioSource.VOICE_RECOGNITION
+                    MediaRecorder.AudioSource.CAMCORDER,
+                    MediaRecorder.AudioSource.DEFAULT
                 )
             }
 
@@ -176,6 +179,8 @@ class PhoneMicRecorder(
                             Log.e(TAG, "Error leyendo AudioRecord: $read")
                             delay(50)
                             break
+                        } else {
+                            delay(10)
                         }
                     }
 

@@ -25,7 +25,8 @@ class NativeSpeechRecognizer(
     private val onRmsChanged: (Float) -> Unit = {},
     private val onPartialResult: (String) -> Unit = {},
     private val onResult: (String) -> Unit = {},
-    private val onError: (Int, String) -> Unit = { _, _ -> }
+    private val onError: (Int, String) -> Unit = { _, _ -> },
+    private val onRepeatedFailure: (() -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "NativeSpeechRecognizer"
@@ -36,12 +37,14 @@ class NativeSpeechRecognizer(
     private val callbackPartialResult = onPartialResult
     private val callbackResult = onResult
     private val callbackError = onError
+    private val callbackRepeatedFailure = onRepeatedFailure
 
     private var speechRecognizer: SpeechRecognizer? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var isListening = false
     private var shouldKeepListening = false
     private var currentGeneration = 0
+    private var consecutiveErrors = 0
 
     fun isAvailable(): Boolean {
         return SpeechRecognizer.isRecognitionAvailable(context)
@@ -94,16 +97,18 @@ class NativeSpeechRecognizer(
             putExtra("android.speech.extra.EXTRA_ADDITIONAL_LANGUAGES", arrayOf("es-419", "es-ES", "es-US", "es-CL", "es", "en-US"))
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
-            // IMPORTANTE: Android espera tipos Int para los milisegundos de silencio.
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_MINIMUM_LENGTH_MILLIS, 1500)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS, 3000)
-            putExtra(RecognizerIntent.EXTRA_SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS, 5000)
             putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
         }
     }
 
     private fun startInternal() {
         if (!shouldKeepListening) return
+
+        if (!isAvailable()) {
+            Log.w(TAG, "SpeechRecognizer no está disponible en este dispositivo/emulador")
+            callbackRepeatedFailure?.invoke()
+            return
+        }
 
         try {
             if (speechRecognizer == null) {
@@ -118,11 +123,15 @@ class NativeSpeechRecognizer(
             Log.d(TAG, "SpeechRecognizer startListening llamado...")
         } catch (e: Exception) {
             Log.e(TAG, "Error iniciando SpeechRecognizer: ${e.message}", e)
-            destroyAndRecreateAfterDelay(1000L)
+            consecutiveErrors++
+            if (consecutiveErrors >= 3) {
+                callbackRepeatedFailure?.invoke()
+            }
+            destroyAndRecreateAfterDelay(1500L)
         }
     }
 
-    private fun restartListening(delayMs: Long = 200L) {
+    private fun restartListening(delayMs: Long = 400L) {
         if (!shouldKeepListening) return
         mainHandler.removeCallbacksAndMessages(null)
         mainHandler.postDelayed({
@@ -136,7 +145,11 @@ class NativeSpeechRecognizer(
                     }
                 } catch (e: Exception) {
                     Log.w(TAG, "Error reiniciando recognizer existente: ${e.message}, recreando...")
-                    destroyAndRecreateAfterDelay(800L)
+                    consecutiveErrors++
+                    if (consecutiveErrors >= 3) {
+                        callbackRepeatedFailure?.invoke()
+                    }
+                    destroyAndRecreateAfterDelay(1200L)
                 }
             }
         }, delayMs)
@@ -163,6 +176,7 @@ class NativeSpeechRecognizer(
             override fun onReadyForSpeech(params: Bundle?) {
                 if (generation != currentGeneration) return
                 isListening = true
+                consecutiveErrors = 0
                 callbackReady()
             }
 
@@ -186,10 +200,12 @@ class NativeSpeechRecognizer(
             override fun onError(error: Int) {
                 if (generation != currentGeneration) return
                 isListening = false
+                consecutiveErrors++
+
                 val errorMsg = when (error) {
                     SpeechRecognizer.ERROR_NO_MATCH -> "No se detectaron palabras"
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Tiempo de espera agotado"
-                    SpeechRecognizer.ERROR_AUDIO -> "Error de audio"
+                    SpeechRecognizer.ERROR_AUDIO -> "Error de audio (micrófono ocupado)"
                     SpeechRecognizer.ERROR_SERVER -> "Error de servidor de Google"
                     SpeechRecognizer.ERROR_NETWORK -> "Error de red"
                     SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Tiempo de red agotado"
@@ -199,38 +215,51 @@ class NativeSpeechRecognizer(
                     13 -> "Idioma no disponible"
                     else -> "Error de reconocimiento ($error)"
                 }
-                Log.d(TAG, "SpeechRecognizer onError: $errorMsg ($error)")
+                Log.d(TAG, "SpeechRecognizer onError: $errorMsg ($error) [Consecutivos: $consecutiveErrors]")
                 callbackError(error, errorMsg)
 
                 if (!shouldKeepListening) return
 
+                // Si se acumulan 2 o más errores consecutivos (ej. silencio de usuario o timeout en reposo):
+                // DETENERSE para no producir el molesto sonido repetitivo de Google ("prende y apaga")
+                if (consecutiveErrors >= 2) {
+                    Log.i(TAG, "Pausando SpeechRecognizer por silencio prolongado ($consecutiveErrors). Deteniendo bucle de sonidos.")
+                    shouldKeepListening = false
+                    try {
+                        speechRecognizer?.cancel()
+                    } catch (_: Exception) {}
+                    callbackRepeatedFailure?.invoke()
+                    return
+                }
+
                 when (error) {
-                    // Silencio normal del usuario o fin de tiempo: reiniciar de inmediato para no perder palabras
+                    // Silencio normal o timeout: pausar suavemente una única vez
                     SpeechRecognizer.ERROR_NO_MATCH,
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
-                        restartListening(50L)
+                        restartListening(1000L)
                     }
                     // Idioma no descargado sin conexión: reintentar con delay
                     13 -> {
-                        restartListening(500L)
-                    }
-                    // Error de audio durante llamadas o bloqueo de mic por otra app: pausa de 1.5s
-                    SpeechRecognizer.ERROR_AUDIO -> {
                         restartListening(1500L)
+                    }
+                    // Error de audio durante llamadas o bloqueo de mic por otra app:
+                    SpeechRecognizer.ERROR_AUDIO -> {
+                        shouldKeepListening = false
+                        callbackRepeatedFailure?.invoke()
                     }
                     // Errores recuperables con pausa breve
                     SpeechRecognizer.ERROR_NETWORK,
                     SpeechRecognizer.ERROR_NETWORK_TIMEOUT,
                     SpeechRecognizer.ERROR_SERVER -> {
-                        restartListening(800L)
+                        restartListening(2000L)
                     }
                     // Errores de cliente o busy: destruir y recrear limpiamente con delay
                     SpeechRecognizer.ERROR_RECOGNIZER_BUSY,
                     SpeechRecognizer.ERROR_CLIENT -> {
-                        destroyAndRecreateAfterDelay(600L)
+                        destroyAndRecreateAfterDelay(1500L)
                     }
                     else -> {
-                        restartListening(200L)
+                        restartListening(1000L)
                     }
                 }
             }
@@ -238,6 +267,7 @@ class NativeSpeechRecognizer(
             override fun onResults(results: Bundle?) {
                 if (generation != currentGeneration) return
                 isListening = false
+                consecutiveErrors = 0
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: arrayListOf()
                 Log.i(TAG, "Candidatos reconocidos por Google: $matches")
 
