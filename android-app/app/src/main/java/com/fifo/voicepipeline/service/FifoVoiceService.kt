@@ -21,8 +21,9 @@ class FifoVoiceService : Service() {
 
     companion object {
         private const val TAG = "FifoVoiceService"
-        private const val CHANNEL_ID = "fifo_continuous_voice"
+        private const val CHANNEL_ID = "fifo_silent_service_v3"
         private const val NOTIFICATION_ID = 1001
+        private const val LEGACY_CHANNEL_ID = "fifo_continuous_voice"
 
         fun start(context: Context) {
             val intent = Intent(context, FifoVoiceService::class.java)
@@ -93,15 +94,25 @@ class FifoVoiceService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val manager = getSystemService(NotificationManager::class.java)
+            // Eliminar canal antiguo ruidoso si existía
+            try {
+                manager?.deleteNotificationChannel(LEGACY_CHANNEL_ID)
+            } catch (e: Exception) {
+                Log.d(TAG, "Canal antiguo no presente o error eliminándolo: ${e.message}")
+            }
+
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Fifo Asistente Continuo",
-                NotificationManager.IMPORTANCE_LOW
+                "Fifo en segundo plano",
+                NotificationManager.IMPORTANCE_MIN
             ).apply {
-                description = "Mantiene a Fifo escuchando y conectado al ESP32 por Bluetooth"
+                description = "Mantiene a Fifo conectado y en escucha continua sin sonidos ni alertas"
                 setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
+                enableLights(false)
             }
-            val manager = getSystemService(NotificationManager::class.java)
             manager?.createNotificationChannel(channel)
         }
     }
@@ -122,7 +133,10 @@ class FifoVoiceService : Service() {
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSilent(true)
+            .setSound(null)
+            .setVibrate(null)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
             .build()
     }
 }

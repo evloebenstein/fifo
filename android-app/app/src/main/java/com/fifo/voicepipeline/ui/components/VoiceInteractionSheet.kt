@@ -588,7 +588,7 @@ fun VoiceInteractionSheet(
                                     )
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "Toque aquí para hablar con Fifo",
+                                        text = "Toque aquí para activar el micrófono",
                                         fontSize = 13.sp,
                                         color = Color(0xFFFCA5A5)
                                     )

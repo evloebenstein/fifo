@@ -183,8 +183,8 @@ fun MainScreen(
                 isBleConnecting = isBleConnecting,
                 initialPhoneMicMode = initialPhoneMicMode,
                 onDismiss = { isVoiceSheetOpen = false },
-                onTalkFromPhone = onTalkFromPhone,
                 onConnectBle = onConnectBle,
+                onTalkFromPhone = onTalkFromPhone,
                 onClearConversation = onClearConversation,
                 isMicMuted = isMicMuted,
                 onToggleMicMute = onToggleMicMute
