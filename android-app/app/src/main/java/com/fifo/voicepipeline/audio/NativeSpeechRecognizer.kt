@@ -272,7 +272,7 @@ class NativeSpeechRecognizer(
                 Log.i(TAG, "Candidatos reconocidos por Google: $matches")
 
                 val wakeWords = listOf(
-                    "fifo", "fio", "fío", "fifa", "fito", "feefo", "fido", "vivo", "filo", "fijo", "pipo", "kiko", "sifo",
+                    "fifo", "fifa", "fito", "feefo", "fido", "vivo", "filo", "fijo", "pipo", "kiko", "sifo",
                     "fee for", "fit for", "people", "free for", "feed for", "bebo", "feefa", "fefa", "phifo", "vibo"
                 )
 

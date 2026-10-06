@@ -570,13 +570,13 @@ class VoicePipelineManager(
     /**
      * Determina si el texto reconocido corresponde a un comando de control de llamada
      * (contestar, colgar, rechazar, etc.).
-     * Requiere OBLIGATORIAMENTE que el usuario haya dicho 'Fifo' o 'Fio'.
+     * Requiere OBLIGATORIAMENTE que el usuario haya dicho 'Fifo'.
      */
     private fun isCallActionCommand(text: String, isRinging: Boolean): Boolean {
         val normalized = java.text.Normalizer.normalize(text.lowercase().trim(), java.text.Normalizer.Form.NFD)
             .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
         val hasWakeWord = isWakeWord(normalized)
-        // SI O SI se debe decir "Fifo" / "Fio"
+        // SI O SI se debe decir "Fifo"
         if (!hasWakeWord) return false
 
         if (isRinging) {
@@ -717,13 +717,13 @@ class VoicePipelineManager(
 
     /**
      * Lista de palabras clave y aproximaciones fonéticas cuando hay música o ruido de fondo.
-     * Soporta 'Fifo', 'Fio', 'Fío', etc., normalizando acentos para máxima precisión.
+     * Soporta 'Fifo', normalizando acentos para máxima precisión.
      */
     private fun isWakeWord(text: String): Boolean {
         val normalized = java.text.Normalizer.normalize(text.lowercase().trim(), java.text.Normalizer.Form.NFD)
             .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
         val wakeWords = listOf(
-            "fifo", "fio", "feefo", "fito", "fifa", "fido",
+            "fifo", "feefo", "fito", "fifa", "fido",
             "fee for", "fit for", "people", "free for", "feed for", "bebo", "feefa", "fefa", "phifo", "vibo", "vivo", "filo", "fijo", "pipo", "kiko"
         )
         return wakeWords.any { word ->
@@ -735,11 +735,11 @@ class VoicePipelineManager(
     }
 
     /**
-     * Extrae la consulta eliminando prefijos de activación como "Fifo", "Fio", "Hola Fifo", etc.
+     * Extrae la consulta eliminando prefijos de activación como "Fifo", "Hola Fifo", etc.
      */
     private fun extractQuery(text: String): String {
-        return text.replace(Regex("(?i)\\b(hola|oye|hey|che|ok|bueno|dime|saludos)\\s+(fifo|fio|fío|fífo|feefo|fito|fifa|fido|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko)\\b"), "")
-            .replace(Regex("(?i)\\b(fifo|fio|fío|fífo|feefo|fito|fifa|fido|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko)\\b"), "")
+        return text.replace(Regex("(?i)\\b(hola|oye|hey|che|ok|bueno|dime|saludos)\\s+(fifo|fífo|feefo|fito|fifa|fido|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko)\\b"), "")
+            .replace(Regex("(?i)\\b(fifo|fífo|feefo|fito|fifa|fido|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko)\\b"), "")
             .trim()
             .trimStart(',', '.', ':', ';', '!', '?', ' ')
             .trim()
@@ -818,10 +818,10 @@ class VoicePipelineManager(
         val wasPushed = oneShotPushedToTalk
         oneShotPushedToTalk = false
 
-        // SI O SI se debe decir "Fifo" / "Fio" para que Fifo atienda cualquier consulta o llamada
+        // SI O SI se debe decir "Fifo" para que Fifo atienda cualquier consulta o llamada
         // (única excepción: que el usuario haya presionado físicamente el botón táctil en pantalla de Push-To-Talk)
         if (!hasWakeWord && !wasPushed) {
-            Log.d(TAG, "Audio ignorado: SI O SI se debe decir 'Fifo'/'Fio'. Oído: $rawText")
+            Log.d(TAG, "Audio ignorado: SI O SI se debe decir 'Fifo'. Oído: $rawText")
             // No actualizar _transcription ni hablar, mantener a Fifo en reposo
             return
         }
@@ -829,7 +829,7 @@ class VoicePipelineManager(
         // Si estábamos esperando la pregunta de seguimiento, consumirla
         expectFollowUpQuestion = false
 
-        // Si se dijo "Fifo" / "Fio" o se presionó el botón:
+        // Si se dijo "Fifo" o se presionó el botón:
         _transcription.value = rawText
 
         // Si es un comando de control de llamada directo ("Fifo contesta", "Fifo cuelga", etc.):
@@ -943,7 +943,7 @@ class VoicePipelineManager(
 
                 // Si no se dijo "Fifo", verificar si estábamos en conversación activa, pregunta pendiente, o modo continuo
                 if (!hasWakeWord && !wasPushed && !expectFollowUpQuestion && !isContinuous && !isCallControl) {
-                    Log.d(TAG, "Audio ignorado: Fifo en reposo y no se detectó 'Fifo'/'Fio'. Oído: $transcript")
+                    Log.d(TAG, "Audio ignorado: Fifo en reposo y no se detectó 'Fifo'. Oído: $transcript")
                     _state.value = PipelineState.SLEEPING
                     updateEspDisplay(state = "DURMIENDO")
                     return@launch
