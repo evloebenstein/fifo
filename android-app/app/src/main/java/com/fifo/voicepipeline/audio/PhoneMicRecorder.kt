@@ -1,12 +1,15 @@
 package com.fifo.voicepipeline.audio
 
 import android.annotation.SuppressLint
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.media.audiofx.AcousticEchoCanceler
 import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
+import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.*
 
@@ -77,12 +80,36 @@ class PhoneMicRecorder(
 
             val bufferSize = maxOf(minBufferSize, chunkBytes * 4)
 
-            val audioManager = context?.getSystemService(android.content.Context.AUDIO_SERVICE) as? android.media.AudioManager
+            val audioManager = context?.getSystemService(android.content.Context.AUDIO_SERVICE) as? AudioManager
             val inCallMode = forceCallSource ?: (
-                audioManager?.mode == android.media.AudioManager.MODE_IN_CALL ||
-                audioManager?.mode == android.media.AudioManager.MODE_IN_COMMUNICATION ||
+                audioManager?.mode == AudioManager.MODE_IN_CALL ||
+                audioManager?.mode == AudioManager.MODE_IN_COMMUNICATION ||
                 com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
             )
+
+            if (inCallMode) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    val commDevices = audioManager?.availableCommunicationDevices ?: emptyList()
+                    val targetDevice = commDevices.firstOrNull {
+                        it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                        it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                        it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
+                        it.type == AudioDeviceInfo.TYPE_USB_HEADSET
+                    }
+                    if (targetDevice != null) {
+                        val setOk = audioManager?.setCommunicationDevice(targetDevice)
+                        Log.i(TAG, "Audio de llamada enrutado a ${targetDevice.productName} (tipo: ${targetDevice.type}, éxito: $setOk)")
+                    }
+                } else {
+                    try {
+                        audioManager?.startBluetoothSco()
+                        audioManager?.isBluetoothScoOn = true
+                        Log.i(TAG, "Bluetooth SCO iniciado para captura en llamada")
+                    } catch (e: Exception) {
+                        Log.w(TAG, "No se pudo iniciar Bluetooth SCO legacy: ${e.message}")
+                    }
+                }
+            }
 
             // Cuando hay una llamada en curso o entrante, VOICE_COMMUNICATION es la ÚNICA fuente permitida
             // por la política de audio de Android para captura concurrente con cancelación de eco de hardware.
@@ -245,6 +272,19 @@ class PhoneMicRecorder(
             Log.e(TAG, "Error al detener AudioRecord: ${e.message}", e)
         } finally {
             audioRecord = null
+            try {
+                val audioManager = context?.getSystemService(android.content.Context.AUDIO_SERVICE) as? AudioManager
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    audioManager?.clearCommunicationDevice()
+                } else {
+                    if (audioManager?.isBluetoothScoOn == true) {
+                        audioManager.isBluetoothScoOn = false
+                        audioManager.stopBluetoothSco()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error limpiando dispositivo de comunicación: ${e.message}")
+            }
             Log.i(TAG, "Grabación desde micrófono del celular detenida")
         }
     }

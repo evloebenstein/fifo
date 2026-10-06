@@ -27,7 +27,8 @@ import com.fifo.voicepipeline.ui.model.IncomingCallInfo
  */
 class FifoCallManager(
     private val context: Context,
-    private val onAnnounceCall: (callerName: String, phoneNumber: String) -> Unit = { _, _ -> }
+    private val onAnnounceCall: (callerName: String, phoneNumber: String) -> Unit = { _, _ -> },
+    private val onCommunicationModeChanged: ((Boolean) -> Unit)? = null
 ) {
 
     companion object {
@@ -125,26 +126,14 @@ class FifoCallManager(
      */
     fun handleAudioModeChanged(mode: Int) {
         when (mode) {
-            AudioManager.MODE_IN_COMMUNICATION -> {
-                Log.i(TAG, "Detectada videollamada o llamada VoIP activa (WhatsApp, Meet, etc.)")
-                val current = FifoDataRepository.incomingCall.value
-                if (current == null) {
-                    FifoDataRepository.setIncomingCall(
-                        IncomingCallInfo(
-                            callerName = "Videollamada en curso",
-                            phoneNumber = "",
-                            isRinging = false
-                        )
-                    )
-                }
+            AudioManager.MODE_IN_COMMUNICATION, AudioManager.MODE_IN_CALL -> {
+                Log.i(TAG, "Detectada videollamada o llamada VoIP activa (WeChat, WhatsApp, Meet, etc.)")
+                onCommunicationModeChanged?.invoke(true)
             }
             AudioManager.MODE_NORMAL -> {
-                val current = FifoDataRepository.incomingCall.value
-                if (current != null && current.callerName.contains("Videollamada")) {
-                    Log.i(TAG, "Videollamada finalizada (MODE_NORMAL)")
-                    FifoDataRepository.setIncomingCall(null)
-                    resetCallAudioRouting()
-                }
+                Log.i(TAG, "Llamada finalizada, restableciendo audio a MODE_NORMAL")
+                resetCallAudioRouting()
+                onCommunicationModeChanged?.invoke(false)
             }
         }
     }

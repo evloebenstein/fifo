@@ -43,6 +43,7 @@ fun VoiceInteractionSheet(
     onConnectBle: () -> Unit,
     onTalkFromPhone: () -> Unit = {},
     onClearConversation: () -> Unit,
+    isAwake: Boolean = false,
     isMicMuted: Boolean = false,
     onToggleMicMute: () -> Unit = {}
 ) {
@@ -503,129 +504,88 @@ fun VoiceInteractionSheet(
                         ) {
                             FifoFace(
                                 size = 130.dp,
-                                state = if (isMicMuted) PipelineState.SLEEPING else state,
+                                state = if (isMicMuted || !isAwake) PipelineState.SLEEPING else state,
                                 isDarkTheme = true,
-                                rmsLevel = if (isMicMuted) 0f else rmsLevel
+                                rmsLevel = if (isMicMuted || !isAwake) 0f else rmsLevel
                             )
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // Estado del pipeline (solo cuando el micrófono está activo; al estar silenciado el botón principal ya lo indica)
-                        if (!isMicMuted) {
-                            val (statusText, statusBg, statusColor) = if (isContinuousListening && state == PipelineState.LISTENING) {
-                                Triple("Escucha continua activa · Hable sin 'Fifo'", Color(0xFF064E3B).copy(alpha = 0.6f), Color(0xFF34D399))
-                            } else when (state) {
-                                PipelineState.LISTENING -> Triple(
-                                    if (micSource == MicSource.PHONE) "Escuchando por el celular..." else "Escuchando... Diga 'Fifo'",
-                                    FifoColors.StatusListening.copy(alpha = 0.2f),
-                                    FifoColors.StatusListening
-                                )
-                                PipelineState.PROCESSING -> Triple("Fifo está pensando...", FifoColors.StatusProcessing.copy(alpha = 0.2f), FifoColors.StatusProcessing)
-                                PipelineState.SPEAKING -> Triple("Fifo le responde...", FifoColors.StatusSpeaking.copy(alpha = 0.2f), FifoColors.StatusSpeaking)
-                                PipelineState.SLEEPING -> Triple("En reposo · Diga 'Fifo' para despertar", FifoColors.NavyPrimary.copy(alpha = 0.3f), Color(0xFF93C5FD))
-                                PipelineState.IDLE -> Triple("Listo para escuchar", FifoColors.DarkInputBg, Color(0xFF94A3B8))
-                                PipelineState.DISCONNECTED -> Triple("Fifo desconectado", Color(0xFFF59E0B).copy(alpha = 0.2f), Color(0xFFF59E0B))
-                                PipelineState.ERROR -> Triple("Reintentando conexión...", FifoColors.StatusError.copy(alpha = 0.2f), FifoColors.StatusError)
-                            }
+                        // Estado del pipeline (Siempre visible en el mismo lugar para evitar saltos en la pantalla)
+                        val (statusText, statusBg, statusColor) = when {
+                            isMicMuted -> Triple(
+                                "Micrófono en silencio",
+                                Color(0xFF450A0A).copy(alpha = 0.6f),
+                                Color(0xFFFCA5A5)
+                            )
+                            isContinuousListening && state == PipelineState.LISTENING -> Triple(
+                                "Escucha continua activa · Hable sin 'Fifo'",
+                                Color(0xFF064E3B).copy(alpha = 0.6f),
+                                Color(0xFF34D399)
+                            )
+                            state == PipelineState.LISTENING -> Triple(
+                                if (micSource == MicSource.PHONE) "Escuchando por el celular..." else "Escuchando... Diga 'Fifo'",
+                                FifoColors.StatusListening.copy(alpha = 0.2f),
+                                FifoColors.StatusListening
+                            )
+                            state == PipelineState.PROCESSING -> Triple("Fifo está pensando...", FifoColors.StatusProcessing.copy(alpha = 0.2f), FifoColors.StatusProcessing)
+                            state == PipelineState.SPEAKING -> Triple("Fifo le responde...", FifoColors.StatusSpeaking.copy(alpha = 0.2f), FifoColors.StatusSpeaking)
+                            state == PipelineState.SLEEPING || !isAwake -> Triple("En reposo · Diga 'Fifo' para despertar", FifoColors.NavyPrimary.copy(alpha = 0.3f), Color(0xFF93C5FD))
+                            state == PipelineState.IDLE -> Triple("Listo para escuchar", FifoColors.DarkInputBg, Color(0xFF94A3B8))
+                            state == PipelineState.DISCONNECTED -> Triple("Fifo desconectado", Color(0xFFF59E0B).copy(alpha = 0.2f), Color(0xFFF59E0B))
+                            else -> Triple("Listo para escuchar", FifoColors.DarkInputBg, Color(0xFF94A3B8))
+                        }
 
-                            Surface(
-                                color = statusBg,
-                                shape = RoundedCornerShape(20.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.5.dp, statusColor.copy(alpha = 0.6f))
-                            ) {
-                                Text(
-                                    text = statusText,
-                                    color = statusColor,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 7.dp)
-                                )
-                            }
+                        Surface(
+                            color = statusBg,
+                            shape = RoundedCornerShape(20.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.5.dp, statusColor.copy(alpha = 0.6f))
+                        ) {
+                            Text(
+                                text = statusText,
+                                color = statusColor,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp,
+                                modifier = Modifier.padding(horizontal = 18.dp, vertical = 7.dp)
+                            )
                         }
 
                         Spacer(modifier = Modifier.height(16.dp))
 
-                        // ── BOTÓN DE MICRÓFONO PRINCIPAL (GRANDE, ACCESIBLE Y ENTENDIBLE) ──
-                        if (isMicMuted) {
-                            // Estado: SILENCIADO — botón prominente para reactivar
-                            Surface(
-                                onClick = onToggleMicMute,
-                                shape = RoundedCornerShape(24.dp),
-                                color = Color(0xFF7F1D1D).copy(alpha = 0.85f),
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.5.dp, Color(0xFFEF4444).copy(alpha = 0.70f)
-                                ),
+                        // ── BOTÓN DE MICRÓFONO PRINCIPAL (POSICIÓN EXACTA E INMUTABLE) ──
+                        Surface(
+                            onClick = onToggleMicMute,
+                            shape = RoundedCornerShape(22.dp),
+                            color = if (isMicMuted) Color(0xFF7F1D1D).copy(alpha = 0.85f) else FifoColors.DarkInputBg,
+                            border = androidx.compose.foundation.BorderStroke(
+                                if (isMicMuted) 1.5.dp else 1.dp,
+                                if (isMicMuted) Color(0xFFEF4444).copy(alpha = 0.70f) else FifoColors.DarkInputBorder
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(56.dp)
+                        ) {
+                            Row(
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .defaultMinSize(minHeight = 64.dp)
+                                    .fillMaxSize()
+                                    .padding(horizontal = 20.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
                             ) {
-                                Column(
-                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    // Icono MicOff centrado y grande
-                                    Box(
-                                        modifier = Modifier
-                                            .size(44.dp)
-                                            .background(Color(0xFFEF4444).copy(alpha = 0.20f), CircleShape),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.MicOff,
-                                            contentDescription = "Micrófono silenciado",
-                                            tint = Color(0xFFFCA5A5),
-                                            modifier = Modifier.size(26.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(10.dp))
-                                    Text(
-                                        text = "Micrófono en silencio",
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color.White
-                                    )
-                                    Spacer(modifier = Modifier.height(2.dp))
-                                    Text(
-                                        text = "Toque aquí para activar el micrófono",
-                                        fontSize = 13.sp,
-                                        color = Color(0xFFFCA5A5)
-                                    )
-                                }
-                            }
-                        } else {
-                            // Estado: ACTIVO — botón sutil para silenciar
-                            Surface(
-                                onClick = onToggleMicMute,
-                                shape = RoundedCornerShape(22.dp),
-                                color = FifoColors.DarkInputBg,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp, FifoColors.DarkInputBorder
-                                ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .defaultMinSize(minHeight = 56.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 15.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Mic,
-                                        contentDescription = "Silenciar micrófono",
-                                        tint = Color.White.copy(alpha = 0.85f),
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    Text(
-                                        text = "Silenciar micrófono",
-                                        fontSize = 15.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = Color.White.copy(alpha = 0.85f)
-                                    )
-                                }
+                                Icon(
+                                    imageVector = if (isMicMuted) Icons.Default.MicOff else Icons.Default.Mic,
+                                    contentDescription = if (isMicMuted) "Activar micrófono" else "Silenciar micrófono",
+                                    tint = if (isMicMuted) Color(0xFFFCA5A5) else Color.White.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Text(
+                                    text = if (isMicMuted) "Activar micrófono (Silenciado)" else "Silenciar micrófono",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = if (isMicMuted) Color.White else Color.White.copy(alpha = 0.85f)
+                                )
                             }
                         }
 

@@ -312,6 +312,33 @@ class VoicePipelineManager(
             }
         )
 
+        // Inicializar gestor de telefonía inteligente tipo Alexa
+        callManager = com.fifo.voicepipeline.telephony.FifoCallManager(
+            context = context,
+            onAnnounceCall = { callerName, _ ->
+                scope.launch {
+                    _isAwake.value = true
+                    _isMicMuted.value = false
+                    _state.value = PipelineState.LISTENING
+                    _statusMessage.value = "Llamada de $callerName · Diga 'Fifo contesta' o 'Fifo cuelga'"
+                    updateEspDisplay(state = "LLAMADA", transcript = "Llamada entrante", response = callerName)
+                    ensureCallListeningActive()
+                    speakResponseChunk("¡Lucía! Le está llamando $callerName. Diga 'Fifo contesta' o 'Fifo cuelga'.")
+                }
+            },
+            onCommunicationModeChanged = { inCommMode ->
+                Log.i(TAG, "Cambio de modo de comunicación detectado: inCommMode=$inCommMode")
+                if (!_isMicMuted.value) {
+                    if (inCommMode) {
+                        ensureCallListeningActive()
+                    } else {
+                        onCallEnded()
+                    }
+                }
+            }
+        )
+        callManager?.startListening()
+
         // Iniciar captura según disponibilidad: si hay videollamada o llamada activa, activar PhoneMicRecorder
         if (!_isMicMuted.value) {
             val isCommActive = callManager?.isCommunicationModeActive() == true ||
@@ -337,23 +364,6 @@ class VoicePipelineManager(
                 }
             }
         }
-
-        // Inicializar gestor de telefonía inteligente tipo Alexa
-        callManager = com.fifo.voicepipeline.telephony.FifoCallManager(
-            context = context,
-            onAnnounceCall = { callerName, _ ->
-                scope.launch {
-                    _isAwake.value = true
-                    _isMicMuted.value = false
-                    _state.value = PipelineState.LISTENING
-                    _statusMessage.value = "Llamada de $callerName · Diga 'Fifo contesta' o 'Fifo cuelga'"
-                    updateEspDisplay(state = "LLAMADA", transcript = "Llamada entrante", response = callerName)
-                    ensureCallListeningActive()
-                    speakResponseChunk("¡Lucía! Le está llamando $callerName. Diga 'Fifo contesta' o 'Fifo cuelga'.")
-                }
-            }
-        )
-        callManager?.startListening()
 
         // Escuchar también llamadas entrantes detectadas por el BroadcastReceiver
         com.fifo.voicepipeline.telephony.FifoPhoneCallReceiver.onIncomingCallDetected = { callerName, _ ->
@@ -455,9 +465,14 @@ class VoicePipelineManager(
         vad.reset()
         pcmBuffer.clear()
 
-        // En el celular, usar reconocedor nativo de Google (rápido, sin recortes, transcripción en vivo)
-        phoneMicRecorder.stop()
-        nativeRecognizer?.startContinuousListening()
+        val isCommActive = callManager?.isCommunicationModeActive() == true ||
+                com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
+        if (isCommActive) {
+            ensureCallListeningActive()
+        } else {
+            phoneMicRecorder.stop()
+            nativeRecognizer?.startContinuousListening()
+        }
 
         updateEspDisplay(state = "DURMIENDO", transcript = "", response = "")
     }
@@ -542,9 +557,9 @@ class VoicePipelineManager(
      */
     fun ensureCallListeningActive() {
         if (_isMicMuted.value) return
-        _isAwake.value = true
-        if (_state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
-            _state.value = PipelineState.LISTENING
+        if (!_isAwake.value) {
+            _state.value = PipelineState.SLEEPING
+            updateEspDisplay(state = "DURMIENDO", transcript = "", response = "")
         }
         nativeRecognizer?.stop()
         phoneMicRecorder.switchToCallMode(inCall = true) { chunk ->
@@ -631,17 +646,20 @@ class VoicePipelineManager(
         when (result) {
             is VadResult.SpeechStart -> {
                 Log.d(TAG, "Voz detectada en $source (RMS: ${result.rms})")
-                _state.value = PipelineState.LISTENING
-                _statusMessage.value = "Escuchando..."
-                updateEspDisplay(state = "ESCUCHANDO")
+                if (_isAwake.value || oneShotPushedToTalk) {
+                    _state.value = PipelineState.LISTENING
+                    _statusMessage.value = "Escuchando..."
+                    updateEspDisplay(state = "ESCUCHANDO")
+                }
                 pcmBuffer.clear()
                 pcmBuffer.append(pcmData)
             }
 
             is VadResult.SpeechContinue -> {
                 pcmBuffer.append(pcmData)
-                // Enviar nivel de audio a la pantalla OLED para la barra animada
-                updateEspDisplay(state = "ESCUCHANDO", level = result.rms.toFloat())
+                if (_isAwake.value || oneShotPushedToTalk) {
+                    updateEspDisplay(state = "ESCUCHANDO", level = result.rms.toFloat())
+                }
             }
 
             is VadResult.SpeechPause -> {

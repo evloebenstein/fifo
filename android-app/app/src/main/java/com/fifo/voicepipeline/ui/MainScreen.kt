@@ -186,6 +186,7 @@ fun MainScreen(
                 onConnectBle = onConnectBle,
                 onTalkFromPhone = onTalkFromPhone,
                 onClearConversation = onClearConversation,
+                isAwake = isAwake,
                 isMicMuted = isMicMuted,
                 onToggleMicMute = onToggleMicMute
             )
