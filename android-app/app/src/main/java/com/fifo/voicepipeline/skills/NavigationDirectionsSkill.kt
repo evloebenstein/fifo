@@ -29,15 +29,15 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
         "properties": {
             "destination": {
                 "type": "string",
-                "description": "Lugar de destino o dirección (ej: 'mi casa', 'Farmacia Ahumada', 'CESFAM', 'Plaza Inés de Suárez')"
+                "description": "Lugar de destino o dirección (ej: 'mi casa', 'Farmacia Ahumada', 'supermercado', 'Lider', 'Jumbo', 'CESFAM', 'Plaza Inés de Suárez')"
             },
             "open_screen_map": {
-                "type": "boolean",
+                "type": ["boolean", "null"],
                 "description": "True si el usuario pidió explícitamente abrir o ver el mapa en la pantalla del celular. Por defecto False (guía 100% hablada por voz sin tocar el teléfono)."
             },
             "navigation_app": {
-                "type": "string",
-                "enum": ["google_maps", "waze"],
+                "type": ["string", "null"],
+                "enum": ["google_maps", "waze", null],
                 "description": "Aplicación de mapas si open_screen_map es true ('google_maps' o 'waze'). Por defecto 'google_maps'."
             }
         },
@@ -67,24 +67,30 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
             )
         }
 
-        // Si pide un comercio o lugar de interés cercano (ej: OXXO, farmacia)
+        // Si pide un comercio o lugar de interés cercano (ej: OXXO, farmacia, supermercado)
         val destLower = destInput.lowercase().trim()
         val isStoreQuery = destLower.contains("oxxo") ||
                 destLower.contains("farmacia") ||
                 destLower.contains("minimarket") ||
-                destLower.contains("supermercado")
+                destLower.contains("supermercado") ||
+                destLower.contains("super") ||
+                destLower.contains("lider") ||
+                destLower.contains("jumbo") ||
+                destLower.contains("unimarc") ||
+                destLower.contains("santa isabel")
 
         if (isStoreQuery) {
             val currentLoc = FifoLocationHelper.getCurrentLocation(context)
             val matches = FifoLocationHelper.searchNearbyPlaces(context, destInput, currentLoc)
             val closest = matches.firstOrNull()
             if (closest != null) {
+                val targetName = closest.name.ifBlank { destInput }
                 if (openScreen) {
                     val spoken = if (closest.distanceMeters < 1200) {
-                        "Revisé su ubicación en ${currentLoc.address}. El local de ${closest.name} más cercano está en ${closest.fullAddressText}, a unos ${closest.distanceMeters} metros (a unos ${closest.walkingMinutes} minutos caminando ${closest.cardinalDirection}). Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
+                        "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano está en ${closest.fullAddressText}, a unos ${closest.distanceMeters} metros (a unos ${closest.walkingMinutes} minutos caminando ${closest.cardinalDirection}). Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
                     } else {
                         val km = String.format(java.util.Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)
-                        "Revisé su ubicación en ${currentLoc.address}. El local de ${closest.name} más cercano se encuentra en ${closest.fullAddressText}, a unos $km kilómetros. Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
+                        "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano se encuentra en ${closest.fullAddressText}, a unos $km kilómetros. En vehículo son aproximadamente ${closest.drivingMinutes} minutos, o a pie son unos ${closest.walkingMinutes} minutos. Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
                     }
                     val (navSuccess, appUsed) = FifoLocationHelper.startNavigation(context, "${closest.latitude},${closest.longitude}", appChoice)
                     return SkillResult(
@@ -96,6 +102,7 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
                             "longitude" to closest.longitude,
                             "distance_meters" to closest.distanceMeters,
                             "walking_minutes" to closest.walkingMinutes,
+                            "driving_minutes" to closest.drivingMinutes,
                             "app_used" to appUsed,
                             "screen_opened" to true
                         )
@@ -103,10 +110,10 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
                 } else {
                     // Guía 100% verbal manos libres por voz sin abrir el celular
                     val spoken = if (closest.distanceMeters < 1200) {
-                        "Revisé su ubicación en ${currentLoc.address}. El local de ${closest.name} más cercano a usted está en ${closest.fullAddressText}, a unos ${closest.distanceMeters} metros de distancia (unas ${closest.blocks} cuadras, a unos ${closest.walkingMinutes} minutos caminando). Para llegar, salga a la calle y camine ${closest.cardinalDirection} por ${closest.road.ifBlank { "la calle principal" }}. ¿Desea que le vaya indicando los pasos mientras camina, o prefiere que le muestre el mapa en su celular?"
+                        "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano a usted está en ${closest.fullAddressText}, a unos ${closest.distanceMeters} metros de distancia (unas ${closest.blocks} cuadras, a solo ${closest.walkingMinutes} minutos caminando). Para llegar, salga a la calle y camine ${closest.cardinalDirection} por ${closest.road.ifBlank { "la calle principal" }}. ¿Desea que le vaya indicando los pasos mientras camina, o prefiere que le muestre el mapa en su celular?"
                     } else {
                         val km = String.format(java.util.Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)
-                        "Revisé su ubicación en ${currentLoc.address}. El local de ${closest.name} más cercano se encuentra en ${closest.fullAddressText}, a unos $km kilómetros ${closest.cardinalDirection}, a unos ${closest.walkingMinutes} minutos a pie. ¿Desea que le muestre el mapa en la pantalla o prefiere pedir un transporte?"
+                        "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano se encuentra en ${closest.fullAddressText}, a unos $km kilómetros ${closest.cardinalDirection}. En vehículo son aproximadamente ${closest.drivingMinutes} minutos, o a pie son unos ${closest.walkingMinutes} minutos caminando. ¿Desea que le muestre el mapa en la pantalla o prefiere pedir un transporte?"
                     }
                     return SkillResult(
                         success = true,
@@ -117,6 +124,7 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
                             "longitude" to closest.longitude,
                             "distance_meters" to closest.distanceMeters,
                             "walking_minutes" to closest.walkingMinutes,
+                            "driving_minutes" to closest.drivingMinutes,
                             "screen_opened" to false
                         )
                     )

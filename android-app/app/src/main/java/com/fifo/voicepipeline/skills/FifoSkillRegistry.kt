@@ -65,14 +65,56 @@ class FifoSkillRegistry(private val context: Context) {
     }
 
     /**
-     * Genera la lista de herramientas en formato JSON compatible con OpenAI y Groq API.
+     * Genera la lista de herramientas en formato JSON compatible con OpenAI y Groq API,
+     * sanitizando automáticamente los parámetros opcionales para admitir null (evitando error 400 en Groq).
      */
     fun getOpenAiToolsJson(): String {
         val toolsList = skills.values.map { skill ->
             val schemaObj = try {
-                JsonParser.parseString(skill.parameterSchemaJson)
+                val parsed = JsonParser.parseString(skill.parameterSchemaJson)
+                if (parsed.isJsonObject) {
+                    val root = parsed.asJsonObject
+                    if (root.has("properties") && root.get("properties").isJsonObject) {
+                        val props = root.getAsJsonObject("properties")
+                        val requiredSet = if (root.has("required") && root.get("required").isJsonArray) {
+                            root.getAsJsonArray("required").mapNotNull { if (it.isJsonPrimitive) it.asString else null }.toSet()
+                        } else emptySet()
+
+                        for (propKey in props.keySet()) {
+                            if (!requiredSet.contains(propKey)) {
+                                val propElem = props.get(propKey)
+                                if (propElem.isJsonObject) {
+                                    val propObj = propElem.asJsonObject
+                                    // 1. Ampliar el tipo para admitir null si es un primitivo
+                                    if (propObj.has("type") && propObj.get("type").isJsonPrimitive) {
+                                        val currentType = propObj.get("type").asString
+                                        if (currentType != "null") {
+                                            val arr = com.google.gson.JsonArray()
+                                            arr.add(currentType)
+                                            arr.add("null")
+                                            propObj.add("type", arr)
+                                        }
+                                    }
+                                    // 2. Si tiene enum, incluir null para que los LLM puedan pasar null
+                                    if (propObj.has("enum") && propObj.get("enum").isJsonArray) {
+                                        val enumArr = propObj.getAsJsonArray("enum")
+                                        var hasNull = false
+                                        for (elem in enumArr) {
+                                            if (elem.isJsonNull) hasNull = true
+                                        }
+                                        if (!hasNull) {
+                                            enumArr.add(com.google.gson.JsonNull.INSTANCE)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    root
+                } else parsed
             } catch (e: Exception) {
-                JsonParser.parseString("{}")
+                Log.w(TAG, "Error sanitizando schema para ${skill.name}: ${e.message}")
+                try { JsonParser.parseString(skill.parameterSchemaJson) } catch (_: Exception) { JsonParser.parseString("{}") }
             }
             mapOf(
                 "type" to "function",
@@ -215,8 +257,8 @@ class FifoSkillRegistry(private val context: Context) {
                 ""
             ).trim()
             val openScreen = text.contains("abre maps") || text.contains("abre waze") ||
-                    text.contains("pantalla") || text.contains("en el celular") || text.contains("en mi celular") ||
-                    text.contains("muestrame") || text.contains("muéstrame")
+                text.contains("pantalla") || text.contains("en el celular") || text.contains("en mi celular") ||
+                text.contains("muestrame") || text.contains("muéstrame")
             return executeSkill("open_navigation_directions", mapOf("destination" to target, "open_screen_map" to openScreen))
         }
 
@@ -260,10 +302,40 @@ class FifoSkillRegistry(private val context: Context) {
             )
         }
 
-        // 2. BUSCAR EN MAPAS (Oxxo, Minimarkets, Farmacias, consultorios, parques)
+        // 2. BUSCAR EN MAPAS (Supermercados, Oxxo, Minimarkets, Farmacias, consultorios, parques)
         val wantsNearbyScreen = text.contains("abre maps") || text.contains("abre waze") ||
                 text.contains("pantalla") || text.contains("en el celular") || text.contains("en mi celular") ||
                 text.contains("muestrame") || text.contains("muéstrame") || text.contains("abre el mapa") || text.contains("en el mapa")
+
+        // 2.0 SUPERMERCADOS (Lider, Jumbo, Unimarc, Santa Isabel, etc.)
+        if ((text.contains("supermercado") || text.contains("super") || text.contains("súper")) &&
+            (text.contains("cerca") || text.contains("dónde") || text.contains("donde") || text.contains("busca") || text.contains("cuál") || text.contains("cual") || text.contains("hay"))) {
+            val brand = when {
+                text.contains("lider") -> "lider"
+                text.contains("jumbo") -> "jumbo"
+                text.contains("unimarc") -> "unimarc"
+                text.contains("santa isabel") -> "santa isabel"
+                text.contains("alvi") -> "alvi"
+                else -> ""
+            }
+            return executeSkill(
+                "search_nearby_places",
+                mapOf("place_type" to "supermercado", "query_hint" to brand, "open_screen_map" to wantsNearbyScreen)
+            )
+        }
+
+        if (text.contains("lider") || text.contains("jumbo") || text.contains("unimarc") || text.contains("santa isabel")) {
+            val brand = when {
+                text.contains("lider") -> "lider"
+                text.contains("jumbo") -> "jumbo"
+                text.contains("unimarc") -> "unimarc"
+                else -> "santa isabel"
+            }
+            return executeSkill(
+                "search_nearby_places",
+                mapOf("place_type" to "supermercado", "query_hint" to brand, "open_screen_map" to wantsNearbyScreen)
+            )
+        }
 
         if (text.contains("oxxo")) {
             return executeSkill(

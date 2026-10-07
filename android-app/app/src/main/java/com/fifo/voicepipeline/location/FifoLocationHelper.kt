@@ -269,11 +269,11 @@ object FifoLocationHelper {
         val walkingMinutes = (distanceMeters / 75).coerceAtLeast(2) // 75 m/min (~4.5 km/h)
         val drivingMinutes = (distanceMeters / 400).coerceAtLeast(1)
 
-        val spoken = if (distanceMeters < 1000) {
+        val spoken = if (distanceMeters < 1200) {
             "Para ir a $resolvedName: le queda a unos $distanceMeters metros de distancia, aproximadamente a $walkingMinutes minutos caminando $cardinal (a unas $blocks cuadras). Salga a la calle y avance derecho en esa dirección. ¿Desea que le vaya avisando los siguientes pasos mientras camina, o prefiere que le muestre el mapa en su celular?"
         } else {
             val km = String.format(Locale("es", "ES"), "%.1f", distanceMeters / 1000.0)
-            "Para ir a $resolvedName: está a unos $km kilómetros $cardinal, aproximadamente a $drivingMinutes minutos en vehículo o locomoción. ¿Desea que le muestre el mapa en su celular o prefiere pedir un transporte?"
+            "Para ir a $resolvedName: está a unos $km kilómetros $cardinal. En vehículo o locomoción son aproximadamente $drivingMinutes minutos, o a pie son unos $walkingMinutes minutos caminando. ¿Desea que le muestre el mapa en su celular o prefiere pedir un transporte?"
         }
 
         return SpokenRouteGuidance(
@@ -324,49 +324,30 @@ object FifoLocationHelper {
     }
 
     /**
-     * Busca comercios y puntos de interés cercanos (OXXO, farmacias, minimarkets, etc.)
-     * consultando OpenStreetMap Nominatim centrado exactamente en la posición GPS del usuario,
-     * calculando distancia real, cuadras, minutos a pie y orientación para cada uno.
+     * Consulta OpenStreetMap Nominatim para un término acotado dentro de un viewbox alrededor del usuario.
      */
-    suspend fun searchNearbyPlaces(
-        context: Context,
+    private fun fetchNominatimPlaces(
         query: String,
-        currentLocation: CurrentLocationInfo? = null
-    ): List<NearbyPlaceMatch> = withContext(Dispatchers.IO) {
-        val currentLoc = currentLocation ?: getCurrentLocation(context)
-        val queryLower = query.lowercase().trim()
+        currentLoc: CurrentLocationInfo,
+        delta: Double,
+        limit: Int
+    ): List<NearbyPlaceMatch> {
+        val minLon = currentLoc.longitude - delta
+        val maxLon = currentLoc.longitude + delta
+        val minLat = currentLoc.latitude - delta
+        val maxLat = currentLoc.latitude + delta
 
-        val cleanQuery = when {
-            queryLower.contains("oxxo") -> "oxxo"
-            queryLower.contains("farmacia") -> "farmacia"
-            queryLower.contains("supermercado") || queryLower.contains("super") -> "supermercado"
-            queryLower.contains("minimarket") || queryLower.contains("almacen") || queryLower.contains("almacén") -> "minimarket"
-            queryLower.contains("banco") -> "banco"
-            queryLower.contains("hospital") || queryLower.contains("cesfam") || queryLower.contains("consultorio") -> "hospital"
-            queryLower.contains("parque") || queryLower.contains("plaza") -> "parque"
-            else -> query.trim()
-        }
+        val boundedUrl = "https://nominatim.openstreetmap.org/search?q=${Uri.encode(query)}&format=json&addressdetails=1&viewbox=${minLon},${maxLat},${maxLon},${minLat}&bounded=1&limit=$limit"
 
-        val resultsList = mutableListOf<NearbyPlaceMatch>()
+        val request = Request.Builder()
+            .url(boundedUrl)
+            .header("User-Agent", "FifoVoiceApp/1.0 (Android; info@fiforobot.com)")
+            .build()
 
-        // 1. Consulta acotada a OpenStreetMap Nominatim alrededor de la ubicación GPS real del usuario
+        val list = mutableListOf<NearbyPlaceMatch>()
         try {
-            val delta = 0.06 // ~6 km a la redonda
-            val minLon = currentLoc.longitude - delta
-            val maxLon = currentLoc.longitude + delta
-            val minLat = currentLoc.latitude - delta
-            val maxLat = currentLoc.latitude + delta
-
-            val boundedUrl = "https://nominatim.openstreetmap.org/search?q=${Uri.encode(cleanQuery)}&format=json&addressdetails=1&viewbox=${minLon},${maxLat},${maxLon},${minLat}&bounded=1&limit=8"
-
-            val request = Request.Builder()
-                .url(boundedUrl)
-                .header("User-Agent", "FifoVoiceApp/1.0 (Android; info@fiforobot.com)")
-                .build()
-
             val response = httpClient.newCall(request).execute()
             val body = response.body?.string() ?: ""
-
             if (response.isSuccessful && body.isNotBlank()) {
                 val jsonArr = JsonParser.parseString(body).asJsonArray
                 for (elem in jsonArr) {
@@ -379,14 +360,24 @@ object FifoLocationHelper {
                     val neighbourhood = addrObj?.get("neighbourhood")?.asString ?: ""
                     val suburb = addrObj?.get("suburb")?.asString ?: ""
                     val city = addrObj?.get("city")?.asString ?: addrObj?.get("county")?.asString ?: currentLoc.city
-                    val shopName = addrObj?.get("shop")?.asString ?: item.get("name")?.asString ?: cleanQuery.replaceFirstChar { it.uppercase() }
+                    val rawName = item.get("name")?.asString
+                    val shopType = addrObj?.get("shop")?.asString
+                    val amenityType = addrObj?.get("amenity")?.asString
+
+                    val shopName = when {
+                        !rawName.isNullOrBlank() -> rawName
+                        !shopType.isNullOrBlank() -> shopType.replaceFirstChar { it.uppercase() }
+                        !amenityType.isNullOrBlank() -> amenityType.replaceFirstChar { it.uppercase() }
+                        else -> query.replaceFirstChar { it.uppercase() }
+                    }
 
                     val distResults = FloatArray(2)
                     Location.distanceBetween(currentLoc.latitude, currentLoc.longitude, lat, lon, distResults)
-                    val distMeters = distResults[0].toInt().coerceAtLeast(30)
+                    val distMeters = distResults[0].toInt().coerceAtLeast(20)
                     val bearing = (distResults[1] + 360) % 360
                     val cardinal = calculateCardinal(bearing)
                     val walkingMin = (distMeters / 75).coerceAtLeast(1)
+                    val drivingMin = (distMeters / 400).coerceAtLeast(1)
                     val blocks = (distMeters / 100).coerceAtLeast(1)
 
                     val streetText = if (road.isNotBlank()) {
@@ -397,7 +388,7 @@ object FifoLocationHelper {
                     val areaText = if (suburb.isNotBlank()) ", $suburb" else if (neighbourhood.isNotBlank()) ", $neighbourhood" else ""
                     val fullAddress = "$streetText$areaText"
 
-                    resultsList.add(
+                    list.add(
                         NearbyPlaceMatch(
                             name = shopName,
                             road = road,
@@ -411,6 +402,7 @@ object FifoLocationHelper {
                             bearing = bearing,
                             cardinalDirection = cardinal,
                             walkingMinutes = walkingMin,
+                            drivingMinutes = drivingMin,
                             blocks = blocks,
                             fullAddressText = fullAddress
                         )
@@ -418,15 +410,84 @@ object FifoLocationHelper {
                 }
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Error buscando en Nominatim: ${e.message}")
+            Log.w(TAG, "Error en fetchNominatimPlaces ('$query'): ${e.message}")
+        }
+        return list
+    }
+
+    /**
+     * Busca comercios y puntos de interés cercanos (supermercados, OXXO, farmacias, etc.)
+     * consultando OpenStreetMap con términos optimizados para Chile y la zona inmediata,
+     * calculando distancia real, cuadras, minutos a pie, minutos en auto y orientación.
+     */
+    suspend fun searchNearbyPlaces(
+        context: Context,
+        query: String,
+        currentLocation: CurrentLocationInfo? = null
+    ): List<NearbyPlaceMatch> = withContext(Dispatchers.IO) {
+        val currentLoc = currentLocation ?: getCurrentLocation(context)
+        val queryLower = query.lowercase().trim()
+
+        val searchTerms = when {
+            queryLower.contains("supermercado") || queryLower.contains("super") || queryLower.contains("súper") -> {
+                when {
+                    queryLower.contains("lider") -> listOf("lider", "supermarket", "supermercado")
+                    queryLower.contains("jumbo") -> listOf("jumbo", "supermarket", "supermercado")
+                    queryLower.contains("unimarc") -> listOf("unimarc", "supermarket", "supermercado")
+                    queryLower.contains("santa isabel") -> listOf("santa isabel", "supermarket", "supermercado")
+                    queryLower.contains("alvi") -> listOf("alvi", "supermarket", "supermercado")
+                    else -> listOf("supermarket", "lider", "unimarc", "supermercado", "jumbo", "santa isabel")
+                }
+            }
+            queryLower.contains("lider") -> listOf("lider", "supermarket")
+            queryLower.contains("jumbo") -> listOf("jumbo", "supermarket")
+            queryLower.contains("unimarc") -> listOf("unimarc", "supermarket")
+            queryLower.contains("santa isabel") -> listOf("santa isabel", "supermarket")
+            queryLower.contains("oxxo") -> listOf("oxxo", "ok market")
+            queryLower.contains("farmacia") -> listOf("pharmacy", "farmacia", "cruz verde", "ahumada", "salcobrand")
+            queryLower.contains("minimarket") || queryLower.contains("almacen") || queryLower.contains("almacén") -> listOf("convenience", "minimarket", "almacen")
+            queryLower.contains("banco") -> listOf("bank", "banco")
+            queryLower.contains("hospital") || queryLower.contains("cesfam") || queryLower.contains("consultorio") -> listOf("hospital", "clinic", "cesfam", "consultorio")
+            queryLower.contains("parque") || queryLower.contains("plaza") -> listOf("park", "plaza", "parque")
+            else -> listOf(query.trim())
         }
 
-        // 2. Si la búsqueda local no arrojó resultados o no hay internet para OSM, fallback con Geocoder
+        val resultsList = mutableListOf<NearbyPlaceMatch>()
+        val seenCoords = mutableSetOf<String>()
+
+        // Fase 1: Búsqueda acotada al entorno inmediato (~2.5 km a la redonda)
+        val deltaNear = 0.025
+        for (term in searchTerms.take(4)) {
+            val matches = fetchNominatimPlaces(term, currentLoc, delta = deltaNear, limit = 15)
+            for (m in matches) {
+                val coordKey = "${String.format(Locale.US, "%.4f", m.latitude)},${String.format(Locale.US, "%.4f", m.longitude)}"
+                if (seenCoords.add(coordKey)) {
+                    resultsList.add(m)
+                }
+            }
+        }
+
+        // Fase 2: Si no hubo resultados en 2.5 km, ampliar radio a ~5 km con los términos principales
         if (resultsList.isEmpty()) {
+            val deltaExpanded = 0.05
+            for (term in searchTerms.take(2)) {
+                val matches = fetchNominatimPlaces(term, currentLoc, delta = deltaExpanded, limit = 15)
+                for (m in matches) {
+                    val coordKey = "${String.format(Locale.US, "%.4f", m.latitude)},${String.format(Locale.US, "%.4f", m.longitude)}"
+                    if (seenCoords.add(coordKey)) {
+                        resultsList.add(m)
+                    }
+                }
+            }
+        }
+
+        // Fase 3: Fallback con Geocoder si Nominatim no arrojó resultados
+        if (resultsList.isEmpty()) {
+            val fallbackQuery = searchTerms.firstOrNull() ?: query
             try {
                 val geocoder = Geocoder(context, Locale("es", "CL"))
                 @Suppress("DEPRECATION")
-                val matches = geocoder.getFromLocationName("$cleanQuery, ${currentLoc.city}", 5)
+                val matches = geocoder.getFromLocationName("$fallbackQuery, ${currentLoc.city}", 5)
                 if (!matches.isNullOrEmpty()) {
                     for (m in matches) {
                         val distResults = FloatArray(2)
@@ -435,8 +496,9 @@ object FifoLocationHelper {
                         val bearing = (distResults[1] + 360) % 360
                         val cardinal = calculateCardinal(bearing)
                         val walkingMin = (distMeters / 75).coerceAtLeast(1)
+                        val drivingMin = (distMeters / 400).coerceAtLeast(1)
                         val blocks = (distMeters / 100).coerceAtLeast(1)
-                        val road = m.thoroughfare ?: m.featureName ?: cleanQuery
+                        val road = m.thoroughfare ?: m.featureName ?: fallbackQuery
                         val houseNumber = m.subThoroughfare ?: ""
                         val suburb = m.subLocality ?: m.locality ?: ""
                         val streetText = if (houseNumber.isNotBlank()) "$road $houseNumber" else road
@@ -444,7 +506,7 @@ object FifoLocationHelper {
 
                         resultsList.add(
                             NearbyPlaceMatch(
-                                name = m.featureName ?: cleanQuery,
+                                name = m.featureName ?: fallbackQuery.replaceFirstChar { it.uppercase() },
                                 road = road,
                                 houseNumber = houseNumber,
                                 neighbourhood = "",
@@ -456,6 +518,7 @@ object FifoLocationHelper {
                                 bearing = bearing,
                                 cardinalDirection = cardinal,
                                 walkingMinutes = walkingMin,
+                                drivingMinutes = drivingMin,
                                 blocks = blocks,
                                 fullAddressText = fullAddress
                             )
@@ -488,6 +551,7 @@ data class NearbyPlaceMatch(
     val bearing: Float,
     val cardinalDirection: String,
     val walkingMinutes: Int,
+    val drivingMinutes: Int,
     val blocks: Int,
     val fullAddressText: String
 )

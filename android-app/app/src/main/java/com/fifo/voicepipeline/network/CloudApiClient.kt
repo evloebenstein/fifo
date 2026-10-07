@@ -57,8 +57,8 @@ class CloudApiClient(
         // ── Modelos ──────────────────────────────────
         // Modelo principal de Groq: Qwen 27B (ultra-rápido ~200ms, tools precisas sin token overhead)
         const val GROQ_PRIMARY_MODEL = "qwen/qwen3.8-27b"
-        // Modelo de respaldo si hay rate limit: OpenAI GPT-OSS 120B
-        const val GROQ_FALLBACK_MODEL = "openai/gpt-oss-120b"
+        // Modelo de respaldo si hay rate limit: OpenAI GPT-OSS 20B (ligero, veloz ~800ms y con límites altos de RPM)
+        const val GROQ_FALLBACK_MODEL = "openai/gpt-oss-20b"
         const val GROQ_WHISPER_MODEL = "whisper-large-v3-turbo"
 
         private const val CLAUDE_MODEL = "claude-haiku-4-5-20251001"
@@ -306,11 +306,20 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
             conversationHistory.removeAt(0)
         }
 
-        return if (isGroqActive) {
+        val response = if (isGroqActive) {
             chatWithGroq(userText, skillRegistry)
         } else {
             "Disculpe, la API de Groq no se encuentra configurada en este momento. Por favor ingrese su clave de Groq para poder conversar."
         }
+
+        // Si la llamada falló con un error técnico del servidor, no dejar el turno huérfano para evitar acumulación y 429
+        if (response.startsWith("Disculpe,") || response.startsWith("Disculpa,")) {
+            if (conversationHistory.isNotEmpty() && conversationHistory.last()["role"] == "user") {
+                conversationHistory.removeAt(conversationHistory.size - 1)
+            }
+        }
+
+        return response
     }
 
     /** Indica si hay turnos de conversación recientes en memoria */
@@ -495,7 +504,18 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
                 // Si el modelo principal falla por rate-limit (429) o error temporal (5xx), intentar con el modelo de respaldo de Groq
                 if (modelToUse == GROQ_PRIMARY_MODEL) {
                     Log.w(TAG, "Groq: Activando fallback a $GROQ_FALLBACK_MODEL...")
+                    if (response.code == 429) {
+                        kotlinx.coroutines.delay(1200)
+                    }
                     return chatWithGroq(userText, skillRegistry, modelToUse = GROQ_FALLBACK_MODEL)
+                }
+                // Si el modelo de respaldo de Groq también falla, intentar failover a Claude si hay clave disponible
+                if (anthropicApiKey.isNotBlank() && !anthropicApiKey.startsWith("gsk_")) {
+                    Log.w(TAG, "Groq falló con código ${response.code}, intentando failover a Claude...")
+                    return chatWithClaude(userText, skillRegistry)
+                }
+                if (response.code == 429) {
+                    return "Disculpe, el servicio de voz está recibiendo muchas consultas en este instante. Por favor espere un momento e intente preguntarme de nuevo."
                 }
                 return "Disculpe, hubo un inconveniente con la API de Groq (error ${response.code}). Por favor intente nuevamente en unos instantes."
             }
@@ -576,8 +596,12 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
         } catch (e: Exception) {
             Log.e(TAG, "Error llamando a Groq: ${e.message}", e)
             if (modelToUse == GROQ_PRIMARY_MODEL) {
-                Log.w(TAG, "Groq: Error de red con $modelToUse, probando fallback...")
+                Log.w(TAG, "Groq: Error de red con $modelToUse, probando fallback a $GROQ_FALLBACK_MODEL...")
                 return chatWithGroq(userText, skillRegistry, modelToUse = GROQ_FALLBACK_MODEL)
+            }
+            if (anthropicApiKey.isNotBlank() && !anthropicApiKey.startsWith("gsk_")) {
+                Log.w(TAG, "Groq falló por excepción, intentando failover a Claude...")
+                return chatWithClaude(userText, skillRegistry)
             }
             "Disculpe, hubo un problema de conexión con la API de Groq. Por favor intente nuevamente en unos instantes."
         }

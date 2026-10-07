@@ -34,14 +34,14 @@ class MapsSkill(private val context: Context) : FifoSkill {
         "properties": {
             "place_type": {
                 "type": "string",
-                "description": "Categoría o nombre del lugar a buscar (ej: 'oxxo', 'farmacia', 'minimarket', 'supermercado', 'centro_salud', 'hospital', 'parque', 'panaderia', 'cafeteria', 'banco')"
+                "description": "Categoría o nombre del lugar a buscar (ej: 'oxxo', 'farmacia', 'minimarket', 'supermercado', 'lider', 'jumbo', 'centro_salud', 'hospital', 'parque', 'panaderia', 'cafeteria', 'banco')"
             },
             "query_hint": {
-                "type": "string",
-                "description": "Detalle adicional como comuna, nombre específico o calle (ej: 'OXXO', 'Cruz Verde', 'Providencia', 'Lider Express')"
+                "type": ["string", "null"],
+                "description": "Detalle adicional como comuna, nombre específico o calle (ej: 'OXXO', 'Lider', 'Jumbo', 'Cruz Verde', 'Providencia', 'Lider Express')"
             },
             "open_screen_map": {
-                "type": "boolean",
+                "type": ["boolean", "null"],
                 "description": "True SOLAMENTE si el usuario pidió de forma explícita ver o abrir el mapa en la pantalla de su celular (ej: 'muéstrame en mi celular la ubicación', 'ábreme el mapa en pantalla'). Por defecto FALSE (guía 100% verbal por voz sin abrir la pantalla)."
             }
         },
@@ -66,16 +66,17 @@ class MapsSkill(private val context: Context) : FifoSkill {
 
         val matches = FifoLocationHelper.searchNearbyPlaces(context, displayName, currentLoc)
         val closest = matches.firstOrNull()
+        val targetName = closest?.name?.ifBlank { displayName } ?: displayName
 
         val spokenFeedback = if (openScreen) {
             // Caso 1: El usuario pidió expresamente ver la ubicación en su celular
             if (closest != null) {
                 val addrText = closest.fullAddressText
                 if (closest.distanceMeters < 1200) {
-                    "Revisé su ubicación en ${currentLoc.address}. El local de $displayName más cercano está en $addrText, a unos ${closest.distanceMeters} metros (a unos ${closest.walkingMinutes} minutos caminando ${closest.cardinalDirection}). Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
+                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano está en $addrText, a unos ${closest.distanceMeters} metros (a unos ${closest.walkingMinutes} minutos caminando ${closest.cardinalDirection}). Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
                 } else {
                     val km = String.format(Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)
-                    "Revisé su ubicación en ${currentLoc.address}. El local de $displayName más cercano se encuentra en $addrText, a unos $km kilómetros. Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
+                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano se encuentra en $addrText, a unos $km kilómetros. En vehículo son aproximadamente ${closest.drivingMinutes} minutos, o a pie son unos ${closest.walkingMinutes} minutos. Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
                 }
             } else {
                 "Revisé su ubicación en ${currentLoc.address}. Le acabo de abrir el mapa en la pantalla de su celular con la búsqueda de $displayName para que pueda explorar los alrededores."
@@ -85,10 +86,10 @@ class MapsSkill(private val context: Context) : FifoSkill {
             if (closest != null) {
                 val addrText = closest.fullAddressText
                 if (closest.distanceMeters < 1200) {
-                    "Revisé su ubicación en ${currentLoc.address}. El local de $displayName más cercano a usted está en $addrText, a unos ${closest.distanceMeters} metros de distancia (unas ${closest.blocks} cuadras, a unos ${closest.walkingMinutes} minutos caminando). Para llegar, salga a la calle y camine ${closest.cardinalDirection} por ${closest.road.ifBlank { "la calle principal" }}. ¿Desea que le vaya indicando los pasos mientras camina, o prefiere que le muestre el mapa en su celular?"
+                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano a usted está en $addrText, a unos ${closest.distanceMeters} metros de distancia (unas ${closest.blocks} cuadras, a solo ${closest.walkingMinutes} minutos caminando). Para llegar, salga a la calle y camine ${closest.cardinalDirection} por ${closest.road.ifBlank { "la calle principal" }}. ¿Desea que le vaya indicando los pasos mientras camina, o prefiere que le muestre el mapa en su celular?"
                 } else {
                     val km = String.format(Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)
-                    "Revisé su ubicación en ${currentLoc.address}. El local de $displayName más cercano se encuentra en $addrText, a unos $km kilómetros ${closest.cardinalDirection}, a unos ${closest.walkingMinutes} minutos a pie. ¿Desea que le muestre el mapa en la pantalla o prefiere pedir un transporte?"
+                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano se encuentra en $addrText, a unos $km kilómetros ${closest.cardinalDirection}. En vehículo son aproximadamente ${closest.drivingMinutes} minutos, o a pie son unos ${closest.walkingMinutes} minutos caminando. ¿Desea que le muestre el mapa en la pantalla o prefiere pedir un transporte?"
                 }
             } else {
                 if (currentLoc.isGpsActive) {
@@ -142,6 +143,7 @@ class MapsSkill(private val context: Context) : FifoSkill {
                 "destination_lon" to (closest?.longitude ?: currentLoc.longitude),
                 "distance_meters" to (closest?.distanceMeters ?: 0),
                 "walking_minutes" to (closest?.walkingMinutes ?: 0),
+                "driving_minutes" to (closest?.drivingMinutes ?: 0),
                 "screen_opened" to openScreen
             )
         )
