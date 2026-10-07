@@ -13,6 +13,11 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.fifo.voicepipeline.data.FifoDataRepository
 import com.fifo.voicepipeline.ui.model.CurrentLocationInfo
+import com.google.gson.JsonParser
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import java.util.Locale
 
 /**
@@ -25,6 +30,11 @@ import java.util.Locale
 object FifoLocationHelper {
 
     private const val TAG = "FifoLocationHelper"
+
+    private val httpClient = OkHttpClient.Builder()
+        .connectTimeout(5, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+        .build()
 
     /**
      * Obtiene la ubicación geográfica actual del celular.
@@ -68,11 +78,24 @@ object FifoLocationHelper {
 
         var bestLocation: Location? = null
         try {
-            val providers = lm.getProviders(true)
-            for (provider in providers) {
-                val l = lm.getLastKnownLocation(provider) ?: continue
-                if (bestLocation == null || l.accuracy < bestLocation.accuracy) {
-                    bestLocation = l
+            val candidateProviders = mutableListOf(
+                LocationManager.GPS_PROVIDER,
+                LocationManager.NETWORK_PROVIDER,
+                LocationManager.PASSIVE_PROVIDER
+            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                candidateProviders.add(0, LocationManager.FUSED_PROVIDER)
+            }
+            for (provider in candidateProviders) {
+                try {
+                    val l = lm.getLastKnownLocation(provider) ?: continue
+                    if (bestLocation == null || l.accuracy < bestLocation.accuracy) {
+                        bestLocation = l
+                    }
+                } catch (e: SecurityException) {
+                    Log.w(TAG, "Permiso denegado para provider $provider")
+                } catch (e: Exception) {
+                    Log.d(TAG, "Provider $provider no disponible: ${e.message}")
                 }
             }
         } catch (e: Exception) {
@@ -247,10 +270,10 @@ object FifoLocationHelper {
         val drivingMinutes = (distanceMeters / 400).coerceAtLeast(1)
 
         val spoken = if (distanceMeters < 1000) {
-            "Para ir a $resolvedName: le queda a unos $distanceMeters metros de distancia, aproximadamente a $walkingMinutes minutos caminando $cardinal (a unas $blocks cuadras). Salga a la calle y avance derecho en esa dirección. ¿Desea que le vaya avisando los siguientes pasos mientras camina o prefiere que le abra el mapa en pantalla?"
+            "Para ir a $resolvedName: le queda a unos $distanceMeters metros de distancia, aproximadamente a $walkingMinutes minutos caminando $cardinal (a unas $blocks cuadras). Salga a la calle y avance derecho en esa dirección. ¿Desea que le vaya avisando los siguientes pasos mientras camina, o prefiere que le muestre el mapa en su celular?"
         } else {
             val km = String.format(Locale("es", "ES"), "%.1f", distanceMeters / 1000.0)
-            "Para ir a $resolvedName: está a unos $km kilómetros $cardinal, aproximadamente a $drivingMinutes minutos en vehículo o locomoción. ¿Desea que le abra el mapa en pantalla o prefiere pedir un transporte?"
+            "Para ir a $resolvedName: está a unos $km kilómetros $cardinal, aproximadamente a $drivingMinutes minutos en vehículo o locomoción. ¿Desea que le muestre el mapa en su celular o prefiere pedir un transporte?"
         }
 
         return SpokenRouteGuidance(
@@ -282,7 +305,192 @@ object FifoLocationHelper {
             Log.e(TAG, "Error abriendo punto en mapa: ${e.message}")
         }
     }
+
+    /**
+     * Calcula la orientación cardinal en español a partir del bearing en grados.
+     */
+    fun calculateCardinal(bearing: Float): String {
+        val norm = (bearing + 360) % 360
+        return when (norm) {
+            in 337.5..360.0, in 0.0..22.5 -> "hacia el norte"
+            in 22.5..67.5 -> "hacia el nororiente"
+            in 67.5..112.5 -> "hacia el oriente"
+            in 112.5..157.5 -> "hacia el suroriente"
+            in 157.5..202.5 -> "hacia el sur"
+            in 202.5..247.5 -> "hacia el suroccidente"
+            in 247.5..292.5 -> "hacia el poniente"
+            else -> "hacia el norponiente"
+        }
+    }
+
+    /**
+     * Busca comercios y puntos de interés cercanos (OXXO, farmacias, minimarkets, etc.)
+     * consultando OpenStreetMap Nominatim centrado exactamente en la posición GPS del usuario,
+     * calculando distancia real, cuadras, minutos a pie y orientación para cada uno.
+     */
+    suspend fun searchNearbyPlaces(
+        context: Context,
+        query: String,
+        currentLocation: CurrentLocationInfo? = null
+    ): List<NearbyPlaceMatch> = withContext(Dispatchers.IO) {
+        val currentLoc = currentLocation ?: getCurrentLocation(context)
+        val queryLower = query.lowercase().trim()
+
+        val cleanQuery = when {
+            queryLower.contains("oxxo") -> "oxxo"
+            queryLower.contains("farmacia") -> "farmacia"
+            queryLower.contains("supermercado") || queryLower.contains("super") -> "supermercado"
+            queryLower.contains("minimarket") || queryLower.contains("almacen") || queryLower.contains("almacén") -> "minimarket"
+            queryLower.contains("banco") -> "banco"
+            queryLower.contains("hospital") || queryLower.contains("cesfam") || queryLower.contains("consultorio") -> "hospital"
+            queryLower.contains("parque") || queryLower.contains("plaza") -> "parque"
+            else -> query.trim()
+        }
+
+        val resultsList = mutableListOf<NearbyPlaceMatch>()
+
+        // 1. Consulta acotada a OpenStreetMap Nominatim alrededor de la ubicación GPS real del usuario
+        try {
+            val delta = 0.06 // ~6 km a la redonda
+            val minLon = currentLoc.longitude - delta
+            val maxLon = currentLoc.longitude + delta
+            val minLat = currentLoc.latitude - delta
+            val maxLat = currentLoc.latitude + delta
+
+            val boundedUrl = "https://nominatim.openstreetmap.org/search?q=${Uri.encode(cleanQuery)}&format=json&addressdetails=1&viewbox=${minLon},${maxLat},${maxLon},${minLat}&bounded=1&limit=8"
+
+            val request = Request.Builder()
+                .url(boundedUrl)
+                .header("User-Agent", "FifoVoiceApp/1.0 (Android; info@fiforobot.com)")
+                .build()
+
+            val response = httpClient.newCall(request).execute()
+            val body = response.body?.string() ?: ""
+
+            if (response.isSuccessful && body.isNotBlank()) {
+                val jsonArr = JsonParser.parseString(body).asJsonArray
+                for (elem in jsonArr) {
+                    val item = elem.asJsonObject
+                    val lat = item.get("lat")?.asDouble ?: continue
+                    val lon = item.get("lon")?.asDouble ?: continue
+                    val addrObj = if (item.has("address") && !item.get("address").isJsonNull) item.getAsJsonObject("address") else null
+                    val road = addrObj?.get("road")?.asString ?: ""
+                    val houseNumber = addrObj?.get("house_number")?.asString ?: ""
+                    val neighbourhood = addrObj?.get("neighbourhood")?.asString ?: ""
+                    val suburb = addrObj?.get("suburb")?.asString ?: ""
+                    val city = addrObj?.get("city")?.asString ?: addrObj?.get("county")?.asString ?: currentLoc.city
+                    val shopName = addrObj?.get("shop")?.asString ?: item.get("name")?.asString ?: cleanQuery.replaceFirstChar { it.uppercase() }
+
+                    val distResults = FloatArray(2)
+                    Location.distanceBetween(currentLoc.latitude, currentLoc.longitude, lat, lon, distResults)
+                    val distMeters = distResults[0].toInt().coerceAtLeast(30)
+                    val bearing = (distResults[1] + 360) % 360
+                    val cardinal = calculateCardinal(bearing)
+                    val walkingMin = (distMeters / 75).coerceAtLeast(1)
+                    val blocks = (distMeters / 100).coerceAtLeast(1)
+
+                    val streetText = if (road.isNotBlank()) {
+                        if (houseNumber.isNotBlank()) "$road $houseNumber" else road
+                    } else {
+                        shopName
+                    }
+                    val areaText = if (suburb.isNotBlank()) ", $suburb" else if (neighbourhood.isNotBlank()) ", $neighbourhood" else ""
+                    val fullAddress = "$streetText$areaText"
+
+                    resultsList.add(
+                        NearbyPlaceMatch(
+                            name = shopName,
+                            road = road,
+                            houseNumber = houseNumber,
+                            neighbourhood = neighbourhood,
+                            suburb = suburb,
+                            city = city,
+                            latitude = lat,
+                            longitude = lon,
+                            distanceMeters = distMeters,
+                            bearing = bearing,
+                            cardinalDirection = cardinal,
+                            walkingMinutes = walkingMin,
+                            blocks = blocks,
+                            fullAddressText = fullAddress
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error buscando en Nominatim: ${e.message}")
+        }
+
+        // 2. Si la búsqueda local no arrojó resultados o no hay internet para OSM, fallback con Geocoder
+        if (resultsList.isEmpty()) {
+            try {
+                val geocoder = Geocoder(context, Locale("es", "CL"))
+                @Suppress("DEPRECATION")
+                val matches = geocoder.getFromLocationName("$cleanQuery, ${currentLoc.city}", 5)
+                if (!matches.isNullOrEmpty()) {
+                    for (m in matches) {
+                        val distResults = FloatArray(2)
+                        Location.distanceBetween(currentLoc.latitude, currentLoc.longitude, m.latitude, m.longitude, distResults)
+                        val distMeters = distResults[0].toInt().coerceAtLeast(50)
+                        val bearing = (distResults[1] + 360) % 360
+                        val cardinal = calculateCardinal(bearing)
+                        val walkingMin = (distMeters / 75).coerceAtLeast(1)
+                        val blocks = (distMeters / 100).coerceAtLeast(1)
+                        val road = m.thoroughfare ?: m.featureName ?: cleanQuery
+                        val houseNumber = m.subThoroughfare ?: ""
+                        val suburb = m.subLocality ?: m.locality ?: ""
+                        val streetText = if (houseNumber.isNotBlank()) "$road $houseNumber" else road
+                        val fullAddress = if (suburb.isNotBlank()) "$streetText, $suburb" else streetText
+
+                        resultsList.add(
+                            NearbyPlaceMatch(
+                                name = m.featureName ?: cleanQuery,
+                                road = road,
+                                houseNumber = houseNumber,
+                                neighbourhood = "",
+                                suburb = suburb,
+                                city = currentLoc.city,
+                                latitude = m.latitude,
+                                longitude = m.longitude,
+                                distanceMeters = distMeters,
+                                bearing = bearing,
+                                cardinalDirection = cardinal,
+                                walkingMinutes = walkingMin,
+                                blocks = blocks,
+                                fullAddressText = fullAddress
+                            )
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error en Geocoder fallback: ${e.message}")
+            }
+        }
+
+        resultsList.sortBy { it.distanceMeters }
+        resultsList
+    }
 }
+
+/**
+ * Resultado detallado de un lugar de interés cercano encontrado.
+ */
+data class NearbyPlaceMatch(
+    val name: String,
+    val road: String,
+    val houseNumber: String,
+    val neighbourhood: String,
+    val suburb: String,
+    val city: String,
+    val latitude: Double,
+    val longitude: Double,
+    val distanceMeters: Int,
+    val bearing: Float,
+    val cardinalDirection: String,
+    val walkingMinutes: Int,
+    val blocks: Int,
+    val fullAddressText: String
+)
 
 /**
  * Resultado estructurado de guía de navegación hablada manos libres.

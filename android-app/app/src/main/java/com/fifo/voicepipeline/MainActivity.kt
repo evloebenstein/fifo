@@ -1,6 +1,7 @@
 package com.fifo.voicepipeline
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
@@ -88,15 +89,15 @@ class MainActivity : ComponentActivity() {
 
         // ── Obtener API keys desde SharedPreferences o BuildConfig ────
         val prefs = getSharedPreferences("fifo_prefs", MODE_PRIVATE)
+        // Eliminar clave de Anthropic / Claude obsoleta si existía
+        prefs.edit().remove("anthropic_api_key").apply()
+
         val savedGroqKey = prefs.getString("groq_api_key", "") ?: ""
         val groqKey = savedGroqKey.ifEmpty {
             BuildConfig.GROQ_API_KEY.ifEmpty { DEFAULT_GROQ_KEY }
         }
 
-        val savedClaudeKey = prefs.getString("anthropic_api_key", "") ?: ""
-        val anthropicKey = savedClaudeKey.ifEmpty {
-            BuildConfig.ANTHROPIC_API_KEY.ifEmpty { DEFAULT_ANTHROPIC_KEY }
-        }
+        val anthropicKey = "" // Desactivado: El cerebro es 100% Groq (Qwen 27B / GPT-OSS 120B)
 
         val savedSttKey = prefs.getString("stt_api_key", "") ?: ""
         val openAiKey = savedSttKey.ifEmpty { BuildConfig.OPENAI_API_KEY }
@@ -124,7 +125,7 @@ class MainActivity : ComponentActivity() {
             val isBleConnecting = bleState is BleConnectionState.Connecting || bleState is BleConnectionState.Scanning
             val isMicMuted by pipeline.isMicMuted.collectAsState()
 
-            var currentClaudeKey by remember { mutableStateOf(groqKey.ifEmpty { anthropicKey }) }
+            var currentClaudeKey by remember { mutableStateOf(groqKey) }
 
             val testConnectionFn: suspend (String) -> Pair<Boolean, String> = { keyToTest ->
                 pipeline.testConnection(keyToTest)
@@ -147,17 +148,10 @@ class MainActivity : ComponentActivity() {
                 currentClaudeKey = currentClaudeKey,
                 onSaveClaudeKey = { newKey: String ->
                     val trimmed = newKey.trim()
-                    if (trimmed.startsWith("gsk_")) {
-                        prefs.edit().putString("groq_api_key", trimmed).apply()
-                        pipeline.setGroqApiKey(trimmed)
-                        currentClaudeKey = trimmed
-                        Toast.makeText(this, "Cerebro Groq (GPT-OSS 120B) guardado y activado", Toast.LENGTH_SHORT).show()
-                    } else {
-                        prefs.edit().putString("anthropic_api_key", trimmed).apply()
-                        pipeline.setAnthropicApiKey(trimmed)
-                        currentClaudeKey = trimmed
-                        Toast.makeText(this, "Clave guardada y activada", Toast.LENGTH_SHORT).show()
-                    }
+                    prefs.edit().putString("groq_api_key", trimmed).apply()
+                    pipeline.setGroqApiKey(trimmed)
+                    currentClaudeKey = trimmed
+                    Toast.makeText(this, "Cerebro Groq guardado y activado", Toast.LENGTH_SHORT).show()
                 },
                 onTestClaudeKey = testConnectionFn,
                 onConnectBle = {

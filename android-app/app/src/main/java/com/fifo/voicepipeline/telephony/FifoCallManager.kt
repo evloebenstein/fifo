@@ -288,20 +288,27 @@ class FifoCallManager(
             android.Manifest.permission.ANSWER_PHONE_CALLS
         ) == PackageManager.PERMISSION_GRANTED
 
-        return try {
+        var answered = false
+        try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && hasAnswerPermission) {
                 telecomManager?.acceptRingingCall()
-            } else {
-                Log.w(TAG, "No se cuenta con permiso ANSWER_PHONE_CALLS directo.")
+                answered = true
             }
-
-            // Activar altavoz del teléfono para que el usuario pueda hablar manos libres
-            routeAudioToSpeaker()
-            true
         } catch (e: Exception) {
-            Log.e(TAG, "Error contestando llamada: ${e.message}")
-            false
+            Log.w(TAG, "TelecomManager no pudo contestar directamente: ${e.message}")
         }
+
+        // Si TelecomManager no pudo o es una videollamada (WeChat, WhatsApp, Meet), intentar vía Accesibilidad
+        if (!answered) {
+            val a11yAnswered = com.fifo.voicepipeline.service.FifoAccessibilityService.instance?.clickAnswer() ?: false
+            if (a11yAnswered) {
+                answered = true
+                Log.i(TAG, "Llamada contestada vía FifoAccessibilityService")
+            }
+        }
+
+        routeAudioToSpeaker()
+        return answered
     }
 
     /**
@@ -311,8 +318,8 @@ class FifoCallManager(
     fun hangupCall(): Boolean {
         Log.i(TAG, "Intentando colgar / rechazar llamada...")
 
-        return try {
-            var ended = false
+        var ended = false
+        try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val hasAnswerPermission = ContextCompat.checkSelfPermission(
                     context,
@@ -322,19 +329,23 @@ class FifoCallManager(
                 if (hasAnswerPermission) {
                     ended = telecomManager?.endCall() ?: false
                     Log.i(TAG, "Llamada finalizada vía TelecomManager: $ended")
-                } else {
-                    Log.w(TAG, "Falta permiso ANSWER_PHONE_CALLS para endCall.")
                 }
-            } else {
-                Log.w(TAG, "endCall directo requiere Android 9+.")
             }
-            resetCallAudioRouting()
-            ended
         } catch (e: Exception) {
-            Log.e(TAG, "Error colgando llamada: ${e.message}")
-            resetCallAudioRouting()
-            false
+            Log.w(TAG, "TelecomManager no pudo colgar directamente: ${e.message}")
         }
+
+        // Si TelecomManager no pudo o es videollamada VoIP (WeChat, WhatsApp, Meet), intentar vía Accesibilidad
+        if (!ended) {
+            val a11yEnded = com.fifo.voicepipeline.service.FifoAccessibilityService.instance?.clickHangup() ?: false
+            if (a11yEnded) {
+                ended = true
+                Log.i(TAG, "Llamada finalizada vía FifoAccessibilityService")
+            }
+        }
+
+        resetCallAudioRouting()
+        return ended
     }
 
     /**

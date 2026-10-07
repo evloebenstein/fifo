@@ -22,6 +22,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import com.fifo.voicepipeline.service.FifoAccessibilityService
+import com.fifo.voicepipeline.ui.components.CallAssistantGuideDialog
 import com.fifo.voicepipeline.ui.components.FifoFace
 import com.fifo.voicepipeline.ui.theme.FifoColors
 
@@ -42,6 +48,7 @@ private enum class SetupPhase {
     FIFO_QUESTION_GENDER,
     FIFO_QUESTION_CITY,
     FIFO_QUESTION_TASTES,
+    SETUP_PERMISSIONS,
     FIFO_SETUP_READY
 }
 
@@ -52,6 +59,7 @@ fun OnboardingScreen(
     onBack: () -> Unit
 ) {
     var currentPhase by remember { mutableStateOf(SetupPhase.CREATE_ACCOUNT) }
+    var showCallGuideDialogInSetup by remember { mutableStateOf(false) }
 
     // Datos recopilados en el Setup
     var fullName by remember { mutableStateOf("Lucía González") }
@@ -112,7 +120,8 @@ fun OnboardingScreen(
                         SetupPhase.FIFO_QUESTION_GENDER -> currentPhase = SetupPhase.FIFO_QUESTION_BIRTHDAY
                         SetupPhase.FIFO_QUESTION_CITY -> currentPhase = SetupPhase.FIFO_QUESTION_GENDER
                         SetupPhase.FIFO_QUESTION_TASTES -> currentPhase = SetupPhase.FIFO_QUESTION_CITY
-                        SetupPhase.FIFO_SETUP_READY -> currentPhase = SetupPhase.FIFO_QUESTION_TASTES
+                        SetupPhase.SETUP_PERMISSIONS -> currentPhase = SetupPhase.FIFO_QUESTION_TASTES
+                        SetupPhase.FIFO_SETUP_READY -> currentPhase = SetupPhase.SETUP_PERMISSIONS
                     }
                 }
             ) {
@@ -143,6 +152,7 @@ fun OnboardingScreen(
                         SetupPhase.FIFO_QUESTION_GENDER -> "Pregunta 2 de 4"
                         SetupPhase.FIFO_QUESTION_CITY -> "Pregunta 3 de 4"
                         SetupPhase.FIFO_QUESTION_TASTES -> "Pregunta 4 de 4"
+                        SetupPhase.SETUP_PERMISSIONS -> "Paso 5 de 5 · Permisos"
                         SetupPhase.FIFO_SETUP_READY -> "Setup completado"
                     },
                     fontSize = 11.sp,
@@ -731,7 +741,203 @@ fun OnboardingScreen(
                     .fillMaxWidth()
                     .height(52.dp)
             ) {
-                Text("Completar configuración con Fifo →", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                Text("Siguiente: Permisos y Llamadas →", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+            }
+
+            Spacer(modifier = Modifier.height(36.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // ── FASE 5: PERMISOS Y ASISTENTE EN LLAMADAS ─────────────────
+        // ══════════════════════════════════════════════════════════════
+        else if (currentPhase == SetupPhase.SETUP_PERMISSIONS) {
+            val context = LocalContext.current
+            var isA11yActive by remember { mutableStateOf(FifoAccessibilityService.isEnabled(context)) }
+
+            LaunchedEffect(Unit) {
+                while (true) {
+                    isA11yActive = FifoAccessibilityService.isEnabled(context)
+                    kotlinx.coroutines.delay(1000)
+                }
+            }
+
+            Surface(
+                color = FifoColors.HeroBlueCard,
+                shape = RoundedCornerShape(22.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(54.dp)
+                            .background(Color.White, CircleShape)
+                            .border(1.5.dp, Color(0xFFBAE6FD), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        FifoFace(size = 40.dp, isDarkTheme = false)
+                    }
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column {
+                        Text(
+                            text = "Permisos de Fifo",
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = FifoColors.NavyPrimary
+                        )
+                        Text(
+                            text = "Para escucharte y ayudarte con tus llamadas.",
+                            fontSize = 12.sp,
+                            color = FifoColors.LightTextSecondary
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            Text(
+                text = "Configuración del celular",
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                color = FifoColors.LightTextPrimary
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Para que tu experiencia sea completa, Fifo necesita acceso a las funciones del teléfono.",
+                fontSize = 13.sp,
+                color = FifoColors.LightTextSecondary,
+                lineHeight = 18.sp
+            )
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Tarjeta 1: Permisos Básicos (Micrófono, Teléfono, Bluetooth, GPS)
+            Surface(
+                color = Color.White,
+                shape = RoundedCornerShape(20.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.LightCardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Default.Mic, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(24.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text("1. Funciones básicas del teléfono", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = FifoColors.NavyPrimary)
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "• Micrófono: Para escuchar cuando le hablas.\n• Llamadas y Contactos: Para saber quién llama y contestar.\n• Bluetooth: Para conectar con tu robot Fifo.\n• Ubicación: Para decirte dónde estás o ayudarte.",
+                        fontSize = 12.sp,
+                        color = FifoColors.LightTextSecondary,
+                        lineHeight = 18.sp
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                                    data = Uri.parse("package:com.fifo.voicepipeline")
+                                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                                }
+                                context.startActivity(intent)
+                            } catch (e: Exception) {
+                                // Ignore
+                            }
+                        },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth().height(44.dp)
+                    ) {
+                        Text("Revisar Permisos de la App", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Tarjeta 2: Asistente en Llamadas (Accesibilidad)
+            Surface(
+                color = if (isA11yActive) Color(0xFFF0FDF4) else Color(0xFFFFFBEB),
+                shape = RoundedCornerShape(20.dp),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, if (isA11yActive) Color(0xFF86EFAC) else Color(0xFFFDE68A)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = if (isA11yActive) Icons.Default.CheckCircle else Icons.Default.PhoneInTalk,
+                            contentDescription = null,
+                            tint = if (isA11yActive) Color(0xFF16A34A) else Color(0xFFD97706),
+                            modifier = Modifier.size(26.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "2. Asistente en Llamadas",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = FifoColors.NavyPrimary
+                            )
+                            Text(
+                                text = if (isA11yActive) "¡Activo y listo!" else "Recomendado para llamadas",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (isA11yActive) Color(0xFF16A34A) else Color(0xFFD97706)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Permite que Fifo te escuche y pueda colgar o contestar en llamadas normales de celular, WhatsApp, WeChat o videollamadas.",
+                        fontSize = 12.sp,
+                        color = FifoColors.LightTextSecondary,
+                        lineHeight = 17.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    if (!isA11yActive) {
+                        Button(
+                            onClick = { showCallGuideDialogInSetup = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth().height(46.dp)
+                        ) {
+                            Text("Ver pasos de activación (Xiaomi / Android)", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                        }
+                    } else {
+                        Surface(
+                            color = Color(0xFFDCFCE7),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "✓ Fifo podrá asistirte durante cualquier llamada o videollamada.",
+                                fontSize = 12.sp,
+                                color = Color(0xFF166534),
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            Button(
+                onClick = { currentPhase = SetupPhase.FIFO_SETUP_READY },
+                shape = RoundedCornerShape(18.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = FifoColors.NavyPrimary),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(52.dp)
+            ) {
+                Text("Continuar a Resumen Final →", fontSize = 15.sp, fontWeight = FontWeight.Bold)
             }
 
             Spacer(modifier = Modifier.height(36.dp))
@@ -858,6 +1064,12 @@ fun OnboardingScreen(
             }
 
             Spacer(modifier = Modifier.height(36.dp))
+        }
+
+        if (showCallGuideDialogInSetup) {
+            CallAssistantGuideDialog(
+                onDismiss = { showCallGuideDialogInSetup = false }
+            )
         }
     }
 }

@@ -1,3 +1,4 @@
 <resources>
     <string name="app_name">Fifo</string>
+    <string name="accessibility_service_description">Permite a Fifo asistirle durante llamadas y videollamadas, y contestar o colgar cuando usted lo solicite con su voz.</string>
 </resources>

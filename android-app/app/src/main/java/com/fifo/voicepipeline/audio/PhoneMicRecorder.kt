@@ -87,49 +87,52 @@ class PhoneMicRecorder(
                 com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
             )
 
+            var targetDevice: AudioDeviceInfo? = null
             if (inCallMode) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                     val commDevices = audioManager?.availableCommunicationDevices ?: emptyList()
-                    val targetDevice = commDevices.firstOrNull {
+                    targetDevice = commDevices.firstOrNull {
                         it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
                         it.type == AudioDeviceInfo.TYPE_BLE_HEADSET ||
                         it.type == AudioDeviceInfo.TYPE_WIRED_HEADSET ||
                         it.type == AudioDeviceInfo.TYPE_USB_HEADSET
                     }
-                    if (targetDevice != null) {
+                    // Solo enrutar globalmente si Fifo maneja directamente una llamada celular SIM
+                    if (com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null && targetDevice != null) {
                         val setOk = audioManager?.setCommunicationDevice(targetDevice)
-                        Log.i(TAG, "Audio de llamada enrutado a ${targetDevice.productName} (tipo: ${targetDevice.type}, éxito: $setOk)")
+                        Log.i(TAG, "Audio de llamada celular enrutado a ${targetDevice.productName} (éxito: $setOk)")
                     }
-                } else {
+                } else if (com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null) {
                     try {
                         audioManager?.startBluetoothSco()
                         audioManager?.isBluetoothScoOn = true
-                        Log.i(TAG, "Bluetooth SCO iniciado para captura en llamada")
+                        Log.i(TAG, "Bluetooth SCO iniciado para llamada celular")
                     } catch (e: Exception) {
                         Log.w(TAG, "No se pudo iniciar Bluetooth SCO legacy: ${e.message}")
                     }
                 }
             }
 
-            // Cuando hay una llamada en curso o entrante, VOICE_COMMUNICATION es la ÚNICA fuente permitida
-            // por la política de audio de Android para captura concurrente con cancelación de eco de hardware.
+            // Cuando otra app (WeChat, WhatsApp, Meet) tiene una llamada o videollamada activa,
+            // VOICE_COMMUNICATION es silenciado exclusivamente para apps secundarias por AudioPolicy.
+            // Para captura concurrente asistida (Accessibility), AudioSource.MIC y VOICE_RECOGNITION
+            // entregan el audio real del micrófono o auricular Bluetooth.
             val audioSources = if (inCallMode) {
-                Log.i(TAG, "Modo llamada detectado: priorizando MediaRecorder.AudioSource.VOICE_COMMUNICATION")
+                Log.i(TAG, "Modo llamada detectado: priorizando MediaRecorder.AudioSource.VOICE_RECOGNITION")
                 listOf(
-                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                     MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                     MediaRecorder.AudioSource.MIC,
-                    MediaRecorder.AudioSource.CAMCORDER,
-                    MediaRecorder.AudioSource.UNPROCESSED,
-                    MediaRecorder.AudioSource.DEFAULT
+                    MediaRecorder.AudioSource.DEFAULT,
+                    MediaRecorder.AudioSource.UNPROCESSED
                 )
             } else {
                 listOf(
                     MediaRecorder.AudioSource.MIC,
                     MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                    MediaRecorder.AudioSource.DEFAULT,
                     MediaRecorder.AudioSource.CAMCORDER,
-                    MediaRecorder.AudioSource.DEFAULT
+                    MediaRecorder.AudioSource.VOICE_COMMUNICATION
                 )
             }
 
@@ -144,6 +147,14 @@ class PhoneMicRecorder(
                         bufferSize
                     )
                     if (record.state == AudioRecord.STATE_INITIALIZED) {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && targetDevice != null) {
+                            try {
+                                val prefOk = record.setPreferredDevice(targetDevice)
+                                Log.i(TAG, "Dispositivo de entrada preferido configurado: ${targetDevice.productName} (éxito=$prefOk)")
+                            } catch (e: Exception) {
+                                Log.w(TAG, "No se pudo configurar preferredDevice: ${e.message}")
+                            }
+                        }
                         initializedRecord = record
                         Log.i(TAG, "AudioRecord inicializado exitosamente con fuente de audio: $source (inCallMode=$inCallMode)")
                         break
@@ -196,6 +207,7 @@ class PhoneMicRecorder(
 
             recordingJob = scope.launch {
                 val buffer = ByteArray(chunkBytes)
+                var chunkCount = 0
                 while (isActive && isRecording) {
                     var bytesRead = 0
                     while (bytesRead < chunkBytes && isActive && isRecording) {
@@ -212,6 +224,17 @@ class PhoneMicRecorder(
                     }
 
                     if (bytesRead == chunkBytes) {
+                        chunkCount++
+                        if (chunkCount % 25 == 0) {
+                            var sum = 0.0
+                            for (i in 0 until chunkBytes step 2) {
+                                val sample = (buffer[i].toInt() and 0xFF) or (buffer[i + 1].toInt() shl 8)
+                                val shortSample = sample.toShort()
+                                sum += shortSample * shortSample
+                            }
+                            val rms = Math.sqrt(sum / (chunkBytes / 2))
+                            Log.d(TAG, "Audio capturado celular [chunk $chunkCount]: RMS=${String.format("%.1f", rms)}, inCallMode=$inCallMode, src=${audioRecord?.audioSource}")
+                        }
                         onChunk(buffer.copyOf())
                     }
                 }
@@ -273,13 +296,16 @@ class PhoneMicRecorder(
         } finally {
             audioRecord = null
             try {
-                val audioManager = context?.getSystemService(android.content.Context.AUDIO_SERVICE) as? AudioManager
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    audioManager?.clearCommunicationDevice()
-                } else {
-                    if (audioManager?.isBluetoothScoOn == true) {
-                        audioManager.isBluetoothScoOn = false
-                        audioManager.stopBluetoothSco()
+                // Solo limpiar enrutamiento de comunicación si Fifo lo había configurado para llamada celular
+                if (com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null) {
+                    val audioManager = context?.getSystemService(android.content.Context.AUDIO_SERVICE) as? AudioManager
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        audioManager?.clearCommunicationDevice()
+                    } else {
+                        if (audioManager?.isBluetoothScoOn == true) {
+                            audioManager.isBluetoothScoOn = false
+                            audioManager.stopBluetoothSco()
+                        }
                     }
                 }
             } catch (e: Exception) {

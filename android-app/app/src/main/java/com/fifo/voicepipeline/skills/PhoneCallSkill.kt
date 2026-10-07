@@ -99,12 +99,53 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
                 val profile = FifoDataRepository.userProfile.value
                 val lower = contactInput.lowercase()
 
-                val phoneNumber = when {
-                    lower.contains("samu") || lower.contains("131") || lower.contains("ambulancia") -> "131"
-                    lower.contains("bombero") || lower.contains("132") -> "132"
-                    lower.contains("carabinero") || lower.contains("133") -> "133"
-                    lower.contains("carmen") || lower.contains("hija") || lower.contains("familia") -> profile.emergencyContactPhone
-                    else -> profile.emergencyContactPhone
+                var resolvedContactName = profile.emergencyContactName
+                var phoneNumber = when {
+                    lower.contains("samu") || lower.contains("131") || lower.contains("ambulancia") -> {
+                        resolvedContactName = "Ambulancia SAMU 131"
+                        "131"
+                    }
+                    lower.contains("bombero") || lower.contains("132") -> {
+                        resolvedContactName = "Bomberos 132"
+                        "132"
+                    }
+                    lower.contains("carabinero") || lower.contains("133") -> {
+                        resolvedContactName = "Carabineros 133"
+                        "133"
+                    }
+                    lower.contains("carmen") || lower.contains("hija") || lower.contains("familia") -> {
+                        resolvedContactName = profile.emergencyContactName
+                        profile.emergencyContactPhone
+                    }
+                    else -> ""
+                }
+
+                if (phoneNumber.isBlank()) {
+                    // Buscar en contactos del teléfono
+                    try {
+                        val uri = android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+                        val projection = arrayOf(
+                            android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                            android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER
+                        )
+                        val selection = "${android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} LIKE ?"
+                        val selectionArgs = arrayOf("%$contactInput%")
+                        context.contentResolver.query(uri, projection, selection, selectionArgs, null)?.use { cursor ->
+                            if (cursor.moveToFirst()) {
+                                val nameIdx = cursor.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                                val numIdx = cursor.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER)
+                                if (nameIdx >= 0) resolvedContactName = cursor.getString(nameIdx)
+                                if (numIdx >= 0) phoneNumber = cursor.getString(numIdx)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error buscando en contactos: ${e.message}")
+                    }
+
+                    if (phoneNumber.isBlank()) {
+                        resolvedContactName = profile.emergencyContactName
+                        phoneNumber = profile.emergencyContactPhone
+                    }
                 }
 
                 try {
@@ -118,15 +159,15 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
                 }
 
                 val spoken = if (phoneNumber.length <= 3) {
-                    "Marcando inmediatamente al servicio de urgencia $phoneNumber."
+                    "Marcando inmediatamente al servicio de urgencia $resolvedContactName."
                 } else {
-                    "Marcando a su contacto ${profile.emergencyContactName} por teléfono."
+                    "Marcando a $resolvedContactName por teléfono."
                 }
 
                 SkillResult(
                     success = true,
                     spokenFeedback = spoken,
-                    data = mapOf("target" to contactInput, "phone" to phoneNumber)
+                    data = mapOf("target" to contactInput, "name" to resolvedContactName, "phone" to phoneNumber)
                 )
             }
 

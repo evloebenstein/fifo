@@ -728,6 +728,7 @@ fun HomeScreen(
                         "medication" -> Icons.Default.Favorite
                         "family" -> Icons.Default.Phone
                         "health" -> Icons.Outlined.Air
+                        "sport" -> Icons.Default.FitnessCenter
                         else -> Icons.Outlined.Schedule
                     }
                     ReminderItem(
@@ -742,7 +743,7 @@ fun HomeScreen(
 
         Spacer(modifier = Modifier.height(26.dp))
 
-        // ── Sección: Resumen con Fifo ───
+        // ── Sección: Charlas y Recuerdos con Fifo ───
         Surface(
             shape = RoundedCornerShape(24.dp),
             color = FifoColors.HeroBlueCard.copy(alpha = 0.55f),
@@ -760,25 +761,26 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "Resumen con Fifo",
+                                text = "Charlas y Recuerdos",
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = FifoColors.NavyPrimary
                             )
                             Text(
-                                text = "De nuestras conversaciones",
+                                text = "Planes, gustos y notas de Fifo",
                                 fontSize = 13.sp,
                                 color = FifoColors.LightTextSecondary
                             )
                         }
                     }
 
+                    val memoryCount = memories.size
                     Surface(
                         color = Color.White,
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Text(
-                            text = "2 notas",
+                            text = "$memoryCount ${if (memoryCount == 1) "recuerdo" else "recuerdos"}",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
                             color = FifoColors.NavyPrimary,
@@ -789,63 +791,37 @@ fun HomeScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                Text(
-                    text = "Recordemos lo que conversamos para que no tenga que repetirse:",
-                    fontSize = 13.sp,
-                    color = FifoColors.LightTextSecondary,
-                    lineHeight = 18.sp
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(verticalAlignment = Alignment.Top) {
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .background(FifoColors.BlueSoftPill, CircleShape)
-                            .border(1.dp, FifoColors.NavyPrimary, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = FifoColors.NavyPrimary,
-                            modifier = Modifier.size(12.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(10.dp))
+                if (memories.isEmpty()) {
                     Text(
-                        text = "Conversó sobre sus proyectos y se sintió con más energía y tranquilidad.",
+                        text = "Conversa con Fifo para que recuerde tus rutinas, planes de entrenamiento (como Jiu-Jitsu) o proyectos sin tener que repetirlos.",
                         fontSize = 13.sp,
-                        color = FifoColors.LightTextPrimary,
+                        color = FifoColors.LightTextSecondary,
                         lineHeight = 18.sp
                     )
-                }
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(verticalAlignment = Alignment.Top) {
-                    Box(
-                        modifier = Modifier
-                            .size(20.dp)
-                            .background(FifoColors.BlueSoftPill, CircleShape)
-                            .border(1.dp, FifoColors.NavyPrimary, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            tint = FifoColors.NavyPrimary,
-                            modifier = Modifier.size(12.dp)
-                        )
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        memories.take(3).forEach { mem ->
+                            Row(verticalAlignment = Alignment.Top) {
+                                Text(text = mem.emoji, fontSize = 18.sp)
+                                Spacer(modifier = Modifier.width(10.dp))
+                                Column {
+                                    Text(
+                                        text = mem.title,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = FifoColors.LightTextPrimary
+                                    )
+                                    Text(
+                                        text = mem.detail,
+                                        fontSize = 12.sp,
+                                        color = FifoColors.LightTextSecondary,
+                                        maxLines = 2,
+                                        lineHeight = 16.sp
+                                    )
+                                }
+                            }
+                        }
                     }
-                    Spacer(modifier = Modifier.width(10.dp))
-                    Text(
-                        text = "Fifo le ayudó a organizar y priorizar sus actividades de hoy con calma.",
-                        fontSize = 13.sp,
-                        color = FifoColors.LightTextPrimary,
-                        lineHeight = 18.sp
-                    )
                 }
 
                 Spacer(modifier = Modifier.height(18.dp))

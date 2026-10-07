@@ -2,6 +2,7 @@ package com.fifo.voicepipeline.audio
 
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -45,6 +46,25 @@ class NativeSpeechRecognizer(
     private var shouldKeepListening = false
     private var currentGeneration = 0
     private var consecutiveErrors = 0
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+
+    private fun suppressBeep() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                audioManager?.adjustStreamVolume(android.media.AudioManager.STREAM_NOTIFICATION, android.media.AudioManager.ADJUST_MUTE, 0)
+                audioManager?.adjustStreamVolume(android.media.AudioManager.STREAM_SYSTEM, android.media.AudioManager.ADJUST_MUTE, 0)
+            }
+        } catch (_: Exception) {}
+    }
+
+    private fun restoreBeep() {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                audioManager?.adjustStreamVolume(android.media.AudioManager.STREAM_NOTIFICATION, android.media.AudioManager.ADJUST_UNMUTE, 0)
+                audioManager?.adjustStreamVolume(android.media.AudioManager.STREAM_SYSTEM, android.media.AudioManager.ADJUST_UNMUTE, 0)
+            }
+        } catch (_: Exception) {}
+    }
 
     fun isAvailable(): Boolean {
         return SpeechRecognizer.isRecognitionAvailable(context)
@@ -63,6 +83,7 @@ class NativeSpeechRecognizer(
         mainHandler.removeCallbacksAndMessages(null)
         mainHandler.post {
             try {
+                restoreBeep()
                 isListening = false
                 speechRecognizer?.cancel()
             } catch (e: Exception) {
@@ -76,6 +97,7 @@ class NativeSpeechRecognizer(
         mainHandler.removeCallbacksAndMessages(null)
         mainHandler.post {
             try {
+                restoreBeep()
                 isListening = false
                 speechRecognizer?.destroy()
                 speechRecognizer = null
@@ -118,10 +140,12 @@ class NativeSpeechRecognizer(
                 }
             }
 
+            suppressBeep()
             speechRecognizer?.startListening(buildRecognizerIntent())
             isListening = true
             Log.d(TAG, "SpeechRecognizer startListening llamado...")
         } catch (e: Exception) {
+            restoreBeep()
             Log.e(TAG, "Error iniciando SpeechRecognizer: ${e.message}", e)
             consecutiveErrors++
             if (consecutiveErrors >= 3) {
@@ -140,10 +164,12 @@ class NativeSpeechRecognizer(
                     if (speechRecognizer == null) {
                         startInternal()
                     } else {
+                        suppressBeep()
                         speechRecognizer?.startListening(buildRecognizerIntent())
                         isListening = true
                     }
                 } catch (e: Exception) {
+                    restoreBeep()
                     Log.w(TAG, "Error reiniciando recognizer existente: ${e.message}, recreando...")
                     consecutiveErrors++
                     if (consecutiveErrors >= 3) {
@@ -174,6 +200,7 @@ class NativeSpeechRecognizer(
     private fun createListener(generation: Int): RecognitionListener {
         return object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
+                restoreBeep()
                 if (generation != currentGeneration) return
                 isListening = true
                 consecutiveErrors = 0
@@ -198,6 +225,7 @@ class NativeSpeechRecognizer(
             }
 
             override fun onError(error: Int) {
+                restoreBeep()
                 if (generation != currentGeneration) return
                 isListening = false
                 consecutiveErrors++
@@ -271,14 +299,8 @@ class NativeSpeechRecognizer(
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: arrayListOf()
                 Log.i(TAG, "Candidatos reconocidos por Google: $matches")
 
-                val wakeWords = listOf(
-                    "fifo", "fifa", "fito", "feefo", "fido", "vivo", "filo", "fijo", "pipo", "kiko", "sifo",
-                    "fee for", "fit for", "people", "free for", "feed for", "bebo", "feefa", "fefa", "phifo", "vibo"
-                )
-
                 val bestMatch = matches.firstOrNull { candidate ->
-                    val lower = candidate.lowercase()
-                    wakeWords.any { lower.contains(it) }
+                    matchesWakeWord(candidate)
                 } ?: matches.firstOrNull() ?: ""
 
                 if (bestMatch.isNotBlank()) {
@@ -293,18 +315,19 @@ class NativeSpeechRecognizer(
             override fun onPartialResults(partialResults: Bundle?) {
                 if (generation != currentGeneration) return
                 val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION) ?: arrayListOf()
-                val wakeWords = listOf(
-                    "fifo", "fifa", "fito", "feefo", "fido", "vivo", "filo", "fijo", "pipo",
-                    "fee for", "fit for", "feefa", "fefa", "phifo"
-                )
                 val callKeywords = listOf(
                     "contesta", "cuelga", "rechaza", "atiende", "corta", "colgar", "contestar", "finaliza", "acepta"
+                )
+                val silenceKeywords = listOf(
+                    "silencio", "callate", "cállate", "para", "parate", "basta", "detente", "stop", "shh"
                 )
 
                 val bestPartial = matches.firstOrNull { candidate ->
                     val lower = candidate.lowercase()
-                    wakeWords.any { lower.contains(it) } || callKeywords.any { lower.contains(it) }
-                } ?: matches.firstOrNull() ?: ""
+                    matchesWakeWord(candidate) ||
+                    callKeywords.any { lower.contains(it) } ||
+                    silenceKeywords.any { lower.contains(it) }
+                } ?: ""
 
                 if (bestPartial.isNotBlank()) {
                     callbackPartialResult(bestPartial)
@@ -312,6 +335,26 @@ class NativeSpeechRecognizer(
             }
 
             override fun onEvent(eventType: Int, params: Bundle?) {}
+        }
+    }
+
+    private fun matchesWakeWord(candidate: String): Boolean {
+        if (candidate.isBlank()) return false
+        val norm = java.text.Normalizer.normalize(candidate.lowercase().trim(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+            .replace(Regex("[^a-z0-9\\s]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        val noSpaces = norm.replace(" ", "")
+
+        if (noSpaces.contains("fifo") || Regex("f+i+f+o+").containsMatchIn(noSpaces)) return true
+
+        val wakeWords = listOf(
+            "fifo", "fifa", "fito", "feefo", "fido", "vivo", "filo", "fijo", "pipo", "kiko", "sifo",
+            "fi fo", "fe fo", "fibo", "fipo", "fico", "fiko", "fee for", "fit for", "people", "free for", "feed for", "bebo", "feefa", "fefa", "phifo", "vibo"
+        )
+        return wakeWords.any { word ->
+            norm.contains(Regex("\\b$word\\b")) || norm.startsWith("$word ") || norm.endsWith(" $word") || norm == word
         }
     }
 }

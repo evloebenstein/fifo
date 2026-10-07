@@ -57,6 +57,9 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
             "gender": { "type": "string", "description": "Género o trato ('Mujer', 'Hombre', etc.)" },
             "city": { "type": "string", "description": "Ciudad de residencia" },
             "taste_name": { "type": "string", "description": "Nombre del gusto o pasatiempo recreativo positivo" },
+            "memory_title": { "type": "string", "description": "Título del recuerdo, plan de entrenamiento o nota (ej: 'Plan de Jiu-Jitsu semanal', 'Receta')" },
+            "memory_description": { "type": "string", "description": "Detalle completo del plan de entrenamiento o recuerdo para guardarlo en la pestaña de recuerdos" },
+            "memory_icon": { "type": "string", "description": "Emoji representativo (ej: '🥋' para entreno, '📝' para plan, '🌸' para recuerdo)" },
             "post_content": { "type": "string", "description": "Texto para compartir en la comunidad Fifo Amigos" },
             "post_category": { "type": "string", "description": "Categoría de la publicación" },
             "has_explicit_consent": {
@@ -204,10 +207,17 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
             }
 
             "add_memory" -> {
-                val title = args["taste_name"]?.toString() ?: args["post_content"]?.toString() ?: "Recuerdo"
+                val title = args["memory_title"]?.toString()
+                    ?: args["taste_name"]?.toString()
+                    ?: args["post_content"]?.toString()
+                    ?: "Recuerdo"
+                val description = args["memory_description"]?.toString()
+                    ?: "Guardado en tus conversaciones y recuerdos de Fifo."
+                val icon = args["memory_icon"]?.toString()
+                    ?: if (title.lowercase().contains("jiu") || title.lowercase().contains("entren") || title.lowercase().contains("deport") || title.lowercase().contains("ejercicio")) "🥋" else "🌸"
 
                 // Filtro de salvaguarda ante abuso
-                if (ABUSE_SAFEGUARD_REGEX.containsMatchIn(title)) {
+                if (ABUSE_SAFEGUARD_REGEX.containsMatchIn(title) || ABUSE_SAFEGUARD_REGEX.containsMatchIn(description)) {
                     return SkillResult(
                         success = false,
                         spokenFeedback = "Comprendo lo difícil de esto y estoy aquí para apoyarle. ¿Me autoriza a contactar a su familiar o a un canal confidencial de ayuda?"
@@ -215,16 +225,19 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
                 }
 
                 // Filtro sexual
-                if (SEXUAL_PROHIBITED_REGEX.containsMatchIn(title)) {
+                if (SEXUAL_PROHIBITED_REGEX.containsMatchIn(title) || SEXUAL_PROHIBITED_REGEX.containsMatchIn(description)) {
                     return SkillResult(
                         success = false,
                         spokenFeedback = "Por privacidad, no se registran temas de esa índole en el perfil."
                     )
                 }
 
-                // Solo recuerdos afectivos y positivos
-                FifoDataRepository.addMemory("🌸", title, "Recuerdo afectivo compartido en la conversación.")
-                SkillResult(success = true, spokenFeedback = "Guardé este lindo recuerdo afectivo en su perfil.")
+                FifoDataRepository.addMemory(icon, title, description)
+                SkillResult(
+                    success = true,
+                    spokenFeedback = "He guardado '$title' en tus recuerdos de Fifo para que puedas revisarlo cuando quieras en la app.",
+                    data = mapOf("title" to title, "icon" to icon)
+                )
             }
 
             else -> {

@@ -83,9 +83,9 @@ class AndroidTtsSpeaker(
      * Pronuncia un fragmento o frase de texto por el parlante del celular.
      *
      * @param text Texto a decir.
-     * @param queueMode TextToSpeech.QUEUE_ADD para encadenar frases, o QUEUE_FLUSH para interrumpir.
+     * @param queueMode TextToSpeech.QUEUE_FLUSH por defecto para evitar respuestas duplicadas, o QUEUE_ADD si se desea encadenar frases explícitamente.
      */
-    fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_ADD) {
+    fun speak(text: String, queueMode: Int = TextToSpeech.QUEUE_FLUSH) {
         if (!isInitialized || tts == null || text.isBlank()) return
 
         val cleanText = TextSanitizer.cleanForSpeech(text)

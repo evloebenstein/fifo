@@ -8,6 +8,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
+import android.content.Intent
+import android.util.Log
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
@@ -53,7 +55,9 @@ fun VoiceInteractionSheet(
         mutableStateOf(initialPhoneMicMode && !isBleConnected)
     }
     var showDeviceFinderDialog by remember { mutableStateOf(false) }
+    var showCallGuideDialog by remember { mutableStateOf(false) }
 
+    val context = androidx.compose.ui.platform.LocalContext.current
     val isContinuousListening by com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.collectAsState()
     val incomingCall by com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.collectAsState()
 
@@ -490,6 +494,55 @@ fun VoiceInteractionSheet(
                             }
                         }
 
+                        // AVISO DE ACCESIBILIDAD PARA CUALQUIER TIPO DE LLAMADA (TELÉFONO, WECHAT, WHATSAPP)
+                        if (!com.fifo.voicepipeline.service.FifoAccessibilityService.isEnabled(context)) {
+                            Surface(
+                                onClick = { showCallGuideDialog = true },
+                                color = Color(0xFF0F172A),
+                                shape = RoundedCornerShape(16.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.5f)),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 14.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        Icons.Default.PhoneInTalk,
+                                        contentDescription = null,
+                                        tint = Color(0xFF38BDF8),
+                                        modifier = Modifier.size(26.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Asistente en Cualquier Llamada",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 13.sp,
+                                            color = Color.White
+                                        )
+                                        Text(
+                                            text = "Activa Fifo para que te escuche y conteste/cuelgue en llamadas normales, WhatsApp o WeChat.",
+                                            fontSize = 11.sp,
+                                            color = Color(0xFF94A3B8),
+                                            lineHeight = 15.sp
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Button(
+                                        onClick = { showCallGuideDialog = true },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                                    ) {
+                                        Text("Ver pasos", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                    }
+                                }
+                            }
+                        }
+
                         // Rostro animado y expresivo de Fifo (táctil para despertar o activar)
                         Box(
                             modifier = Modifier
@@ -817,6 +870,13 @@ fun VoiceInteractionSheet(
                     showDeviceFinderDialog = false
                     onConnectBle()
                 }
+            )
+        }
+
+        // Modal explicativo paso a paso para el Asistente en Llamadas (Accesibilidad)
+        if (showCallGuideDialog) {
+            CallAssistantGuideDialog(
+                onDismiss = { showCallGuideDialog = false }
             )
         }
     }

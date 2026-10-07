@@ -555,6 +555,64 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(20.dp))
 
+            // 3.5 Asistente en Llamadas y Videollamadas
+            val context = androidx.compose.ui.platform.LocalContext.current
+            var showCallGuideInProfile by remember { mutableStateOf(false) }
+            val isA11yActive = com.fifo.voicepipeline.service.FifoAccessibilityService.isEnabled(context)
+
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = if (isA11yActive) Color(0xFFF0FDF4) else Color(0xFFFFFBEB),
+                border = androidx.compose.foundation.BorderStroke(1.dp, if (isA11yActive) Color(0xFF86EFAC) else Color(0xFFFDE68A)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showCallGuideInProfile = true }
+            ) {
+                Row(
+                    modifier = Modifier.padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = if (isA11yActive) Icons.Default.CheckCircle else Icons.Default.PhoneInTalk,
+                        contentDescription = null,
+                        tint = if (isA11yActive) Color(0xFF16A34A) else Color(0xFFD97706),
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Asistente en Llamadas y Videollamadas",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = FifoColors.LightTextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = if (isA11yActive)
+                                "✓ Activo · Fifo te escucha y cuelga en llamadas de celular, WhatsApp o WeChat."
+                            else
+                                "Pendiente · Toca aquí para ver los pasos de activación en tu teléfono.",
+                            fontSize = 12.sp,
+                            color = if (isA11yActive) Color(0xFF15803D) else Color(0xFFB45309),
+                            lineHeight = 16.sp
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = FifoColors.LightTextMuted
+                    )
+                }
+            }
+
+            if (showCallGuideInProfile) {
+                com.fifo.voicepipeline.ui.components.CallAssistantGuideDialog(
+                    onDismiss = { showCallGuideInProfile = false }
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
             // 4. Opciones técnicas avanzadas (colapsables para no abrumar a personas mayores)
             Surface(
                 shape = RoundedCornerShape(18.dp),
@@ -602,7 +660,7 @@ fun ProfileScreen(
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Motor gratuito y ultrarrápido (OpenAI GPT-OSS 120B con respaldo Qwen 27B) y transcripción Whisper.",
+                                text = "Motor gratuito y ultrarrápido (Qwen 27B con respaldo GPT-OSS 120B) y transcripción Whisper.",
                                 fontSize = 12.sp,
                                 color = FifoColors.LightTextSecondary
                             )
@@ -645,7 +703,7 @@ fun ProfileScreen(
                                     onClick = {
                                         val keyToTest = claudeInput.trim()
                                         if (keyToTest.isBlank()) {
-                                            testResultText = "Ingresa tu clave de Groq o Claude primero."
+                                            testResultText = "Ingresa tu clave de Groq primero."
                                             testResultSuccess = false
                                             return@OutlinedButton
                                         }
@@ -662,7 +720,7 @@ fun ProfileScreen(
                                     shape = RoundedCornerShape(12.dp),
                                     modifier = Modifier.weight(1f)
                                 ) {
-                                    Text(if (isTestingKey) "Probando..." else "Probar Cerebro", fontSize = 12.sp)
+                                    Text(if (isTestingKey) "Probando..." else "Probar Groq", fontSize = 12.sp)
                                 }
 
                                 Button(

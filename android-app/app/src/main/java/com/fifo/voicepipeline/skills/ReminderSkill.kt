@@ -35,8 +35,8 @@ class ReminderSkill(private val context: Context) : FifoSkill {
             },
             "category": {
                 "type": "string",
-                "enum": ["medication", "family", "hobby", "health"],
-                "description": "Categoría temática del recordatorio"
+                "enum": ["medication", "family", "hobby", "health", "sport"],
+                "description": "Categoría temática del recordatorio ('medication', 'family', 'sport', 'health', 'hobby')"
             }
         },
         "required": ["title", "time_str"]
@@ -46,7 +46,7 @@ class ReminderSkill(private val context: Context) : FifoSkill {
     override suspend fun execute(args: Map<String, Any?>): SkillResult {
         val title = args["title"]?.toString()?.trim() ?: "Recordatorio"
         val timeStr = args["time_str"]?.toString()?.trim() ?: "en un momento"
-        val category = args["category"]?.toString()?.trim() ?: "medication"
+        val category = args["category"]?.toString()?.trim() ?: "hobby"
 
         Log.i(TAG, "Guardando recordatorio: '$title' para las $timeStr (categoría: $category)")
 
@@ -60,6 +60,7 @@ class ReminderSkill(private val context: Context) : FifoSkill {
         val spokenText = when (category) {
             "medication" -> "Listo, ya le programé el recordatorio para $title a las $timeStr. Yo le avisaré con cariño para que no se le pase."
             "family" -> "Anotado. A las $timeStr le recordaré $title."
+            "sport" -> "¡Excelente! Te he dejado agendado tu recordatorio para $title a las $timeStr."
             else -> "Perfecto, le dejé programado su recordatorio de $title para las $timeStr."
         }
 

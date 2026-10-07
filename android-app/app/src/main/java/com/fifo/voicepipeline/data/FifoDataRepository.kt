@@ -20,6 +20,9 @@ object FifoDataRepository {
     private var dbHelper: com.fifo.voicepipeline.data.local.FifoDatabaseHelper? = null
     private val repositoryScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
 
+    private val _isBackendConnected = MutableStateFlow(false)
+    val isBackendConnected: StateFlow<Boolean> = _isBackendConnected.asStateFlow()
+
     /**
      * Inicializa la base de datos local SQLite y carga los datos persistidos en el teléfono.
      */
@@ -30,6 +33,7 @@ object FifoDataRepository {
         dbHelper = helper
 
         try {
+            // Cargar estado inicial inmediatamente desde SQLite (100% offline, cero latencia)
             _userProfile.value = helper.getUserProfile()
             val localTastes = helper.getTastes()
             if (localTastes.isNotEmpty()) _tastes.value = localTastes
@@ -41,15 +45,49 @@ object FifoDataRepository {
             if (localMemories.isNotEmpty()) _memories.value = localMemories
             val localReminders = helper.getReminders()
             if (localReminders.isNotEmpty()) _reminders.value = localReminders
+            val localConvs = helper.getPastConversations()
+            if (localConvs.isNotEmpty()) _conversations.value = localConvs
+            val localFrags = helper.getConversationFragments()
+            if (localFrags.isNotEmpty()) _conversationFragments.value = localFrags
             _deviceLocation.value = helper.getDeviceLocation()
-            android.util.Log.i("FifoDataRepository", "Base de datos local SQLite cargada correctamente")
+            android.util.Log.i("FifoDataRepository", "Base de datos relacional SQLite cargada con éxito en el dispositivo")
 
-            // Sincronizar en segundo plano con el backend Docker si está disponible
-            repositoryScope.launch {
-                com.fifo.voicepipeline.data.remote.FifoApiClient.syncAll(app)
-            }
+            // Sincronizar en segundo plano con el backend Docker / MySQL (database/api)
+            syncFromBackend(_userProfile.value.id)
         } catch (e: Exception) {
             android.util.Log.e("FifoDataRepository", "Error inicializando base de datos SQLite: ${e.message}")
+        }
+    }
+
+    /**
+     * Sincroniza todos los datos del usuario con el backend Docker (database/api en puerto 8090)
+     * e integra cualquier cambio en SQLite local y en los StateFlows reactivos.
+     */
+    fun syncFromBackend(userId: String = _userProfile.value.id) {
+        repositoryScope.launch {
+            if (com.fifo.voicepipeline.network.FifoBackendClient.checkHealth()) {
+                _isBackendConnected.value = true
+                val bundle = com.fifo.voicepipeline.network.FifoBackendClient.fetchUserBundle(userId)
+                if (bundle != null) {
+                    // 1. Persistir el bundle completo en SQLite local
+                    dbHelper?.bulkUpsertSyncBundle(userId, bundle)
+
+                    // 2. Notificar a la UI reactiva de Android
+                    _userProfile.value = bundle.userProfile
+                    _tastes.value = bundle.tastes
+                    if (bundle.tasteStories.isNotEmpty()) _tasteStories.value = bundle.tasteStories
+                    if (bundle.socialPosts.isNotEmpty()) _socialPosts.value = bundle.socialPosts
+                    if (bundle.memories.isNotEmpty()) _memories.value = bundle.memories
+                    if (bundle.reminders.isNotEmpty()) _reminders.value = bundle.reminders
+                    if (bundle.pastConversations.isNotEmpty()) _conversations.value = bundle.pastConversations
+                    if (bundle.conversationFragments.isNotEmpty()) _conversationFragments.value = bundle.conversationFragments
+                    bundle.deviceLocation?.let { _deviceLocation.value = it }
+                    android.util.Log.i("FifoDataRepository", "Sincronización remota completada con Docker/MySQL")
+                }
+            } else {
+                _isBackendConnected.value = false
+                android.util.Log.d("FifoDataRepository", "Backend Docker/MySQL no disponible; operando 100% en SQLite local")
+            }
         }
     }
 
@@ -311,6 +349,18 @@ object FifoDataRepository {
             gender = gender,
             city = city
         )
+
+        // Sincronizar con Docker / MySQL en segundo plano si está disponible
+        repositoryScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.patchDemographics(
+                userId = current.id,
+                fullName = fullName,
+                birthDate = birthDate,
+                birthYear = newYear,
+                gender = gender,
+                city = city
+            )
+        }
     }
 
     /**
@@ -321,6 +371,9 @@ object FifoDataRepository {
             val clean = newBio.trim()
             _userProfile.value = _userProfile.value.copy(bioAi = clean)
             dbHelper?.updateBio(_userProfile.value.id, clean)
+            repositoryScope.launch {
+                com.fifo.voicepipeline.network.FifoBackendClient.putBio(_userProfile.value.id, clean)
+            }
         }
     }
 
@@ -334,6 +387,9 @@ object FifoDataRepository {
         if (!current.any { it.equals(clean, ignoreCase = true) }) {
             _tastes.value = current + clean
             dbHelper?.addTaste(name = clean)
+            repositoryScope.launch {
+                com.fifo.voicepipeline.network.FifoBackendClient.postTaste(_userProfile.value.id, "add", clean)
+            }
             return true
         }
         return false
@@ -349,6 +405,9 @@ object FifoDataRepository {
         if (filtered.size != current.size) {
             _tastes.value = filtered
             dbHelper?.removeTaste(name = clean)
+            repositoryScope.launch {
+                com.fifo.voicepipeline.network.FifoBackendClient.postTaste(_userProfile.value.id, "remove", clean)
+            }
             return true
         }
         return false
@@ -360,6 +419,9 @@ object FifoDataRepository {
     fun addTasteStory(story: FifoTasteStory) {
         _tasteStories.value = listOf(story) + _tasteStories.value
         dbHelper?.addTasteStory(story = story)
+        repositoryScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.postTasteStory(_userProfile.value.id, story)
+        }
     }
 
     /**
@@ -380,6 +442,9 @@ object FifoDataRepository {
         )
         _socialPosts.value = listOf(newPost) + _socialPosts.value
         dbHelper?.addSocialPost(post = newPost)
+        repositoryScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.postSocialPost(user.id, content.trim(), category)
+        }
         return newPost
     }
 
@@ -396,6 +461,9 @@ object FifoDataRepository {
         )
         _memories.value = listOf(newMem) + _memories.value
         dbHelper?.addMemory(item = newMem)
+        repositoryScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.postMemory(_userProfile.value.id, newMem.emoji, newMem.title, newMem.detail)
+        }
     }
 
     /**
@@ -412,6 +480,9 @@ object FifoDataRepository {
         )
         _reminders.value = listOf(item) + _reminders.value
         dbHelper?.addReminder(reminder = item)
+        repositoryScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.postReminder(_userProfile.value.id, item.title, item.timeStr, item.category)
+        }
         return item
     }
 
@@ -423,6 +494,9 @@ object FifoDataRepository {
             if (it.id == id) it.copy(isCompleted = true) else it
         }
         dbHelper?.completeReminder(reminderId = id, completed = true)
+        repositoryScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.patchReminderComplete(id)
+        }
     }
 
     /**
@@ -430,13 +504,26 @@ object FifoDataRepository {
      */
     fun addConversation(item: PastConversationItem) {
         _conversations.value = listOf(item) + _conversations.value
+        dbHelper?.addPastConversation(_userProfile.value.id, item)
+        repositoryScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.postConversation(
+                userId = _userProfile.value.id,
+                title = item.title,
+                summary = item.summary,
+                primaryTag = item.tag,
+                durationSeconds = 180
+            )
+        }
     }
+
+    fun addPastConversation(item: PastConversationItem) = addConversation(item)
 
     /**
      * Elimina una conversación por id.
      */
     fun removeConversation(id: String) {
         _conversations.value = _conversations.value.filterNot { it.id == id }
+        dbHelper?.deletePastConversation(_userProfile.value.id, id)
     }
 
     /**
@@ -518,6 +605,7 @@ object FifoDataRepository {
      */
     fun addConversationFragment(fragment: ConversationFragment) {
         _conversationFragments.value = listOf(fragment) + _conversationFragments.value
+        dbHelper?.addConversationFragment(_userProfile.value.id, fragment)
     }
 
     /**
@@ -568,6 +656,21 @@ object FifoDataRepository {
      * @return DeepContextResult con extractos relevantes encontrados
      */
     fun searchDeepContext(query: String): DeepContextResult {
+        // 1. Intentar consultar contexto profundo en el microservicio Docker / MySQL si está online
+        val serverResult = runCatching {
+            kotlinx.coroutines.runBlocking {
+                com.fifo.voicepipeline.network.FifoBackendClient.queryDeepContextFromServer(
+                    userId = _userProfile.value.id,
+                    query = query
+                )
+            }
+        }.getOrNull()
+
+        if (serverResult != null && serverResult.relevantExcerpts.isNotEmpty()) {
+            return serverResult
+        }
+
+        // 2. Fallback offline: buscar en fragmentos locales de SQLite
         val queryLower = query.lowercase().trim()
         val allFragments = _conversationFragments.value
 
@@ -646,6 +749,20 @@ object FifoDataRepository {
         )
         _deviceLocation.value = updatedLoc
         dbHelper?.updateDeviceLocation(loc = updatedLoc)
+
+        repositoryScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.patchDeviceLocation(
+                userId = _userProfile.value.id,
+                isConnected = connected,
+                lastConnectedTime = updatedLoc.lastConnectedTime,
+                latitude = latitude,
+                longitude = longitude,
+                address = address,
+                roomHint = roomHint,
+                rssi = rssi,
+                isBeeping = updatedLoc.isBeeping
+            )
+        }
     }
 
     /**
@@ -655,6 +772,13 @@ object FifoDataRepository {
         val updatedLoc = _deviceLocation.value.copy(isBeeping = beeping)
         _deviceLocation.value = updatedLoc
         dbHelper?.updateDeviceLocation(loc = updatedLoc)
+
+        repositoryScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.patchDeviceLocation(
+                userId = _userProfile.value.id,
+                isBeeping = beeping
+            )
+        }
     }
 
     // ══════════════════════════════════════════════════════════════

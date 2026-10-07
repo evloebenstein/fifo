@@ -21,9 +21,16 @@ class FifoVoiceService : Service() {
 
     companion object {
         private const val TAG = "FifoVoiceService"
-        private const val CHANNEL_ID = "fifo_silent_service_v3"
+        private const val CHANNEL_ID = "fifo_silent_service_v6"
         private const val NOTIFICATION_ID = 1001
-        private const val LEGACY_CHANNEL_ID = "fifo_continuous_voice"
+        private val OLD_CHANNELS = listOf(
+            "fifo_silent_service_v5",
+            "fifo_silent_service_v4",
+            "fifo_silent_service_v3",
+            "fifo_silent_service_v2",
+            "fifo_silent_service",
+            "fifo_continuous_voice"
+        )
 
         fun start(context: Context) {
             val intent = Intent(context, FifoVoiceService::class.java)
@@ -50,7 +57,14 @@ class FifoVoiceService : Service() {
         createNotificationChannel()
         try {
             val notification = buildNotification("FIFO está activo · Di 'Fifo' para hablar")
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                startForeground(
+                    NOTIFICATION_ID,
+                    notification,
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
+                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                )
+            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
                     NOTIFICATION_ID,
                     notification,
@@ -95,11 +109,13 @@ class FifoVoiceService : Service() {
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val manager = getSystemService(NotificationManager::class.java)
-            // Eliminar canal antiguo ruidoso si existía
-            try {
-                manager?.deleteNotificationChannel(LEGACY_CHANNEL_ID)
-            } catch (e: Exception) {
-                Log.d(TAG, "Canal antiguo no presente o error eliminándolo: ${e.message}")
+            // Eliminar todos los canales antiguos que pudieron haber quedado con sonido en el sistema
+            for (oldChannel in OLD_CHANNELS) {
+                try {
+                    manager?.deleteNotificationChannel(oldChannel)
+                } catch (e: Exception) {
+                    Log.d(TAG, "Canal antiguo $oldChannel no presente: ${e.message}")
+                }
             }
 
             val channel = NotificationChannel(
@@ -112,6 +128,8 @@ class FifoVoiceService : Service() {
                 setSound(null, null)
                 enableVibration(false)
                 enableLights(false)
+                vibrationPattern = longArrayOf(0)
+                lockscreenVisibility = Notification.VISIBILITY_SECRET
             }
             manager?.createNotificationChannel(channel)
         }
@@ -136,6 +154,8 @@ class FifoVoiceService : Service() {
             .setSilent(true)
             .setSound(null)
             .setVibrate(null)
+            .setOnlyAlertOnce(true)
+            .setLocalOnly(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .build()
     }

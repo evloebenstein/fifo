@@ -26,7 +26,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
     companion object {
         private const val TAG = "FifoDatabaseHelper"
         private const val DATABASE_NAME = "fifo_local.db"
-        private const val DATABASE_VERSION = 1
+        private const val DATABASE_VERSION = 2
         private val gson = Gson()
 
         @Volatile
@@ -190,12 +190,62 @@ class FifoDatabaseHelper private constructor(context: Context) :
             )
         """.trimIndent())
 
+        // 10. conversation_fragments (doble capa local)
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS conversation_fragments (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                server_conversation_id TEXT NOT NULL,
+                key_topics TEXT NOT NULL,
+                named_entities TEXT NOT NULL,
+                detected_mood TEXT NOT NULL DEFAULT 'neutral',
+                compact_summary TEXT NOT NULL,
+                primary_tag TEXT NOT NULL DEFAULT 'General',
+                duration_seconds INTEGER NOT NULL DEFAULT 180,
+                recorded_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """.trimIndent())
+
         // Sembrar datos iniciales (Lucía González)
         seedInitialData(db)
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         Log.w(TAG, "Actualizando base de datos local de v$oldVersion a v$newVersion")
+        if (oldVersion < 2) {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS conversation_fragments (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    server_conversation_id TEXT NOT NULL,
+                    key_topics TEXT NOT NULL,
+                    named_entities TEXT NOT NULL,
+                    detected_mood TEXT NOT NULL DEFAULT 'neutral',
+                    compact_summary TEXT NOT NULL,
+                    primary_tag TEXT NOT NULL DEFAULT 'General',
+                    duration_seconds INTEGER NOT NULL DEFAULT 180,
+                    recorded_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """.trimIndent())
+        }
+    }
+
+    override fun onOpen(db: SQLiteDatabase) {
+        super.onOpen(db)
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS conversation_fragments (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                server_conversation_id TEXT NOT NULL,
+                key_topics TEXT NOT NULL,
+                named_entities TEXT NOT NULL,
+                detected_mood TEXT NOT NULL DEFAULT 'neutral',
+                compact_summary TEXT NOT NULL,
+                primary_tag TEXT NOT NULL DEFAULT 'General',
+                duration_seconds INTEGER NOT NULL DEFAULT 180,
+                recorded_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """.trimIndent())
     }
 
     private fun seedInitialData(db: SQLiteDatabase) {
@@ -572,5 +622,184 @@ class FifoDatabaseHelper private constructor(context: Context) :
             put("is_beeping", if (loc.isBeeping) 1 else 0)
         }
         db.insertWithOnConflict("device_locations", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    // ── Conversaciones Pasadas ─────────────────────────────────
+
+    fun getPastConversations(userId: String = "usr_lucia_01"): List<PastConversationItem> {
+        val list = mutableListOf<PastConversationItem>()
+        readableDatabase.rawQuery(
+            "SELECT id, title, date_label, duration_label, summary, topic_tag, icon_name FROM past_conversations WHERE user_id = ? ORDER BY recorded_at DESC",
+            arrayOf(userId)
+        ).use { cur ->
+            while (cur.moveToNext()) {
+                list.add(
+                    PastConversationItem(
+                        id = cur.getString(0),
+                        title = cur.getString(1),
+                        date = cur.getString(2) ?: "Hoy",
+                        duration = cur.getString(3) ?: "5 min",
+                        summary = cur.getString(4) ?: "",
+                        tag = cur.getString(5) ?: "Conversación",
+                        iconName = cur.getString(6) ?: "heart"
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun addPastConversation(userId: String = "usr_lucia_01", item: PastConversationItem) {
+        val db = writableDatabase
+        val cv = ContentValues().apply {
+            put("id", item.id.ifBlank { "c_${UUID.randomUUID().toString().take(8)}" })
+            put("user_id", userId)
+            put("title", item.title)
+            put("date_label", item.date)
+            put("duration_label", item.duration)
+            put("summary", item.summary)
+            put("topic_tag", item.tag)
+            put("icon_name", item.iconName)
+        }
+        db.insertWithOnConflict("past_conversations", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    fun deletePastConversation(userId: String = "usr_lucia_01", id: String) {
+        writableDatabase.delete("past_conversations", "user_id = ? AND id = ?", arrayOf(userId, id))
+    }
+
+    // ── Fragmentos de Conversaciones (Doble Capa) ───────────────
+
+    fun getConversationFragments(userId: String = "usr_lucia_01"): List<ConversationFragment> {
+        val list = mutableListOf<ConversationFragment>()
+        readableDatabase.rawQuery(
+            "SELECT id, server_conversation_id, key_topics, named_entities, detected_mood, compact_summary, primary_tag, duration_seconds, recorded_at FROM conversation_fragments WHERE user_id = ? ORDER BY recorded_at DESC",
+            arrayOf(userId)
+        ).use { cur ->
+            while (cur.moveToNext()) {
+                val topicsJson = cur.getString(2) ?: "[]"
+                val entitiesJson = cur.getString(3) ?: "[]"
+                val topics: List<String> = try {
+                    gson.fromJson(topicsJson, object : TypeToken<List<String>>() {}.type)
+                } catch (e: Exception) {
+                    emptyList()
+                }
+                val entities: List<String> = try {
+                    gson.fromJson(entitiesJson, object : TypeToken<List<String>>() {}.type)
+                } catch (e: Exception) {
+                    emptyList()
+                }
+                list.add(
+                    ConversationFragment(
+                        id = cur.getString(0),
+                        serverConversationId = cur.getString(1) ?: "",
+                        keyTopics = topics,
+                        namedEntities = entities,
+                        detectedMood = cur.getString(4) ?: "neutral",
+                        compactSummary = cur.getString(5) ?: "",
+                        primaryTag = cur.getString(6) ?: "General",
+                        durationSeconds = cur.getInt(7),
+                        recordedAt = cur.getString(8) ?: ""
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun addConversationFragment(userId: String = "usr_lucia_01", fragment: ConversationFragment) {
+        val db = writableDatabase
+        val cv = ContentValues().apply {
+            put("id", fragment.id.ifBlank { "frag_${UUID.randomUUID().toString().take(8)}" })
+            put("user_id", userId)
+            put("server_conversation_id", fragment.serverConversationId)
+            put("key_topics", gson.toJson(fragment.keyTopics))
+            put("named_entities", gson.toJson(fragment.namedEntities))
+            put("detected_mood", fragment.detectedMood)
+            put("compact_summary", fragment.compactSummary)
+            put("primary_tag", fragment.primaryTag)
+            put("duration_seconds", fragment.durationSeconds)
+            if (fragment.recordedAt.isNotBlank()) put("recorded_at", fragment.recordedAt)
+        }
+        db.insertWithOnConflict("conversation_fragments", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    // ── Sincronización Remota (MySQL API -> SQLite) ───────────
+
+    fun bulkUpsertSyncBundle(userId: String = "usr_lucia_01", bundle: com.fifo.voicepipeline.network.FifoBackendClient.SyncedUserBundle) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            // 1. Perfil
+            val p = bundle.userProfile
+            val cvUser = ContentValues().apply {
+                put("id", p.id)
+                put("full_name", p.fullName)
+                put("birth_date", p.birthDate)
+                put("birth_year", p.birthYear)
+                put("estimated_age", p.estimatedAge)
+                put("gender_identity", p.genderIdentity)
+                put("city", p.city)
+            }
+            db.insertWithOnConflict("users", null, cvUser, SQLiteDatabase.CONFLICT_REPLACE)
+
+            val cvProfile = ContentValues().apply {
+                put("user_id", p.id)
+                put("bio_ai", p.bioAi)
+                put("emergency_contact_name", p.emergencyContactName)
+                put("emergency_contact_phone", p.emergencyContactPhone)
+                put("preferred_address", p.preferredAddress)
+            }
+            db.insertWithOnConflict("user_profiles", null, cvProfile, SQLiteDatabase.CONFLICT_REPLACE)
+
+            // 2. Gustos
+            for (taste in bundle.tastes) {
+                if (taste.isNotBlank()) {
+                    addTaste(userId, taste)
+                }
+            }
+
+            // 3. Historias de gustos
+            for (story in bundle.tasteStories) {
+                addTasteStory(userId, story)
+            }
+
+            // 4. Recordatorios
+            for (rem in bundle.reminders) {
+                addReminder(userId, rem)
+            }
+
+            // 5. Recuerdos
+            for (mem in bundle.memories) {
+                addMemory(userId, mem)
+            }
+
+            // 6. Posts sociales
+            for (post in bundle.socialPosts) {
+                addSocialPost(post, userId)
+            }
+
+            // 7. Conversaciones pasadas
+            for (conv in bundle.pastConversations) {
+                addPastConversation(userId, conv)
+            }
+
+            // 8. Fragmentos compactos
+            for (frag in bundle.conversationFragments) {
+                addConversationFragment(userId, frag)
+            }
+
+            // 9. Ubicación dispositivo
+            bundle.deviceLocation?.let {
+                updateDeviceLocation("FIFO-S3-ESP32", it, userId)
+            }
+
+            db.setTransactionSuccessful()
+            Log.i(TAG, "Bundle remoto sincronizado exitosamente en SQLite local para $userId")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error en bulkUpsertSyncBundle: ${e.message}", e)
+        } finally {
+            db.endTransaction()
+        }
     }
 }

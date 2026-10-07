@@ -77,9 +77,19 @@ class VoicePipelineManager(
     // Temporizador de auto-sueño para Fifo (25 segundos de inactividad)
     private var autoSleepJob: Job? = null
 
-    // Control estricto de activación por palabra clave ("Fifo")
+    // Control estricto de activación por palabra clave ("Fifo") y seguimiento conversacional
     private var expectFollowUpQuestion = false
+    private var pendingNavigationRequest = false
     private var oneShotPushedToTalk = false
+    private var lastSpokenSentence = ""
+
+    // Control de concurrencia y prevención de respuestas duplicadas
+    @Volatile private var isCurrentlyProcessing = false
+    private var lastProcessedText = ""
+    private var lastProcessedTimestamp = 0L
+
+    // Turnos de la sesión activa para consolidación en SQLite al dormir
+    private val activeSessionTurns = mutableListOf<Pair<String, String>>()
 
     // Reconocedor de voz nativo de Google (100% GRATIS, no requiere claves de API)
     private var nativeRecognizer: NativeSpeechRecognizer? = null
@@ -166,7 +176,7 @@ class VoicePipelineManager(
      * - Reconocedor de voz nativo de Google (0 claves requeridas)
      */
     fun start() {
-        Log.i(TAG, "Iniciando pipeline de voz FIFO (Groq LPU / GPT-OSS 120B)...")
+        Log.i(TAG, "Iniciando pipeline de voz FIFO (Groq LPU / Qwen 27B)...")
 
         val effectiveOpenAiKey = if (openAiApiKey.isNotBlank()) openAiApiKey else if (groqApiKey.startsWith("gsk_")) groqApiKey else ""
         cloudClient = CloudApiClient(
@@ -187,65 +197,7 @@ class VoicePipelineManager(
                 updateEspDisplay(state = "HABLANDO")
             },
             onDone = {
-                if (_state.value == PipelineState.SPEAKING) {
-                    val incomingCall = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value
-                    val isCommActive = callManager?.isCommunicationModeActive() == true
-                    if (incomingCall != null || isCommActive) {
-                        _isAwake.value = true
-                        _state.value = PipelineState.LISTENING
-                        _statusMessage.value = if (incomingCall?.isRinging == true) {
-                            "Llamada de ${incomingCall.callerName} · Diga 'contesta' o 'cuelga'"
-                        } else {
-                            "Llamada activa · Diga 'Fifo cuelga' para terminar"
-                        }
-                        updateEspDisplay(state = "LLAMADA")
-                        ensureCallListeningActive()
-                    } else {
-                        // Si se usó temporalmente el micrófono del teléfono, volver al micrófono de Fifo
-                        if (_micSource.value == MicSource.PHONE && bleClient.isConnected) {
-                            phoneMicRecorder.stop()
-                            _micSource.value = MicSource.ESP32
-                        }
-
-                        if (!bleClient.isConnected && _micSource.value == MicSource.ESP32) {
-                            _state.value = PipelineState.DISCONNECTED
-                            _statusMessage.value = "Fifo desconectado · Conecte por Bluetooth"
-                        } else if (com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value) {
-                            _state.value = PipelineState.LISTENING
-                            _statusMessage.value = "Escucha continua activa — hable cuando guste"
-                        } else if (expectFollowUpQuestion) {
-                            _isAwake.value = true
-                            _state.value = PipelineState.LISTENING
-                            _statusMessage.value = "Le escucho... ¿En qué le puedo ayudar?"
-                        } else {
-                            _isAwake.value = false
-                            _state.value = PipelineState.SLEEPING
-                            _statusMessage.value = if (_isMicMuted.value) {
-                                "Micrófono silenciado (Mute)"
-                            } else {
-                                "Fifo en reposo · Diga 'Fifo' para hablar"
-                            }
-                        }
-                        updateEspDisplay(
-                            state = if (_isMicMuted.value) "MUTED"
-                            else if (com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value || expectFollowUpQuestion) "ESCUCHANDO"
-                            else "DURMIENDO"
-                        )
-                        vad.reset()
-
-                        // Reanudar la escucha de voz si no está silenciado
-                        if (!_isMicMuted.value) {
-                            val isCommActive = callManager?.isCommunicationModeActive() == true ||
-                                    com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
-                            if (isCommActive) {
-                                ensureCallListeningActive()
-                            } else {
-                                phoneMicRecorder.stop()
-                                nativeRecognizer?.startContinuousListening()
-                            }
-                        }
-                    }
-                }
+                handleTtsFinished(lastSpokenSentence)
             },
             onError = { err ->
                 Log.e(TAG, "Error TTS nativo: $err")
@@ -282,10 +234,20 @@ class VoicePipelineManager(
             },
             onPartialResult = { partial ->
                 if (_isMicMuted.value) return@NativeSpeechRecognizer
+
+                // Interrupción instantánea y fluida (Barge-in): "Fifo silencio", "Fifo cállate", "Fifo para", "cállate", etc.
+                if (_state.value == PipelineState.SPEAKING || androidTtsSpeaker?.isSpeaking == true || audioPlayer.isPlaying) {
+                    if (isSilenceCommand(partial, whileSpeaking = true)) {
+                        stopSpeakingSilently()
+                    }
+                    return@NativeSpeechRecognizer
+                }
+
                 val hasWakeWord = isWakeWord(partial)
                 if (hasWakeWord || oneShotPushedToTalk) {
                     _transcription.value = partial
                     if (_state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
+                        _isAwake.value = true
                         _state.value = PipelineState.LISTENING
                         updateEspDisplay(state = "ESCUCHANDO")
                     }
@@ -293,6 +255,14 @@ class VoicePipelineManager(
             },
             onResult = { text ->
                 if (_isMicMuted.value) return@NativeSpeechRecognizer
+
+                if (_state.value == PipelineState.SPEAKING || androidTtsSpeaker?.isSpeaking == true || audioPlayer.isPlaying) {
+                    if (isSilenceCommand(text, whileSpeaking = true)) {
+                        stopSpeakingSilently()
+                    }
+                    return@NativeSpeechRecognizer
+                }
+
                 processUserText(text)
             },
             onError = { code, msg ->
@@ -427,10 +397,16 @@ class VoicePipelineManager(
                 Log.i(TAG, "Cambiado a micrófono de ESP32")
             }
             MicSource.PHONE -> {
-                phoneMicRecorder.stop()
-                nativeRecognizer?.startContinuousListening()
+                val isCommActive = callManager?.isCommunicationModeActive() == true ||
+                        com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
+                if (isCommActive) {
+                    ensureCallListeningActive()
+                } else {
+                    phoneMicRecorder.stop()
+                    nativeRecognizer?.startContinuousListening()
+                }
                 _statusMessage.value = "Usando micrófono integrado del celular"
-                Log.i(TAG, "Cambiado a micrófono del celular (Google Voice activo)")
+                Log.i(TAG, "Cambiado a micrófono del celular (inCommActive=$isCommActive)")
             }
         }
     }
@@ -572,6 +548,12 @@ class VoicePipelineManager(
      */
     private fun onCallEnded() {
         expectFollowUpQuestion = false
+        val isCommActive = callManager?.isCommunicationModeActive() == true ||
+                com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
+        if (isCommActive) {
+            ensureCallListeningActive()
+            return
+        }
         phoneMicRecorder.stop()
         if (!_isMicMuted.value) {
             nativeRecognizer?.startContinuousListening()
@@ -692,8 +674,14 @@ class VoicePipelineManager(
         _isAwake.value = true
         _state.value = PipelineState.IDLE
         _statusMessage.value = "Fifo despierto — te escucho"
-        phoneMicRecorder.stop()
-        nativeRecognizer?.startContinuousListening()
+        val isCommActive = callManager?.isCommunicationModeActive() == true ||
+                com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
+        if (isCommActive) {
+            ensureCallListeningActive()
+        } else {
+            phoneMicRecorder.stop()
+            nativeRecognizer?.startContinuousListening()
+        }
         updateEspDisplay(state = "ESCUCHANDO", transcript = "", response = "")
         resetAutoSleepTimer()
     }
@@ -704,11 +692,19 @@ class VoicePipelineManager(
     fun goToSleep() {
         autoSleepJob?.cancel()
         expectFollowUpQuestion = false
+        pendingNavigationRequest = false
         oneShotPushedToTalk = false
         _isAwake.value = false
         _state.value = PipelineState.SLEEPING
         _statusMessage.value = if (_isMicMuted.value) "Micrófono silenciado (Mute)" else "Fifo en reposo · Diga 'Fifo' para hablar"
         updateEspDisplay(state = if (_isMicMuted.value) "MUTED" else "DURMIENDO", transcript = "", response = "")
+
+        // Consolidar la información de la sesión en la base de datos relacional SQLite de memoria
+        if (activeSessionTurns.isNotEmpty()) {
+            val sessionSnapshot = activeSessionTurns.toList()
+            activeSessionTurns.clear()
+            consolidateSessionIntoMemory(sessionSnapshot)
+        }
     }
 
     /**
@@ -734,21 +730,109 @@ class VoicePipelineManager(
     }
 
     /**
-     * Lista de palabras clave y aproximaciones fonéticas cuando hay música o ruido de fondo.
-     * Soporta 'Fifo', normalizando acentos para máxima precisión.
+     * Temporizador para ventana de respuesta conversacional (14 segundos).
+     * Permite que el usuario responda directamente una pregunta de Fifo sin repetir la palabra clave.
      */
-    private fun isWakeWord(text: String): Boolean {
+    private fun resetFollowUpSleepTimer(timeoutMs: Long = 14000L) {
+        autoSleepJob?.cancel()
+        autoSleepJob = scope.launch {
+            delay(timeoutMs)
+            if (_isAwake.value && _state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
+                if (com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value) {
+                    com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
+                }
+                Log.i(TAG, "Ventana de respuesta expirada: Fifo vuelve a reposo silencioso")
+                goToSleep()
+            }
+        }
+    }
+
+    /**
+     * Detecta órdenes de silencio / callarse ("Fifo silencio", "Fifo cállate", "Fifo para", "cállate", "silencio", etc.).
+     * Si [whileSpeaking] es true (Fifo está hablando), interrumpe inmediatamente ante cualquier palabra de detención
+     * sin exigir la palabra clave "Fifo" para máxima receptividad.
+     */
+    fun isSilenceCommand(text: String, whileSpeaking: Boolean = false): Boolean {
+        if (text.isBlank()) return false
         val normalized = java.text.Normalizer.normalize(text.lowercase().trim(), java.text.Normalizer.Form.NFD)
             .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+            .replace(Regex("[^a-z0-9\\s]"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+
+        val stopWords = listOf(
+            "silencio", "callate", "cállate", "para", "parate", "basta", "detente",
+            "alto", "stop", "shh", "shhh", "no hables", "pausa", "quieto", "parar",
+            "corta", "cortala", "calmate", "ya", "apagate", "mute"
+        )
+
+        val hasStopWord = stopWords.any { word ->
+            normalized == word ||
+            normalized.contains(Regex("\\b$word\\b")) ||
+            normalized.endsWith(" $word") ||
+            normalized.startsWith("$word ")
+        }
+
+        if (!hasStopWord) return false
+
+        // Si Fifo está hablando, aceptar la interrupción de inmediato
+        if (whileSpeaking) {
+            return true
+        }
+
+        // Si está en reposo o escuchando, verificar que incluya a 'Fifo'
+        val noSpaces = normalized.replace(" ", "")
+        val hasFifo = noSpaces.contains("fifo") ||
+                Regex("f+i+f+o+").containsMatchIn(noSpaces) ||
+                normalized.contains(Regex("\\b(fifo|feefo|fito|fifa|fibo|fipo|fi fo)\\b"))
+
+        return hasFifo
+    }
+
+    /**
+     * Detiene inmediatamente la locución de Fifo y lo pone en reposo silencioso.
+     */
+    fun stopSpeakingSilently() {
+        Log.i(TAG, "Deteniendo habla inmediatamente por orden de silencio (Barge-in seamless)")
+        androidTtsSpeaker?.stop()
+        audioPlayer.stop()
+        _state.value = PipelineState.SLEEPING
+        _isAwake.value = false
+        expectFollowUpQuestion = false
+        _statusMessage.value = "Fifo en reposo · Diga 'Fifo' para hablar"
+        updateEspDisplay(state = "DURMIENDO", transcript = "", response = "")
+        vad.reset()
+        pcmBuffer.clear()
+        resetAutoSleepTimer()
+    }
+
+    /**
+     * Lista de palabras clave y aproximaciones fonéticas cuando hay música o ruido de fondo.
+     * Soporta 'Fifo', detectando repeticiones ("fi fo", "fifooo") y acentos para máxima sensibilidad.
+     */
+    private fun isWakeWord(text: String): Boolean {
+        if (text.isBlank()) return false
+        val normalized = java.text.Normalizer.normalize(text.lowercase().trim(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+        val cleaned = normalized.replace(Regex("[^a-z0-9\\s]"), " ").replace(Regex("\\s+"), " ").trim()
+        val noSpaces = cleaned.replace(" ", "")
+
+        // 1. Coincidencia directa o comprimida ("fi fo", "fi-fo", "fiiifo", "fifo")
+        if (noSpaces.contains("fifo") || Regex("f+i+f+o+").containsMatchIn(noSpaces)) {
+            return true
+        }
+
+        // 2. Variantes fonéticas cuando hay ruido o reconocimiento imperfecto
         val wakeWords = listOf(
-            "fifo", "feefo", "fito", "fifa", "fido",
-            "fee for", "fit for", "people", "free for", "feed for", "bebo", "feefa", "fefa", "phifo", "vibo", "vivo", "filo", "fijo", "pipo", "kiko"
+            "fifo", "feefo", "fito", "fifa", "fido", "fibo", "fipo", "fico", "fiko",
+            "fee for", "fit for", "people", "free for", "feed for", "bebo", "feefa", "fefa",
+            "phifo", "vibo", "vivo", "filo", "fijo", "pipo", "kiko", "fi fo", "fe fo", "sifo"
         )
         return wakeWords.any { word ->
-            normalized.contains(Regex("\\b$word\\b")) ||
-            normalized.startsWith("$word ") ||
-            normalized.endsWith(" $word") ||
-            normalized == word
+            cleaned.contains(Regex("\\b$word\\b")) ||
+            cleaned.startsWith("$word ") ||
+            cleaned.endsWith(" $word") ||
+            cleaned == word
         }
     }
 
@@ -756,8 +840,8 @@ class VoicePipelineManager(
      * Extrae la consulta eliminando prefijos de activación como "Fifo", "Hola Fifo", etc.
      */
     private fun extractQuery(text: String): String {
-        return text.replace(Regex("(?i)\\b(hola|oye|hey|che|ok|bueno|dime|saludos)\\s+(fifo|fífo|feefo|fito|fifa|fido|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko)\\b"), "")
-            .replace(Regex("(?i)\\b(fifo|fífo|feefo|fito|fifa|fido|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko)\\b"), "")
+        return text.replace(Regex("(?i)\\b(hola|oye|hey|che|ok|bueno|dime|saludos)\\s+(fifo|fífo|feefo|fito|fifa|fido|fibo|fipo|fico|fiko|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko|fi\\s+fo)\\b"), "")
+            .replace(Regex("(?i)\\b(fifo|fífo|feefo|fito|fifa|fido|fibo|fipo|fico|fiko|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko|fi\\s+fo)\\b"), "")
             .trim()
             .trimStart(',', '.', ':', ';', '!', '?', ' ')
             .trim()
@@ -819,6 +903,8 @@ class VoicePipelineManager(
      */
     fun processTextQuery(query: String) {
         if (query.isBlank()) return
+        oneShotPushedToTalk = true
+        _isAwake.value = true
         processUserText(query)
     }
 
@@ -829,25 +915,83 @@ class VoicePipelineManager(
         if (rawText.isBlank()) return
         Log.i(TAG, "Texto reconocido (Google Voice): $rawText")
 
+        val now = System.currentTimeMillis()
         val textLower = rawText.lowercase().trim()
+
+        // 1. Debounce de 2.5s para evitar responder 2 veces a la misma consulta o callbacks duplicados de Google
+        if (textLower == lastProcessedText.trim().lowercase() && (now - lastProcessedTimestamp) < 2500L) {
+            Log.d(TAG, "Descartando consulta duplicada recibida en <2.5s: $rawText")
+            return
+        }
+
+        // Si el usuario ordenó silencio, callar inmediatamente sin importar si se estaba procesando
+        if (isSilenceCommand(rawText, whileSpeaking = true)) {
+            Log.i(TAG, "Comando de silencio recibido: '$rawText'. Callando a Fifo...")
+            stopSpeakingSilently()
+            return
+        }
+
+        // 2. Candado de procesamiento concurrente: evitar lanzar dos consultas simultáneas
+        if (isCurrentlyProcessing || _state.value == PipelineState.PROCESSING) {
+            Log.d(TAG, "Descartando texto mientras Fifo procesa otra consulta: $rawText")
+            return
+        }
+
         val hasWakeWord = isWakeWord(textLower)
+        val isWaitingFollowUp = (expectFollowUpQuestion || pendingNavigationRequest) && _isAwake.value
+        val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
         val callInfo = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value
-        val isCallControl = callInfo != null && hasWakeWord && isCallActionCommand(textLower, isRinging = callInfo.isRinging)
+        val isCallControl = callInfo != null && (hasWakeWord || isWaitingFollowUp) && isCallActionCommand(textLower, isRinging = callInfo.isRinging)
         val wasPushed = oneShotPushedToTalk
         oneShotPushedToTalk = false
 
-        // SI O SI se debe decir "Fifo" para que Fifo atienda cualquier consulta o llamada
-        // (única excepción: que el usuario haya presionado físicamente el botón táctil en pantalla de Push-To-Talk)
-        if (!hasWakeWord && !wasPushed) {
-            Log.d(TAG, "Audio ignorado: SI O SI se debe decir 'Fifo'. Oído: $rawText")
-            // No actualizar _transcription ni hablar, mantener a Fifo en reposo
+        // Se debe decir "Fifo" a menos que estemos en ventana de respuesta activa, modo continuo o botón
+        if (!hasWakeWord && !wasPushed && !isWaitingFollowUp && !isContinuous && !isCallControl) {
+            Log.d(TAG, "Audio ignorado: Fifo en reposo y no se detectó 'Fifo'. Oído: $rawText")
+            return
+        }
+
+        lastProcessedText = rawText
+        lastProcessedTimestamp = now
+
+        // Si estábamos esperando el destino para navegación:
+        if (pendingNavigationRequest) {
+            pendingNavigationRequest = false
+            expectFollowUpQuestion = false
+            val queryClean = extractQuery(rawText)
+            val target = queryClean.replace(Regex("(?i)\\b(a|al|a la|a los|a las|hacia|para|ir a|ir al|ir a la)\\b"), "").trim()
+                .ifBlank { queryClean }
+            _transcription.value = rawText
+            _isMicMuted.value = false
+            _isAwake.value = true
+            scope.launch {
+                isCurrentlyProcessing = true
+                try {
+                    _state.value = PipelineState.PROCESSING
+                    _statusMessage.value = "Calculando ruta..."
+                    val result = skillRegistry.executeSkill("open_navigation_directions", mapOf("destination" to target))
+                    if (result.data?.get("needs_destination") == true) {
+                        pendingNavigationRequest = true
+                        expectFollowUpQuestion = true
+                    }
+                    val directFeedback = TextSanitizer.cleanForSpeech(result.spokenFeedback)
+                    _aiResponse.value = directFeedback
+                    _statusMessage.value = "Respondiendo..."
+                    cloudClient.recordTurn(rawText, directFeedback)
+                    activeSessionTurns.add(rawText to directFeedback)
+                    speakResponseChunk(directFeedback)
+                    resetAutoSleepTimer()
+                } finally {
+                    isCurrentlyProcessing = false
+                }
+            }
             return
         }
 
         // Si estábamos esperando la pregunta de seguimiento, consumirla
         expectFollowUpQuestion = false
 
-        // Si se dijo "Fifo" o se presionó el botón:
+        // Si se dijo "Fifo", o respondió en ventana activa, o se presionó el botón:
         _transcription.value = rawText
 
         // Si es un comando de control de llamada directo ("Fifo contesta", "Fifo cuelga", etc.):
@@ -855,49 +999,65 @@ class VoicePipelineManager(
             _isMicMuted.value = false
             _isAwake.value = true
             scope.launch {
-                val directResult = skillRegistry.tryExecuteVoiceIntent(textLower)
-                if (directResult != null) {
-                    val directFeedback = TextSanitizer.cleanForSpeech(directResult.spokenFeedback)
-                    _aiResponse.value = directFeedback
-                    _statusMessage.value = "Controlando llamada..."
-                    speakResponseChunk(directFeedback)
-                    resetAutoSleepTimer()
-                    return@launch
+                isCurrentlyProcessing = true
+                try {
+                    val directResult = skillRegistry.tryExecuteVoiceIntent(textLower)
+                    if (directResult != null) {
+                        val directFeedback = TextSanitizer.cleanForSpeech(directResult.spokenFeedback)
+                        _aiResponse.value = directFeedback
+                        _statusMessage.value = "Controlando llamada..."
+                        cloudClient.recordTurn(rawText, directFeedback)
+                        activeSessionTurns.add(rawText to directFeedback)
+                        speakResponseChunk(directFeedback)
+                        resetAutoSleepTimer()
+                    }
+                } finally {
+                    isCurrentlyProcessing = false
                 }
             }
             return
         }
 
         scope.launch {
-            // Verificar comandos de dormir o parar la escucha continua
-            val isSleepCmd = textLower.contains("duérmete") || textLower.contains("a dormir") ||
-                    textLower.contains("buenas noches") || textLower.contains("descansa") ||
-                    textLower.contains("adiós") || textLower.contains("hasta luego") ||
-                    textLower.contains("deja de escuchar") || textLower.contains("ya no escuches")
+            isCurrentlyProcessing = true
+            try {
+                // Verificar comandos de dormir o parar la escucha continua
+                val isSleepCmd = textLower.contains("duérmete") || textLower.contains("a dormir") ||
+                        textLower.contains("buenas noches") || textLower.contains("descansa") ||
+                        textLower.contains("adiós") || textLower.contains("hasta luego") ||
+                        textLower.contains("deja de escuchar") || textLower.contains("ya no escuches")
 
-            if (isSleepCmd) {
-                com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
-                speakResponseChunk("Hasta luego, que tenga un excelente descanso.")
-                goToSleep()
-                return@launch
+                if (isSleepCmd) {
+                    com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
+                    speakResponseChunk("Hasta luego, que tenga un excelente descanso.")
+                    goToSleep()
+                    return@launch
+                }
+
+                // Despertar a Fifo para atender esta consulta
+                _isMicMuted.value = false
+                _isAwake.value = true
+                resetAutoSleepTimer()
+                _statusMessage.value = "¡Fifo despierto!"
+                updateEspDisplay(state = "ESCUCHANDO", transcript = "", response = "")
+
+                val query = extractQuery(rawText)
+                if (query.isBlank() || query.length < 2) {
+                    // El usuario solo dijo "Fifo" o "Hola Fifo"
+                    if (cloudClient.hasRecentConversation()) {
+                        expectFollowUpQuestion = true
+                        speakResponseChunk("Le escucho con atención, dígame.")
+                        return@launch
+                    }
+                    expectFollowUpQuestion = true
+                    speakResponseChunk("¡Hola! Qué alegría saludarle. ¿En qué le puedo ayudar?")
+                    return@launch
+                }
+
+                consultClaudeAndRespond(query)
+            } finally {
+                isCurrentlyProcessing = false
             }
-
-            // Despertar a Fifo para atender esta consulta
-            _isMicMuted.value = false
-            _isAwake.value = true
-            resetAutoSleepTimer()
-            _statusMessage.value = "¡Fifo despierto!"
-            updateEspDisplay(state = "ESCUCHANDO", transcript = "", response = "")
-
-            val query = extractQuery(rawText)
-            if (query.isBlank() || query.length < 2) {
-                // El usuario solo dijo "Fifo" o "Hola Fifo", saludamos y esperamos su pregunta
-                expectFollowUpQuestion = true
-                speakResponseChunk("¡Hola! Qué alegría saludarle. ¿En qué le puedo ayudar?")
-                return@launch
-            }
-
-            consultClaudeAndRespond(query)
         }
     }
 
@@ -917,9 +1077,13 @@ class VoicePipelineManager(
         }
 
         scope.launch {
-            _state.value = PipelineState.PROCESSING
-            _statusMessage.value = "Pensando..."
-            updateEspDisplay(state = "PENSANDO")
+            val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
+            val isCurrentlyAwake = _isAwake.value || oneShotPushedToTalk || isContinuous || expectFollowUpQuestion
+            if (isCurrentlyAwake) {
+                _state.value = PipelineState.PROCESSING
+                _statusMessage.value = "Pensando..."
+                updateEspDisplay(state = "PENSANDO")
+            }
 
             try {
                 // Si no hay servicio de STT en la nube (Groq Whisper o OpenAI), no podemos transcribir WAV
@@ -959,16 +1123,49 @@ class VoicePipelineManager(
                 oneShotPushedToTalk = false
                 val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
 
+                val isWaitingFollowUp = (expectFollowUpQuestion || pendingNavigationRequest) && _isAwake.value
+
                 // Si no se dijo "Fifo", verificar si estábamos en conversación activa, pregunta pendiente, o modo continuo
-                if (!hasWakeWord && !wasPushed && !expectFollowUpQuestion && !isContinuous && !isCallControl) {
+                if (!hasWakeWord && !wasPushed && !isWaitingFollowUp && !isContinuous && !isCallControl) {
                     Log.d(TAG, "Audio ignorado: Fifo en reposo y no se detectó 'Fifo'. Oído: $transcript")
                     _state.value = PipelineState.SLEEPING
                     updateEspDisplay(state = "DURMIENDO")
                     return@launch
                 }
 
+                if (pendingNavigationRequest) {
+                    pendingNavigationRequest = false
+                    expectFollowUpQuestion = false
+                    val queryClean = extractQuery(transcript)
+                    val target = queryClean.replace(Regex("(?i)\\b(a|al|a la|a los|a las|hacia|para|ir a|ir al|ir a la)\\b"), "").trim()
+                        .ifBlank { queryClean }
+                    _transcription.value = transcript
+                    _isMicMuted.value = false
+                    _isAwake.value = true
+                    _state.value = PipelineState.PROCESSING
+                    _statusMessage.value = "Calculando ruta..."
+                    val result = skillRegistry.executeSkill("open_navigation_directions", mapOf("destination" to target))
+                    if (result.data?.get("needs_destination") == true) {
+                        pendingNavigationRequest = true
+                        expectFollowUpQuestion = true
+                    }
+                    val directFeedback = TextSanitizer.cleanForSpeech(result.spokenFeedback)
+                    _aiResponse.value = directFeedback
+                    _statusMessage.value = "Respondiendo..."
+                    speakResponseChunk(directFeedback)
+                    resetAutoSleepTimer()
+                    return@launch
+                }
+
                 expectFollowUpQuestion = false
                 _transcription.value = transcript
+
+                // Si el usuario ordenó silencio ("Fifo silencio", "Fifo cállate", "Fifo para", etc.), callar inmediatamente
+                if (isSilenceCommand(transcript)) {
+                    Log.i(TAG, "Comando de silencio recibido vía Whisper: '$transcript'. Callando a Fifo...")
+                    stopSpeakingSilently()
+                    return@launch
+                }
 
                 // Si es un comando de llamada telefónica activo:
                 if (isCallControl) {
@@ -999,9 +1196,10 @@ class VoicePipelineManager(
 
                 _isMicMuted.value = false
                 _isAwake.value = true
+                _state.value = PipelineState.PROCESSING
                 resetAutoSleepTimer()
-                _statusMessage.value = "¡Fifo despierto!"
-                updateEspDisplay(state = "ESCUCHANDO")
+                _statusMessage.value = "Pensando..."
+                updateEspDisplay(state = "PENSANDO")
 
                 val query = extractQuery(transcript)
                 if (query.isBlank() || query.length < 2) {
@@ -1030,9 +1228,15 @@ class VoicePipelineManager(
         val directResult = skillRegistry.tryExecuteVoiceIntent(query)
         if (directResult != null) {
             Log.i(TAG, "Skill ejecutada directamente por intención de voz: ${directResult.spokenFeedback}")
+            if (directResult.data?.get("needs_destination") == true) {
+                pendingNavigationRequest = true
+                expectFollowUpQuestion = true
+            }
             val directFeedback = TextSanitizer.cleanForSpeech(directResult.spokenFeedback)
             _aiResponse.value = directFeedback
             _statusMessage.value = "Respondiendo..."
+            cloudClient.recordTurn(query, directFeedback)
+            activeSessionTurns.add(query to directFeedback)
             speakResponseChunk(directFeedback)
             resetAutoSleepTimer()
             return
@@ -1040,17 +1244,18 @@ class VoicePipelineManager(
 
         // 2. Si no es un comando directo, consultar al cerebro de IA (Groq LPU / Claude)
         _state.value = PipelineState.PROCESSING
-        val brainName = if (cloudClient.isGroqActive) "Groq (GPT-OSS 120B)" else "Claude"
+        val brainName = if (cloudClient.isGroqActive) "Groq (Qwen 27B)" else "Claude"
         _statusMessage.value = "Consultando a $brainName..."
         updateEspDisplay(state = "PENSANDO", transcript = query)
 
-        val reply = withTimeoutOrNull(15000L) {
+        val reply = withTimeoutOrNull(20000L) {
             cloudClient.chat(query, skillRegistry)
-        } ?: "Disculpa, la respuesta de $brainName tardó demasiado tiempo. Intenta de nuevo."
+        } ?: "Disculpe, la respuesta de $brainName tardó demasiado tiempo. Por favor consulte de nuevo."
 
         val cleanReply = TextSanitizer.cleanForSpeech(reply)
         _aiResponse.value = cleanReply
         _statusMessage.value = "Respondiendo..."
+        activeSessionTurns.add(query to cleanReply)
         speakResponseChunk(cleanReply)
         resetAutoSleepTimer()
     }
@@ -1061,9 +1266,12 @@ class VoicePipelineManager(
     private fun speakResponseChunk(text: String) {
         val cleanText = TextSanitizer.cleanForSpeech(text)
         if (cleanText.isBlank()) return
+        lastSpokenSentence = cleanText
 
-        // Pausar escucha continua para evitar que Fifo escuche su propia voz (eco)
-        nativeRecognizer?.stop()
+        // Mantener la escucha continua activa para permitir interrupciones ("Fifo cállate" / "silencio")
+        if (nativeRecognizer?.isAvailable() == true) {
+            nativeRecognizer?.startContinuousListening()
+        }
 
         scope.launch {
             _state.value = PipelineState.SPEAKING
@@ -1077,46 +1285,151 @@ class VoicePipelineManager(
                 }
                 if (pcmAudio != null) {
                     audioPlayer.write(pcmAudio)
-                    if (_state.value == PipelineState.SPEAKING) {
-                        val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
-                        if (isContinuous) {
-                            _state.value = PipelineState.LISTENING
-                            _statusMessage.value = "Escucha continua activa — hable cuando guste"
-                        } else if (expectFollowUpQuestion) {
-                            _isAwake.value = true
-                            _state.value = PipelineState.LISTENING
-                            _statusMessage.value = "Le escucho... ¿En qué le puedo ayudar?"
-                        } else {
-                            _isAwake.value = false
-                            _state.value = PipelineState.SLEEPING
-                            _statusMessage.value = if (_isMicMuted.value) {
-                                "Micrófono silenciado (Mute)"
-                            } else {
-                                "Fifo en reposo · Diga 'Fifo' para hablar"
-                            }
-                        }
-                        updateEspDisplay(
-                            state = if (_isMicMuted.value) "MUTED"
-                            else if (isContinuous || expectFollowUpQuestion) "ESCUCHANDO"
-                            else "DURMIENDO"
-                        )
-                        vad.reset()
-                        if (!_isMicMuted.value) {
-                            val isCommActive = callManager?.isCommunicationModeActive() == true ||
-                                    com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
-                            if (isCommActive) {
-                                ensureCallListeningActive()
-                            } else {
-                                phoneMicRecorder.stop()
-                                nativeRecognizer?.startContinuousListening()
-                            }
-                        }
-                    }
+                    handleTtsFinished(cleanText)
                 } else {
                     androidTtsSpeaker?.speak(cleanText)
                 }
             } else {
                 androidTtsSpeaker?.speak(cleanText)
+            }
+        }
+    }
+
+    /**
+     * Consolida los turnos de la sesión de conversación finalizada en SQLite (memoria persistente).
+     */
+    private fun consolidateSessionIntoMemory(turns: List<Pair<String, String>>) {
+        if (turns.isEmpty()) return
+        scope.launch(Dispatchers.IO) {
+            try {
+                Log.i(TAG, "Iniciando consolidación de memoria de sesión (${turns.size} turnos)...")
+                val consolidation = cloudClient.extractSessionMemory(turns) ?: return@launch
+
+                val isoTimestamp = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }.format(java.util.Date())
+
+                // 1. Guardar fragmento compacto en SQLite (para contexto futuro en LLM)
+                val fragment = com.fifo.voicepipeline.ui.model.ConversationFragment(
+                    id = "frag_${System.currentTimeMillis()}",
+                    serverConversationId = "srv_${System.currentTimeMillis()}",
+                    keyTopics = consolidation.keyTopics.ifEmpty { listOf(consolidation.primaryTag) },
+                    namedEntities = consolidation.namedEntities,
+                    detectedMood = consolidation.detectedMood,
+                    compactSummary = consolidation.compactSummary.ifBlank { "Charla sobre ${consolidation.primaryTag}" },
+                    primaryTag = consolidation.primaryTag,
+                    durationSeconds = (turns.size * 20).coerceAtLeast(30),
+                    recordedAt = isoTimestamp
+                )
+                com.fifo.voicepipeline.data.FifoDataRepository.addConversationFragment(fragment)
+
+                // 2. Guardar en past_conversations (Charlas y Recuerdos)
+                val pastConv = com.fifo.voicepipeline.ui.model.PastConversationItem(
+                    id = "conv_${System.currentTimeMillis()}",
+                    title = consolidation.conversationTitle.ifBlank { "Charla sobre ${consolidation.primaryTag}" },
+                    date = "Hoy",
+                    duration = "${(turns.size * 20).coerceAtLeast(30)} seg",
+                    summary = consolidation.compactSummary,
+                    tag = consolidation.primaryTag,
+                    iconName = when (consolidation.primaryTag.lowercase()) {
+                        "deporte", "deportes", "ejercicio", "jiujitsu" -> "air"
+                        "familia", "amigos" -> "heart"
+                        "comida", "cocina" -> "restaurant"
+                        "música", "musica" -> "music"
+                        else -> "chat"
+                    }
+                )
+                com.fifo.voicepipeline.data.FifoDataRepository.addConversation(pastConv)
+
+                // 3. Guardar en memories si se detectó un recuerdo valioso
+                if (!consolidation.memoryTitle.isNullOrBlank() && !consolidation.memoryDetail.isNullOrBlank()) {
+                    com.fifo.voicepipeline.data.FifoDataRepository.addMemory(
+                        emoji = consolidation.memoryEmoji ?: "⭐",
+                        title = consolidation.memoryTitle,
+                        detail = consolidation.memoryDetail
+                    )
+                }
+
+                // 4. Guardar gusto si se descubrió un nuevo interés del usuario
+                if (!consolidation.newTaste.isNullOrBlank()) {
+                    com.fifo.voicepipeline.data.FifoDataRepository.addTaste(consolidation.newTaste.trim())
+                }
+                Log.i(TAG, "Consolidación de memoria completada y persistida en SQLite exitosamente!")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error consolidando memoria de la sesión: ${e.message}", e)
+            }
+        }
+    }
+
+    /**
+     * Maneja la transición de estado cuando termina de hablar por parlante (Android TTS u OpenAI).
+     */
+    private fun handleTtsFinished(spokenText: String) {
+        if (_state.value != PipelineState.SPEAKING) return
+
+        val incomingCall = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value
+        val isCommActive = callManager?.isCommunicationModeActive() == true
+        if (incomingCall != null || isCommActive) {
+            _isAwake.value = true
+            _state.value = PipelineState.LISTENING
+            _statusMessage.value = if (incomingCall?.isRinging == true) {
+                "Llamada de ${incomingCall.callerName} · Diga 'contesta' o 'cuelga'"
+            } else {
+                "Llamada activa · Diga 'Fifo cuelga' para terminar"
+            }
+            updateEspDisplay(state = "LLAMADA")
+            ensureCallListeningActive()
+            return
+        }
+
+        // Si se usó temporalmente el micrófono del teléfono, volver al micrófono de Fifo
+        if (_micSource.value == MicSource.PHONE && bleClient.isConnected) {
+            phoneMicRecorder.stop()
+            _micSource.value = MicSource.ESP32
+        }
+
+        if (!bleClient.isConnected && _micSource.value == MicSource.ESP32) {
+            _state.value = PipelineState.DISCONNECTED
+            _statusMessage.value = "Fifo desconectado · Conecte por Bluetooth"
+            return
+        }
+
+        val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
+        val endsWithQuestion = spokenText.trim().endsWith("?") || spokenText.contains("¿")
+        val shouldStayAwake = isContinuous || expectFollowUpQuestion || pendingNavigationRequest || endsWithQuestion
+
+        if (shouldStayAwake) {
+            expectFollowUpQuestion = true
+            _isAwake.value = true
+            _state.value = PipelineState.LISTENING
+            _statusMessage.value = if (isContinuous) {
+                "Escucha continua activa — hable cuando guste"
+            } else {
+                "Le escucho... Puede responder directamente"
+            }
+            updateEspDisplay(state = "ESCUCHANDO")
+            resetFollowUpSleepTimer(timeoutMs = if (isContinuous) 120000L else 14000L)
+        } else {
+            _isAwake.value = false
+            _state.value = PipelineState.SLEEPING
+            _statusMessage.value = if (_isMicMuted.value) {
+                "Micrófono silenciado (Mute)"
+            } else {
+                "Fifo en reposo · Diga 'Fifo' para hablar"
+            }
+            updateEspDisplay(state = if (_isMicMuted.value) "MUTED" else "DURMIENDO")
+        }
+
+        vad.reset()
+
+        if (!_isMicMuted.value) {
+            val isCallMode = callManager?.isCommunicationModeActive() == true ||
+                    com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
+            if (isCallMode) {
+                ensureCallListeningActive()
+            } else {
+                phoneMicRecorder.stop()
+                nativeRecognizer?.startContinuousListening()
             }
         }
     }

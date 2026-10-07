@@ -69,9 +69,9 @@ fun MainScreen(
     var isBreathingOpen by remember { mutableStateOf(false) }
     var initialPhoneMicMode by remember { mutableStateOf(false) }
 
-    // Si el pipeline entra en estado activo por detección de voz o ESP32, abrir automáticamente el diálogo de Fifo
-    LaunchedEffect(state) {
-        if (state == PipelineState.LISTENING || state == PipelineState.PROCESSING || state == PipelineState.SPEAKING) {
+    // Solo abrir el diálogo de Fifo automáticamente si Fifo fue despertado (se dijo "Fifo" o se pulsó hablar)
+    LaunchedEffect(state, isAwake) {
+        if (isAwake && (state == PipelineState.LISTENING || state == PipelineState.PROCESSING || state == PipelineState.SPEAKING)) {
             isVoiceSheetOpen = true
         }
     }

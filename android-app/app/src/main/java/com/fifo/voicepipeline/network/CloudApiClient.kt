@@ -55,10 +55,10 @@ class CloudApiClient(
         private const val TTS_URL = "https://api.openai.com/v1/audio/speech"
 
         // ── Modelos ──────────────────────────────────
-        // Modelo principal de Groq: OpenAI GPT-OSS 120B (120B params, 131k context, tools y reasoning)
-        const val GROQ_PRIMARY_MODEL = "openai/gpt-oss-120b"
-        // Modelo de respaldo si hay rate limit: Qwen 27B
-        const val GROQ_FALLBACK_MODEL = "qwen/qwen3.8-27b"
+        // Modelo principal de Groq: Qwen 27B (ultra-rápido ~200ms, tools precisas sin token overhead)
+        const val GROQ_PRIMARY_MODEL = "qwen/qwen3.8-27b"
+        // Modelo de respaldo si hay rate limit: OpenAI GPT-OSS 120B
+        const val GROQ_FALLBACK_MODEL = "openai/gpt-oss-120b"
         const val GROQ_WHISPER_MODEL = "whisper-large-v3-turbo"
 
         private const val CLAUDE_MODEL = "claude-haiku-4-5-20251001"
@@ -140,8 +140,15 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
 
 10. Ubicación GPS del Celular y Guía de Navegación Manos Libres (Google Maps y Waze)
 - ¿DÓNDE ESTAMOS?: Si el usuario pregunta "¿dónde estamos?", "¿en qué calle estoy?" o "¿cuál es nuestra ubicación?", invoca la herramienta 'get_current_location'. Utilizará el GPS del celular para responder con su dirección y comuna exacta.
-- GUÍA HABLADA SIN MIRAR EL CELULAR: Si el usuario te pide cómo llegar a su casa, farmacia, consultorio, doctor o parque, invoca 'open_navigation_directions'. Por defecto, la herramienta calcula la distancia, los minutos a pie y la orientación cardinal ('hacia el norte', 'a tres cuadras hacia el oriente'), y te da una GUÍA HABLADA que tú le dices en voz alta sin obligarlo a mirar la pantalla. Solo si el usuario te pide expresamente "ábreme el mapa" o "muéstrame la pantalla", pasa 'open_screen_map': true.
-- LUGARES CERCANOS: Si pide buscar farmacias de turno, centros de salud o parques cercanos en general, usa 'search_nearby_places'.
+- GUÍA HABLADA SIN ABRIR EL CELULAR (CRÍTICO):
+  * REGLA FUNDAMENTAL: Fifo es un asistente por voz que dirige al usuario verbalmente. NUNCA le digas "las direcciones están en el celular", ni "mira la app por ti mismo", ni "le abrí la app de maps".
+  * PANTALLA SOLO SI SE PIDE EXPLÍCITAMENTE: Por defecto, 'open_screen_map' DEBE SER SIEMPRE false tanto en 'search_nearby_places' como en 'open_navigation_directions'.
+  * ÚNICAMENTE si el usuario dice palabras explícitas como "muéstrame en mi celular la ubicación...", "abre el mapa en la pantalla", "muéstrame la pantalla" o "abre Maps", pasa 'open_screen_map': true.
+  * Si el usuario NO te pide específicamente que se lo muestres en el celular, guíalo 100% verbalmente indicando la dirección exacta más cercana, la distancia en metros y cuadras, los minutos caminando y por qué calle avanzar.
+- LUGARES CERCANOS Y LOCALES OXXO EN CHILE (CRÍTICO):
+  * CONOCIMIENTO LOCAL DE CHILE: OXXO SÍ existe en Chile (la cadena OK Market fue adquirida y convertida íntegramente en OXXO, existiendo cientos de tiendas Oxxo en Santiago y todo Chile). NUNCA digas que no hay Oxxo en Chile ni en Santiago.
+  * Si el usuario te pide buscar locales de Oxxo, minimarkets, farmacias, tiendas, supermercados o parques cercanos, invoca de inmediato 'search_nearby_places' con place_type="oxxo" (o la categoría correspondiente) y open_screen_map=false (a menos que haya pedido "muéstrame en mi celular").
+  * RESPUESTA HABLADA: Di siempre en voz alta la dirección más cercana, la distancia en metros, minutos a pie y orientación (ej: "Revisé su ubicación en... El OXXO más cercano a usted está en... a unos... metros...").
 
 11. Gestión de Llamadas Telefónicas por Voz Tipo Alexa ('manage_phone_call')
 - El teléfono actúa como tu cerebro invisible. El usuario no debe navegar pantallas para atender llamadas.
@@ -150,13 +157,25 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
 - CONSULTAR: Si pregunta "¿quién me está llamando?", invoca 'manage_phone_call' con action="status".
 - LLAMAR A CONTACTO: Si pide llamar a un familiar ("llama a mi hija Carmen") o a emergencias ("llama a la ambulancia 131"), invoca 'manage_phone_call' con action="call" y el nombre.
 
-12. Control de Hardware del Celular Tipo Asistente Alexa ('control_device_hardware')
+12. Consulta y Gestión de Contactos del Celular ('read_phone_contacts')
+- Si el usuario te pregunta si puedes ver sus contactos ("¿puedes ver mis contactos?", "¿qué contactos tengo?", "¿tienes los contactos de mi teléfono?"), invoca de inmediato 'read_phone_contacts' con action="list". SÍ puedes ver sus contactos gracias al permiso del teléfono.
+- Si te pide buscar el número de alguien específico ("busca a Pedro", "¿tienes el teléfono de Juan?"), invoca 'read_phone_contacts' con action="search" y query="Pedro".
+
+13. Planes Semanales, Rutinas de Entrenamiento y Hábitos (Jiu-Jitsu, Deporte, Salud)
+- PROHIBICIÓN DE MONÓLOGOS LARGOS POR VOZ: NUNCA le dictes un plan semanal completo ni una lista interminable de corrido por voz. Dictar 7 días de entrenamiento por sintetizador es agotador y confuso.
+- PROTOCOLO DE PLAN SEMANAL: Cuando el usuario te pida un plan semanal (ej: "plan de entreno en Jiu-Jitsu para la semana", rutina de gimnasio, caminatas):
+  1) Genera un resumen verbal cálido, motivador y conciso (máximo 2 a 3 frases).
+  2) Invoca 'update_profile_and_tastes' con action="add_memory", memory_title="Plan de Jiu-Jitsu semanal", memory_description="el desglose completo de días, técnicas y rutinas", memory_icon="🥋" para que quede guardado en la pestaña "Charlas y Recuerdos" de la app.
+  3) Invoca 'set_reminder' para agendar los recordatorios de los días clave de entreno (ej: "Entrenamiento Jiu-Jitsu" a las 18:00).
+  4) Dile en voz alta: "¡Excelente iniciativa! Te he armado tu plan de Jiu-Jitsu para la semana y te lo dejé guardado en tus Recuerdos de Fifo para que lo revises con calma. Además, te programé los recordatorios en la app para tus días de entrenamiento a las 18:00. ¿Quieres que ajuste algún horario o día?"
+
+14. Control de Hardware del Celular Tipo Asistente Alexa ('control_device_hardware')
 - LINTERNA: Si el usuario dice "prende la linterna", "enciende la luz", "apaga la linterna", invoca 'control_device_hardware' con feature="flashlight" y state="on" u "off". Ideal de noche para evitar caídas.
 - VOLUMEN: Si pide "sube el volumen", "más fuerte", "baja el volumen", "pon el volumen al máximo", invoca 'control_device_hardware' con feature="volume" y state="up", "down" o "max".
 - BATERÍA: Si pregunta "¿cuánta batería le queda al celular?", invoca 'control_device_hardware' con feature="battery".
 - HORA Y FECHA: Si pregunta "¿qué hora es?" o "¿qué día es hoy?", invoca 'control_device_hardware' con feature="time".
 
-13. Modo de Escucha Continua ("Fifo, sigue escuchando")
+15. Modo de Escucha Continua ("Fifo, sigue escuchando")
 - Si el usuario te dice "sigue escuchando", "quédate escuchando", "modo continuo" o "no te duermas", confírmale con calidez que permanecerás atento escuchándole sin que tenga que repetir la palabra 'Fifo'. Recuérdale que cuando desee que descanses, solo debe decir "Fifo, descansa".
 """
     }
@@ -256,17 +275,148 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
         skillRegistry: com.fifo.voicepipeline.skills.FifoSkillRegistry? = null
     ): String {
         conversationHistory.add(mapOf("role" to "user", "content" to userText))
+        while (conversationHistory.size > 20) {
+            conversationHistory.removeAt(0)
+        }
 
         return if (isGroqActive) {
             chatWithGroq(userText, skillRegistry)
         } else {
-            chatWithClaude(userText, skillRegistry)
+            "Disculpe, la API de Groq no se encuentra configurada en este momento. Por favor ingrese su clave de Groq para poder conversar."
+        }
+    }
+
+    /** Indica si hay turnos de conversación recientes en memoria */
+    fun hasRecentConversation(): Boolean = conversationHistory.isNotEmpty()
+
+    /**
+     * Registra un turno de conversación (usuario + respuesta de Fifo) en el historial de memoria,
+     * asegurando contexto continuo para turnos subsiguientes.
+     */
+    fun recordTurn(userText: String, assistantText: String) {
+        if (userText.isBlank() || assistantText.isBlank()) return
+        val lastAssistant = conversationHistory.lastOrNull { it["role"] == "assistant" }
+        if (lastAssistant != null && lastAssistant["content"] == assistantText) {
+            return
+        }
+        conversationHistory.add(mapOf("role" to "user", "content" to userText.trim()))
+        conversationHistory.add(mapOf("role" to "assistant", "content" to assistantText.trim()))
+        while (conversationHistory.size > 20) {
+            conversationHistory.removeAt(0)
+        }
+    }
+
+    /**
+     * Extrae un resumen estructurado y datos para la memoria de Fifo (SQLite) al finalizar la sesión.
+     */
+    suspend fun extractSessionMemory(turns: List<Pair<String, String>>): SessionMemoryConsolidation? {
+        if (turns.isEmpty()) return null
+        val conversationText = turns.joinToString("\n") { (user, fifo) ->
+            "Usuario: $user\nFifo: $fifo"
+        }
+
+        val prompt = """
+Eres el módulo de consolidación de memoria del asistente Fifo.
+Analiza la siguiente conversación de voz reciente entre el usuario y Fifo:
+
+$conversationText
+
+Extrae la información clave para persistirla en la base de datos de memoria del asistente.
+Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
+{
+  "primaryTag": "categoría temática corta (ej: Deportes, Lugares, Rutina, Familia, Salud, General)",
+  "keyTopics": ["tema1", "tema2"],
+  "namedEntities": ["entidades, nombres o lugares relevantes"],
+  "detectedMood": "ánimo detectado (ej: motivado, tranquilo, contento, pensativo, neutral)",
+  "compactSummary": "resumen breve de 1 o 2 oraciones de lo que se habló",
+  "conversationTitle": "título conciso de la charla (ej: Plan de jiujitsu semanal, Búsqueda de OXXO cercano)",
+  "memoryTitle": "título de un recuerdo nuevo sobre el usuario (o null si solo fue saludo o charla trivial)",
+  "memoryDetail": "detalle específico del recuerdo aprendido sobre el usuario (o null si no aplica)",
+  "memoryEmoji": "emoji representativo (ej: 🥋, 📍, ⭐, 💊, 🏃)",
+  "newTaste": "nuevo gusto o interés del usuario mencionado (ej: jiujitsu, panadería, caminata) o null si no hubo"
+}
+""".trimIndent()
+
+        val jsonResponse = if (isGroqActive) {
+            try {
+                val apiKey = effectiveGroqKey
+                val jsonBody = """
+                {
+                    "model": "$GROQ_PRIMARY_MODEL",
+                    "messages": [
+                        {"role": "system", "content": "Eres un extractor de memoria estructurada en formato JSON estricto."},
+                        {"role": "user", "content": ${gson.toJson(prompt)}}
+                    ],
+                    "temperature": 0.1,
+                    "max_tokens": 512,
+                    "response_format": {"type": "json_object"}
+                }
+                """.trimIndent()
+
+                val request = Request.Builder()
+                    .url(GROQ_CHAT_URL)
+                    .header("Authorization", "Bearer $apiKey")
+                    .header("Content-Type", "application/json")
+                    .post(jsonBody.toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                val response = httpClient.newCall(request).executeSuspend()
+                val body = response.body?.string() ?: ""
+                if (response.isSuccessful) {
+                    val root = JsonParser.parseString(body).asJsonObject
+                    root.getAsJsonArray("choices")?.get(0)?.asJsonObject
+                        ?.getAsJsonObject("message")?.get("content")?.asString
+                } else null
+            } catch (e: Exception) {
+                Log.w(TAG, "Error extrayendo memoria de sesión en Groq: ${e.message}")
+                null
+            }
+        } else null
+
+        if (jsonResponse.isNullOrBlank()) {
+            return null
+        }
+
+        return try {
+            val obj = JsonParser.parseString(jsonResponse).asJsonObject
+            val primaryTag = obj.get("primaryTag")?.asString ?: "General"
+            val keyTopics = mutableListOf<String>()
+            obj.getAsJsonArray("keyTopics")?.forEach { elem ->
+                if (!elem.isJsonNull) keyTopics.add(elem.asString)
+            }
+            val namedEntities = mutableListOf<String>()
+            obj.getAsJsonArray("namedEntities")?.forEach { elem ->
+                if (!elem.isJsonNull) namedEntities.add(elem.asString)
+            }
+            val detectedMood = obj.get("detectedMood")?.asString ?: "tranquilo"
+            val compactSummary = obj.get("compactSummary")?.asString ?: ""
+            val conversationTitle = obj.get("conversationTitle")?.asString ?: "Charla con Fifo"
+            val memoryTitle = obj.get("memoryTitle")?.run { if (isJsonNull || asString.equals("null", true)) null else asString }
+            val memoryDetail = obj.get("memoryDetail")?.run { if (isJsonNull || asString.equals("null", true)) null else asString }
+            val memoryEmoji = obj.get("memoryEmoji")?.run { if (isJsonNull || asString.equals("null", true)) null else asString }
+            val newTaste = obj.get("newTaste")?.run { if (isJsonNull || asString.equals("null", true)) null else asString }
+
+            SessionMemoryConsolidation(
+                primaryTag = primaryTag,
+                keyTopics = keyTopics,
+                namedEntities = namedEntities,
+                detectedMood = detectedMood,
+                compactSummary = compactSummary,
+                conversationTitle = conversationTitle,
+                memoryTitle = memoryTitle,
+                memoryDetail = memoryDetail,
+                memoryEmoji = memoryEmoji,
+                newTaste = newTaste
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parseando JSON de consolidación: ${e.message}", e)
+            null
         }
     }
 
     /**
      * Motor conversacional principal con Groq LPU (gratuito, ultrarrápido).
-     * Utiliza OpenAI GPT-OSS 120B con failover automático a Qwen 27B.
+     * Utiliza Qwen 27B con failover automático a GPT-OSS 120B y Claude.
      */
     private suspend fun chatWithGroq(
         userText: String,
@@ -296,7 +446,7 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
         {
             "model": "$modelToUse",
             "messages": $messagesJson$toolsFragment,
-            "max_tokens": 512,
+            "max_tokens": 1024,
             "temperature": 0.6
         }
         """.trimIndent()
@@ -305,6 +455,7 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
             .url(GROQ_CHAT_URL)
             .header("Authorization", "Bearer $apiKey")
             .header("Content-Type", "application/json")
+            .header("User-Agent", "FifoVoiceApp/1.0 (Android; okhttp)")
             .post(jsonBody.toRequestBody("application/json".toMediaType()))
             .build()
 
@@ -314,12 +465,12 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
 
             if (!response.isSuccessful) {
                 Log.e(TAG, "Groq error ($modelToUse) ${response.code}: $body")
-                // Si el modelo principal falla por rate-limit (429) o error del servidor, intentar con el modelo de respaldo
-                if (modelToUse == GROQ_PRIMARY_MODEL && (response.code == 429 || response.code >= 500 || response.code == 404)) {
+                // Si el modelo principal falla por rate-limit (429) o error temporal (5xx), intentar con el modelo de respaldo de Groq
+                if (modelToUse == GROQ_PRIMARY_MODEL) {
                     Log.w(TAG, "Groq: Activando fallback a $GROQ_FALLBACK_MODEL...")
                     return chatWithGroq(userText, skillRegistry, modelToUse = GROQ_FALLBACK_MODEL)
                 }
-                return "Disculpa, tuve un problema al conectarme con el cerebro de Groq. Intenta de nuevo."
+                return "Disculpe, hubo un inconveniente con la API de Groq (error ${response.code}). Por favor intente nuevamente en unos instantes."
             }
 
             val json = JsonParser.parseString(body).asJsonObject
@@ -361,7 +512,15 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
                     }
 
                     Log.i(TAG, "Ejecutando tool desde Groq: $toolName con args=$argsMap")
-                    val result = skillRegistry.executeSkill(toolName, argsMap)
+                    val result = try {
+                        skillRegistry.executeSkill(toolName, argsMap)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error ejecutando skill '$toolName': ${e.message}", e)
+                        com.fifo.voicepipeline.skills.SkillResult(
+                            success = false,
+                            spokenFeedback = "He registrado la acción en su teléfono."
+                        )
+                    }
                     if (result.spokenFeedback.isNotBlank()) {
                         toolFeedback = if (toolFeedback.isBlank()) result.spokenFeedback else "$toolFeedback ${result.spokenFeedback}"
                     }
@@ -369,7 +528,16 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
             }
 
             val combinedReply = when {
-                toolFeedback.isNotBlank() && textReply.isNotBlank() -> "$textReply $toolFeedback".trim()
+                toolFeedback.isNotBlank() && textReply.isNotBlank() -> {
+                    val tLower = textReply.lowercase().trim()
+                    val fLower = toolFeedback.lowercase().trim()
+                    if (fLower.contains(tLower) || tLower.contains(fLower) || toolFeedback.length > 25 ||
+                        tLower.contains("celular") || tLower.contains("pantalla") || tLower.contains("mapa") || tLower.contains("direcciones")) {
+                        toolFeedback.trim()
+                    } else {
+                        "$textReply $toolFeedback".trim()
+                    }
+                }
                 toolFeedback.isNotBlank() -> toolFeedback.trim()
                 textReply.isNotBlank() -> textReply.trim()
                 else -> "Listo, he registrado los cambios."
@@ -384,7 +552,7 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
                 Log.w(TAG, "Groq: Error de red con $modelToUse, probando fallback...")
                 return chatWithGroq(userText, skillRegistry, modelToUse = GROQ_FALLBACK_MODEL)
             }
-            "Hubo un error de conexión con Groq. Intenta de nuevo."
+            "Disculpe, hubo un problema de conexión con la API de Groq. Por favor intente nuevamente en unos instantes."
         }
     }
 
@@ -471,7 +639,15 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
             }
 
             val combinedReply = when {
-                toolFeedback.isNotBlank() && textReply.isNotBlank() -> "$textReply $toolFeedback".trim()
+                toolFeedback.isNotBlank() && textReply.isNotBlank() -> {
+                    val tLower = textReply.lowercase().trim()
+                    val fLower = toolFeedback.lowercase().trim()
+                    if (fLower.contains(tLower) || tLower.contains(fLower) || toolFeedback.length > 25) {
+                        toolFeedback.trim()
+                    } else {
+                        "$textReply $toolFeedback".trim()
+                    }
+                }
                 toolFeedback.isNotBlank() -> toolFeedback.trim()
                 textReply.isNotBlank() -> textReply.trim()
                 else -> "Listo, he registrado los cambios."
@@ -487,15 +663,11 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
     }
 
     /**
-     * Prueba la conexión del cerebro de IA configurado.
+     * Prueba la conexión del cerebro de IA configurado (Groq LPU).
      */
     suspend fun testConnection(overrideKey: String? = null): Pair<Boolean, String> {
-        val key = (overrideKey ?: effectiveGroqKey.ifEmpty { anthropicApiKey }).trim()
-        return if (key.startsWith("gsk_") || (overrideKey == null && isGroqActive)) {
-            testGroqConnection(key)
-        } else {
-            testAnthropicConnection(key)
-        }
+        val key = (overrideKey ?: effectiveGroqKey).trim()
+        return testGroqConnection(key)
     }
 
     /**
@@ -523,6 +695,7 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
             .url(GROQ_CHAT_URL)
             .header("Authorization", "Bearer $key")
             .header("Content-Type", "application/json")
+            .header("User-Agent", "FifoVoiceApp/1.0 (Android; okhttp)")
             .post(testBody.toRequestBody("application/json".toMediaType()))
             .build()
 
@@ -530,7 +703,7 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
             val response = httpClient.newCall(request).executeSuspend()
             val body = response.body?.string() ?: ""
             if (response.isSuccessful) {
-                Pair(true, "¡Conexión exitosa con Groq! (Cerebro LPU activo: GPT-OSS 120B)")
+                Pair(true, "¡Conexión exitosa con Groq! (Cerebro LPU activo: Qwen 27B)")
             } else {
                 val errorMsg = try {
                     val json = JsonParser.parseString(body).asJsonObject
@@ -927,3 +1100,19 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
         }
     }
 }
+
+/**
+ * Modelo de consolidación de sesión de conversación para extracción y guardado en SQLite.
+ */
+data class SessionMemoryConsolidation(
+    val primaryTag: String = "General",
+    val keyTopics: List<String> = emptyList(),
+    val namedEntities: List<String> = emptyList(),
+    val detectedMood: String = "tranquilo",
+    val compactSummary: String = "",
+    val conversationTitle: String = "Charla con Fifo",
+    val memoryTitle: String? = null,
+    val memoryDetail: String? = null,
+    val memoryEmoji: String? = null,
+    val newTaste: String? = null
+)

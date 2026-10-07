@@ -35,6 +35,7 @@ class FifoSkillRegistry(private val context: Context) {
         registerSkill(NavigationDirectionsSkill(context))
         registerSkill(PhoneCallSkill(context))
         registerSkill(PhoneDeviceControlSkill(context))
+        registerSkill(ContactsSkill(context))
         Log.i(TAG, "Inicializado FifoSkillRegistry con ${skills.size} herramientas.")
     }
 
@@ -197,10 +198,25 @@ class FifoSkillRegistry(private val context: Context) {
             return executeSkill("get_current_location", emptyMap())
         }
 
-        if (text.contains("cómo llego a") || text.contains("como llego a") || text.contains("guíame a") || text.contains("guiame a") || text.contains("dirección hacia") || text.contains("hacia dónde voy para")) {
-            val target = text.replace(Regex("(?i)\\b(fifo|por favor|cómo llego a|como llego a|guíame a|guiame a|dirección hacia|hacia dónde voy para)\\b"), "").trim()
-                .ifBlank { "mi casa" }
-            val openScreen = text.contains("abre maps") || text.contains("abre waze") || text.contains("pantalla") || text.contains("en el celular")
+        val isNavIntent = text.contains("cómo llego") || text.contains("como llego") ||
+                text.contains("cómo llegar") || text.contains("como llegar") ||
+                text.contains("cómo voy") || text.contains("como voy") ||
+                text.contains("cómo ir") || text.contains("como ir") ||
+                text.contains("instrucciones para") || text.contains("tener instrucciones") ||
+                text.contains("dame instrucciones") || text.contains("indicaciones para") ||
+                text.contains("indicaciones hacia") || text.contains("guíame a") || text.contains("guiame a") ||
+                text.contains("dirección hacia") || text.contains("direccion hacia") ||
+                text.contains("hacia dónde voy") || text.contains("hacia donde voy") ||
+                text.contains("ruta hacia") || text.contains("ruta para")
+
+        if (isNavIntent) {
+            val target = text.replace(
+                Regex("(?i)\\b(fifo|por favor|cómo tener instrucciones para ir a|como tener instrucciones para ir a|cómo tener instrucciones para llegar a|como tener instrucciones para llegar a|cómo tener instrucciones|como tener instrucciones|dame instrucciones para ir a|dame instrucciones para llegar a|dame instrucciones para|dame instrucciones|instrucciones para ir a|instrucciones para ir|instrucciones para llegar a|instrucciones para llegar|instrucciones para|indicaciones para ir a|indicaciones para llegar a|indicaciones para|indicaciones hacia|cómo llego a|como llego a|cómo llego|como llego|cómo llegar a|como llegar a|cómo llegar|como llegar|cómo voy a|como voy a|cómo ir a|como ir a|cómo voy|como voy|cómo ir|como ir|guíame a|guiame a|dirección hacia|direccion hacia|hacia dónde voy para|hacia donde voy para|hacia dónde voy|hacia donde voy|ruta hacia|ruta para)\\b"),
+                ""
+            ).trim()
+            val openScreen = text.contains("abre maps") || text.contains("abre waze") ||
+                    text.contains("pantalla") || text.contains("en el celular") || text.contains("en mi celular") ||
+                    text.contains("muestrame") || text.contains("muéstrame")
             return executeSkill("open_navigation_directions", mapOf("destination" to target, "open_screen_map" to openScreen))
         }
 
@@ -244,24 +260,39 @@ class FifoSkillRegistry(private val context: Context) {
             )
         }
 
-        // 2. BUSCAR EN MAPAS (Farmacias, consultorios, parques)
+        // 2. BUSCAR EN MAPAS (Oxxo, Minimarkets, Farmacias, consultorios, parques)
+        val wantsNearbyScreen = text.contains("abre maps") || text.contains("abre waze") ||
+                text.contains("pantalla") || text.contains("en el celular") || text.contains("en mi celular") ||
+                text.contains("muestrame") || text.contains("muéstrame") || text.contains("abre el mapa") || text.contains("en el mapa")
+
+        if (text.contains("oxxo")) {
+            return executeSkill(
+                "search_nearby_places",
+                mapOf("place_type" to "oxxo", "query_hint" to "OXXO", "open_screen_map" to wantsNearbyScreen)
+            )
+        }
         if (text.contains("farmacia") && (text.contains("dónde") || text.contains("donde") || text.contains("busca") || text.contains("cerca"))) {
             return executeSkill(
                 "search_nearby_places",
-                mapOf("place_type" to "farmacia", "query_hint" to "")
+                mapOf("place_type" to "farmacia", "query_hint" to "", "open_screen_map" to wantsNearbyScreen)
             )
         }
         if ((text.contains("consultorio") || text.contains("cesfam") || text.contains("hospital")) && (text.contains("busca") || text.contains("cerca") || text.contains("dónde"))) {
             return executeSkill(
                 "search_nearby_places",
-                mapOf("place_type" to "centro_salud", "query_hint" to "")
+                mapOf("place_type" to "centro_salud", "query_hint" to "", "open_screen_map" to wantsNearbyScreen)
             )
         }
         if (text.contains("parque") && (text.contains("busca") || text.contains("cerca") || text.contains("dónde"))) {
             return executeSkill(
                 "search_nearby_places",
-                mapOf("place_type" to "parque", "query_hint" to "")
+                mapOf("place_type" to "parque", "query_hint" to "", "open_screen_map" to wantsNearbyScreen)
             )
+        }
+
+        // 2.1 CONSULTA DE CONTACTOS DEL TELÉFONO
+        if (text.contains("contacto") && (text.contains("ver") || text.contains("tienes") || text.contains("puedes") || text.contains("lista") || text.contains("mis contactos"))) {
+            return executeSkill("read_phone_contacts", mapOf("action" to "list"))
         }
 
         // 3. CALENDARIO DE CITAS

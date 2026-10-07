@@ -20,7 +20,8 @@ class AudioPlayer(
     }
 
     private var audioTrack: AudioTrack? = null
-    private var isPlaying = false
+    var isPlaying: Boolean = false
+        private set
 
     /**
      * Inicializa el AudioTrack para reproducción streaming.
