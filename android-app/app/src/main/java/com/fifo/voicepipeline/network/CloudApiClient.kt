@@ -131,7 +131,8 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
 
 8. Memoria Conversacional de Doble Capa y Contexto Profundo
 - ARQUITECTURA DE LATENCIA MÍNIMA: Para que tus respuestas de voz sean inmediatas en el teléfono del usuario, cuentas con fragmentos compactos de charlas previas inyectados abajo como "VENTANA DE CONTEXTO COMPACTO".
-- CONTINUIDAD CONVERSACIONAL: Utiliza siempre estos fragmentos para demostrar empatía y recordar detalles cotidianos (sus orquídeas, su música de piano, recetas, su familia) sin que el usuario tenga que repetir todo.
+- MEMORIA Y ANTECEDENTES: Los fragmentos de contexto previo son antecedentes que solo debes usar cuando el usuario mencione un tema relacionado.
+- PROHIBIDO FORZAR TEMAS NO SOLICITADOS: NUNCA mencione temas pasados (como orquídeas, flores, piano o recetas) de la nada si el usuario no los ha mencionado en la charla actual. Si el usuario te saluda, te agradece o hace una pregunta corta, responde únicamente a lo que te preguntó de forma directa, cálida y concisa, sin forzar recuerdos o temas no solicitados.
 - BÚSQUEDA DE CONTEXTO PROFUNDO EN BASE DE DATOS: Si el usuario te pregunta por un dato muy específico, una anécdota pasada, o un detalle de nicho que no aparezca con suficiente claridad en tus fragmentos compactos, invoca la herramienta 'recall_past_context' con la consulta precisa ('query'). Esta herramienta consultará la base de datos completa del servidor y te traerá el extracto exacto para responderle.
 
 9. Búsqueda y Rastreo del Dispositivo Robot Fifo ("Te perdí", "¿Dónde estás?")
@@ -178,6 +179,28 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
 15. Modo de Escucha Continua ("Fifo, sigue escuchando")
 - Si el usuario te dice "sigue escuchando", "quédate escuchando", "modo continuo" o "no te duermas", confírmale con calidez que permanecerás atento escuchándole sin que tenga que repetir la palabra 'Fifo'. Recuérdale que cuando desee que descanses, solo debe decir "Fifo, descansa".
 """
+
+        fun isWhisperHallucination(rawText: String): Boolean {
+            val norm = java.text.Normalizer.normalize(rawText.lowercase().trim(), java.text.Normalizer.Form.NFD)
+                .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+                .replace(Regex("[^a-z0-9\\s]"), " ")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+
+            if (norm.isBlank() || norm.length <= 1) return true
+
+            val knownHallucinations = setOf(
+                "gracias", "muchas gracias", "gracias por ver", "gracias por ver el video",
+                "gracias por ver este video", "gracias por mirar", "gracias por su atencion",
+                "subtitulos realizados por la comunidad de amara org",
+                "subtitulos por la comunidad de amara org", "amara org", "amara",
+                "suscribete", "suscribete al canal", "suscribanse", "dale like y suscribete",
+                "dale like", "compartir", "comenta",
+                "thank you", "thank you for watching", "thanks for watching",
+                "chao", "adios", "bye", "ok", "okay"
+            )
+            return knownHallucinations.contains(norm)
+        }
     }
 
     private val httpClient = OkHttpClient.Builder()
@@ -253,8 +276,12 @@ Para evaluar si un hobby es ideal para el bienestar cognitivo y emocional del us
             }
 
             val json = JsonParser.parseString(body).asJsonObject
-            val text = json.get("text")?.asString ?: ""
-            Log.i(TAG, "Transcripción ($model): $text")
+            val text = json.get("text")?.asString?.trim() ?: ""
+            Log.i(TAG, "Transcripción ($model): '$text'")
+            if (isWhisperHallucination(text)) {
+                Log.w(TAG, "Alucinación de silencio/ruido de Whisper descartada: '$text'")
+                return ""
+            }
             text
         } catch (e: Exception) {
             Log.e(TAG, "Error en transcripción: ${e.message}", e)

@@ -54,17 +54,23 @@ class FifoCallManager(
      * (VoIP como WhatsApp, Google Meet, Zoom o llamada celular clásica).
      */
     fun isCommunicationModeActive(): Boolean {
+        if (FifoDataRepository.incomingCall.value != null) return true
+        val isCellularCall = try {
+            telephonyManager?.callState != TelephonyManager.CALL_STATE_IDLE
+        } catch (_: Exception) {
+            false
+        }
+        if (isCellularCall) return true
+
         val mode = audioManager?.mode ?: AudioManager.MODE_NORMAL
-        return mode == AudioManager.MODE_IN_COMMUNICATION ||
-                mode == AudioManager.MODE_IN_CALL ||
-                FifoDataRepository.incomingCall.value != null
+        return mode == AudioManager.MODE_IN_CALL
     }
 
     /**
      * Inicia la escucha de eventos telefónicos y llamadas VoIP/videollamadas.
      */
     fun startListening() {
-        // 1. Escuchar cambios de modo de audio para detectar videollamadas (WhatsApp, Meet, etc.)
+        // 1. Escuchar cambios de modo de audio para detectar llamadas entrantes
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val modeListener = AudioManager.OnModeChangedListener { mode ->
@@ -72,11 +78,6 @@ class FifoCallManager(
                 }
                 audioManager?.addOnModeChangedListener(context.mainExecutor, modeListener)
                 audioModeListener = modeListener
-            }
-            // Comprobación inicial de si ya estamos en videollamada o llamada
-            val currentMode = audioManager?.mode ?: AudioManager.MODE_NORMAL
-            if (currentMode == AudioManager.MODE_IN_COMMUNICATION || currentMode == AudioManager.MODE_IN_CALL) {
-                handleAudioModeChanged(currentMode)
             }
         } catch (e: Exception) {
             Log.w(TAG, "No se pudo registrar listener de modo de audio: ${e.message}")
@@ -126,12 +127,18 @@ class FifoCallManager(
      */
     fun handleAudioModeChanged(mode: Int) {
         when (mode) {
-            AudioManager.MODE_IN_COMMUNICATION, AudioManager.MODE_IN_CALL -> {
-                Log.i(TAG, "Detectada videollamada o llamada VoIP activa (WeChat, WhatsApp, Meet, etc.)")
+            AudioManager.MODE_IN_CALL -> {
+                Log.i(TAG, "Detectada llamada celular activa (MODE_IN_CALL)")
                 onCommunicationModeChanged?.invoke(true)
             }
+            AudioManager.MODE_IN_COMMUNICATION -> {
+                if (FifoDataRepository.incomingCall.value != null) {
+                    Log.i(TAG, "Detectada llamada VoIP activa con llamada registrada")
+                    onCommunicationModeChanged?.invoke(true)
+                }
+            }
             AudioManager.MODE_NORMAL -> {
-                Log.i(TAG, "Llamada finalizada, restableciendo audio a MODE_NORMAL")
+                Log.i(TAG, "Audio en MODE_NORMAL")
                 resetCallAudioRouting()
                 onCommunicationModeChanged?.invoke(false)
             }

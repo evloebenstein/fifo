@@ -629,9 +629,13 @@ class VoicePipelineManager(
         // Si hay llamada o el robot NO está conectado, procesar el mic del celular como fallback.
         if (!isCallActive && source != _micSource.value && bleClient.isConnected) return
 
-        // Supresión de eco: si el celular está hablando o procesando, silenciar micrófono
-        if (_state.value == PipelineState.SPEAKING) return
-        if (_state.value == PipelineState.PROCESSING) return
+        // Supresión de eco estricta: si el celular o TTS está hablando, silenciar micrófono y vaciar buffer
+        if (_state.value == PipelineState.SPEAKING || _state.value == PipelineState.PROCESSING ||
+            androidTtsSpeaker?.isSpeaking == true || audioPlayer.isPlaying) {
+            pcmBuffer.clear()
+            vad.reset()
+            return
+        }
 
         val result = vad.processChunk(pcmData)
         _rmsLevel.value = result.rms
@@ -1116,10 +1120,11 @@ class VoicePipelineManager(
                     return@launch
                 }
 
-                if (transcript == "[TIMEOUT_STT]" || transcript.isBlank() || transcript.startsWith("[")) {
-                    Log.w(TAG, "Audio no comprendido o error: $transcript")
+                if (transcript == "[TIMEOUT_STT]" || transcript.isBlank() || transcript.startsWith("[") ||
+                    CloudApiClient.isWhisperHallucination(transcript)) {
+                    Log.d(TAG, "Audio ignorado: transcripción vacía o alucinación de silencio ($transcript)")
                     _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
-                    _statusMessage.value = if (_isAwake.value) "Listo — habla cuando quieras" else "Fifo durmiendo · Di 'Fifo'"
+                    _statusMessage.value = if (_isAwake.value) "Listo — habla cuando quieras" else "Fifo en reposo · Diga 'Fifo' para hablar"
                     updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
                     return@launch
                 }
@@ -1427,6 +1432,7 @@ class VoicePipelineManager(
             updateEspDisplay(state = if (_isMicMuted.value) "MUTED" else "DURMIENDO")
         }
 
+        pcmBuffer.clear()
         vad.reset()
 
         if (!_isMicMuted.value) {
