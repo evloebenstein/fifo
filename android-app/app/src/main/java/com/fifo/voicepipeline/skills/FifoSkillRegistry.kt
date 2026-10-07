@@ -337,7 +337,7 @@ class FifoSkillRegistry(private val context: Context) {
             )
         }
 
-        if (text.contains("oxxo")) {
+        if (text.contains("oxxo") || text.contains("oxo") || text.contains("ok market")) {
             return executeSkill(
                 "search_nearby_places",
                 mapOf("place_type" to "oxxo", "query_hint" to "OXXO", "open_screen_map" to wantsNearbyScreen)
