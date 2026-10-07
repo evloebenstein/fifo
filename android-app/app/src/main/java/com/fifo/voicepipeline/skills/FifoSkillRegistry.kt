@@ -36,6 +36,7 @@ class FifoSkillRegistry(private val context: Context) {
         registerSkill(PhoneCallSkill(context))
         registerSkill(PhoneDeviceControlSkill(context))
         registerSkill(ContactsSkill(context))
+        registerSkill(WebSearchSkill(context))
         Log.i(TAG, "Inicializado FifoSkillRegistry con ${skills.size} herramientas.")
     }
 
@@ -254,6 +255,28 @@ class FifoSkillRegistry(private val context: Context) {
             return executeSkill("get_current_location", emptyMap())
         }
 
+        // 0.3.1 BÚSQUEDA EN INTERNET / NOTICIAS / CLIMA
+        val isExplicitSearch = text.startsWith("busca en internet") || text.startsWith("busca en la web") ||
+                text.startsWith("averigua en internet") || text.startsWith("averigua en la web") ||
+                text.contains("busca noticias") || text.contains("noticias de hoy") ||
+                text.contains("últimas noticias") || text.contains("ultimas noticias") ||
+                text.contains("qué dice internet") || text.contains("que dice internet") ||
+                text.contains("averigua en google") || text.contains("busca en google")
+
+        if (isExplicitSearch) {
+            val cleanQuery = text.replace(
+                Regex("(?i)\\b(fifo|por favor|busca en internet|busca en la web|averigua en internet|averigua en la web|averigua en google|busca en google|qué dice internet sobre|que dice internet sobre|qué dice internet|que dice internet|busca noticias de|busca noticias|noticias de hoy sobre|noticias de hoy|últimas noticias sobre|ultimas noticias sobre|últimas noticias|ultimas noticias)\\b"),
+                ""
+            ).trim()
+            val queryToUse = if (cleanQuery.isNotBlank()) cleanQuery else text
+            val searchType = if (text.contains("noticia")) "news" else if (text.contains("clima") || text.contains("temperatura")) "weather" else "general"
+            return executeSkill("web_search", mapOf("query" to queryToUse, "search_type" to searchType))
+        }
+
+        if ((text.contains("cómo está el clima") || text.contains("como esta el clima") || text.contains("qué temperatura hay") || text.contains("que temperatura hay") || text.contains("va a llover")) && !text.contains("no ")) {
+            return executeSkill("web_search", mapOf("query" to "clima hoy", "search_type" to "weather"))
+        }
+
         val isNavIntent = text.contains("cómo llego") || text.contains("como llego") ||
                 text.contains("cómo llegar") || text.contains("como llegar") ||
                 text.contains("cómo voy") || text.contains("como voy") ||
@@ -358,6 +381,12 @@ class FifoSkillRegistry(private val context: Context) {
             return executeSkill(
                 "search_nearby_places",
                 mapOf("place_type" to "oxxo", "query_hint" to "OXXO", "open_screen_map" to wantsNearbyScreen)
+            )
+        }
+        if ((text.contains("local") || text.contains("locales") || text.contains("tienda") || text.contains("tiendas") || text.contains("negocio") || text.contains("negocios") || text.contains("comercio") || text.contains("comercios")) && hasSearchIntent) {
+            return executeSkill(
+                "search_nearby_places",
+                mapOf("place_type" to "comercio", "query_hint" to "", "open_screen_map" to wantsNearbyScreen)
             )
         }
         if (text.contains("farmacia") && (text.contains("dónde") || text.contains("donde") || text.contains("busca") || text.contains("cerca"))) {

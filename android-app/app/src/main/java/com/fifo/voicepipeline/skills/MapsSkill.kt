@@ -50,38 +50,47 @@ class MapsSkill(private val context: Context) : FifoSkill {
     """.trimIndent()
 
     override suspend fun execute(args: Map<String, Any?>): SkillResult {
-        val placeTypeRaw = args["place_type"]?.toString()?.trim() ?: "oxxo"
+        val placeTypeRaw = args["place_type"]?.toString()?.trim()?.ifBlank { "comercio" } ?: "comercio"
         val hint = args["query_hint"]?.toString()?.trim() ?: ""
         val openScreen = (args["open_screen_map"] as? Boolean)
             ?: (args["open_screen_map"]?.toString()?.toBooleanStrictOrNull() ?: false)
 
         val placeName = when {
+            hint.isNotBlank() && (placeTypeRaw == "comercio" || placeTypeRaw == "local") -> hint
             hint.isNotBlank() && !hint.equals(placeTypeRaw, ignoreCase = true) -> "$placeTypeRaw $hint"
             else -> placeTypeRaw
         }
 
         val currentLoc = FifoLocationHelper.getCurrentLocation(context)
-        val displayName = if (placeName.lowercase().contains("oxxo")) "OXXO" else placeName
+        val displayName = placeName
         Log.i(TAG, "Buscando lugares cercanos: '$displayName' (openScreen=$openScreen). GPS activo=${currentLoc.isGpsActive} (${currentLoc.latitude}, ${currentLoc.longitude})")
 
         val matches = FifoLocationHelper.searchNearbyPlaces(context, displayName, currentLoc)
         val closest = matches.firstOrNull()
         val rawName = closest?.name?.ifBlank { displayName } ?: displayName
-        val targetName = if (displayName.contains("OXXO", ignoreCase = true) && rawName.contains("OK Market", ignoreCase = true)) {
-            "OXXO"
-        } else {
-            rawName
+        val targetName = when {
+            rawName.contains("OK Market", ignoreCase = true) -> "un local registrado en el mapa como OK Market (hoy convertido a OXXO)"
+            else -> rawName
         }
+
+        val otherMatches = matches.drop(1).take(2)
+        val extraNearby = if (otherMatches.isNotEmpty()) {
+            val otherNames = otherMatches.map { m ->
+                val mName = if (m.name.contains("OK Market", ignoreCase = true)) "un OXXO (ex OK Market)" else m.name
+                "$mName a ${m.distanceMeters} metros"
+            }.joinToString(", ")
+            " Además, cerca tiene a: $otherNames."
+        } else ""
 
         val spokenFeedback = if (openScreen) {
             // Caso 1: El usuario pidió expresamente ver la ubicación en su celular
             if (closest != null) {
                 val addrText = closest.fullAddressText
                 if (closest.distanceMeters < 1200) {
-                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano está en $addrText, a unos ${closest.distanceMeters} metros (a unos ${closest.walkingMinutes} minutos caminando ${closest.cardinalDirection}). Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
+                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano está en $addrText, a unos ${closest.distanceMeters} metros (a unos ${closest.walkingMinutes} minutos caminando ${closest.cardinalDirection}).$extraNearby Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
                 } else {
                     val km = String.format(Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)
-                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano se encuentra en $addrText, a unos $km kilómetros. En vehículo son aproximadamente ${closest.drivingMinutes} minutos, o a pie son unos ${closest.walkingMinutes} minutos. Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
+                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano se encuentra en $addrText, a unos $km kilómetros. En vehículo son aproximadamente ${closest.drivingMinutes} minutos, o a pie son unos ${closest.walkingMinutes} minutos.$extraNearby Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
                 }
             } else {
                 "Revisé su ubicación en ${currentLoc.address}. Le acabo de abrir el mapa en la pantalla de su celular con la búsqueda de $displayName para que pueda explorar los alrededores."
@@ -91,10 +100,10 @@ class MapsSkill(private val context: Context) : FifoSkill {
             if (closest != null) {
                 val addrText = closest.fullAddressText
                 if (closest.distanceMeters < 1200) {
-                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano a usted está en $addrText, a unos ${closest.distanceMeters} metros de distancia (unas ${closest.blocks} cuadras, a solo ${closest.walkingMinutes} minutos caminando). Para llegar, salga a la calle y camine ${closest.cardinalDirection} por ${closest.road.ifBlank { "la calle principal" }}. ¿Desea que le vaya indicando los pasos mientras camina, o prefiere que le muestre el mapa en su celular?"
+                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano a usted está en $addrText, a unos ${closest.distanceMeters} metros de distancia (unas ${closest.blocks} cuadras, a solo ${closest.walkingMinutes} minutos caminando). Para llegar, camine ${closest.cardinalDirection} por ${closest.road.ifBlank { "la calle principal" }}.$extraNearby ¿Desea que le vaya indicando los pasos mientras camina, o prefiere que le muestre el mapa en su celular?"
                 } else {
                     val km = String.format(Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)
-                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano se encuentra en $addrText, a unos $km kilómetros ${closest.cardinalDirection}. En vehículo son aproximadamente ${closest.drivingMinutes} minutos, o a pie son unos ${closest.walkingMinutes} minutos caminando. ¿Desea que le muestre el mapa en la pantalla o prefiere pedir un transporte?"
+                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano se encuentra en $addrText, a unos $km kilómetros ${closest.cardinalDirection}. En vehículo son aproximadamente ${closest.drivingMinutes} minutos, o a pie son unos ${closest.walkingMinutes} minutos caminando.$extraNearby ¿Desea que le muestre el mapa en la pantalla o prefiere pedir un transporte?"
                 }
             } else {
                 if (currentLoc.isGpsActive) {
