@@ -117,21 +117,19 @@ class PhoneMicRecorder(
             // Para captura concurrente asistida (Accessibility), AudioSource.VOICE_RECOGNITION y MIC
             // entregan el audio real del micrófono o auricular Bluetooth.
             val audioSources = if (inCallMode) {
-                Log.i(TAG, "Modo llamada detectado: priorizando MediaRecorder.AudioSource.VOICE_RECOGNITION")
+                Log.i(TAG, "Modo llamada detectado: priorizando MediaRecorder.AudioSource.VOICE_COMMUNICATION")
                 listOf(
-                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
                     MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                     MediaRecorder.AudioSource.MIC,
-                    MediaRecorder.AudioSource.DEFAULT,
-                    MediaRecorder.AudioSource.UNPROCESSED
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                    MediaRecorder.AudioSource.DEFAULT
                 )
             } else {
                 listOf(
-                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
                     MediaRecorder.AudioSource.MIC,
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
                     MediaRecorder.AudioSource.DEFAULT,
-                    MediaRecorder.AudioSource.CAMCORDER,
-                    MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                    MediaRecorder.AudioSource.CAMCORDER
                 )
             }
 
@@ -207,14 +205,22 @@ class PhoneMicRecorder(
             recordingJob = scope.launch {
                 val buffer = ByteArray(chunkBytes)
                 var chunkCount = 0
+                var consecutiveReadErrors = 0
                 while (isActive && isRecording) {
                     var bytesRead = 0
                     while (bytesRead < chunkBytes && isActive && isRecording) {
                         val read = audioRecord?.read(buffer, bytesRead, chunkBytes - bytesRead) ?: -1
                         if (read > 0) {
                             bytesRead += read
+                            consecutiveReadErrors = 0
                         } else if (read < 0) {
-                            Log.e(TAG, "Error leyendo AudioRecord: $read")
+                            consecutiveReadErrors++
+                            Log.e(TAG, "Error leyendo AudioRecord: $read (consecutivos: $consecutiveReadErrors)")
+                            if (consecutiveReadErrors >= 6) {
+                                Log.e(TAG, "AudioRecord falló repetidamente ($read). Liberando micrófono.")
+                                stop()
+                                break
+                            }
                             delay(50)
                             break
                         } else {

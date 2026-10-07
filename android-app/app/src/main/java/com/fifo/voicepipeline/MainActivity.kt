@@ -44,6 +44,7 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
+            pipeline.ensureListeningActive()
             pipeline.talkFromPhone()
             Toast.makeText(this, "Escuchando por el celular...", Toast.LENGTH_SHORT).show()
         } else {
@@ -60,9 +61,11 @@ class MainActivity : ComponentActivity() {
     ) { permissions ->
         val allGranted = permissions.values.all { it }
         if (allGranted) {
+            pipeline.ensureListeningActive()
             Toast.makeText(this, "Buscando robot FIFO por Bluetooth...", Toast.LENGTH_SHORT).show()
             pipeline.connectBle()
         } else {
+            pipeline.ensureListeningActive()
             Toast.makeText(
                 this,
                 "Se requieren permisos de Bluetooth para conectar con FIFO",
@@ -265,6 +268,13 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         pipeline.start()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+            pipeline.ensureListeningActive()
+        }
     }
 
     override fun onStop() {
