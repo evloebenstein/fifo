@@ -83,7 +83,6 @@ class PhoneMicRecorder(
             val audioManager = context?.getSystemService(android.content.Context.AUDIO_SERVICE) as? AudioManager
             val inCallMode = forceCallSource ?: (
                 audioManager?.mode == AudioManager.MODE_IN_CALL ||
-                audioManager?.mode == AudioManager.MODE_IN_COMMUNICATION ||
                 com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
             )
 
@@ -115,7 +114,7 @@ class PhoneMicRecorder(
 
             // Cuando otra app (WeChat, WhatsApp, Meet) tiene una llamada o videollamada activa,
             // VOICE_COMMUNICATION es silenciado exclusivamente para apps secundarias por AudioPolicy.
-            // Para captura concurrente asistida (Accessibility), AudioSource.MIC y VOICE_RECOGNITION
+            // Para captura concurrente asistida (Accessibility), AudioSource.VOICE_RECOGNITION y MIC
             // entregan el audio real del micrófono o auricular Bluetooth.
             val audioSources = if (inCallMode) {
                 Log.i(TAG, "Modo llamada detectado: priorizando MediaRecorder.AudioSource.VOICE_RECOGNITION")
@@ -128,8 +127,8 @@ class PhoneMicRecorder(
                 )
             } else {
                 listOf(
-                    MediaRecorder.AudioSource.MIC,
                     MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                    MediaRecorder.AudioSource.MIC,
                     MediaRecorder.AudioSource.DEFAULT,
                     MediaRecorder.AudioSource.CAMCORDER,
                     MediaRecorder.AudioSource.VOICE_COMMUNICATION

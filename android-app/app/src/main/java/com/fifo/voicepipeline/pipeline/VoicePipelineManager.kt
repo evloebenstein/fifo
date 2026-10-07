@@ -111,6 +111,7 @@ class VoicePipelineManager(
                 vad.reset()
                 pcmBuffer.clear()
                 updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
+                ensureListeningActive()
 
                 // Registrar ubicación GPS del celular al conectar
                 try {
@@ -132,6 +133,7 @@ class VoicePipelineManager(
                 _statusMessage.value = "Fifo desconectado · Conecte por Bluetooth"
                 vad.reset()
                 pcmBuffer.clear()
+                ensureListeningActive()
 
                 // Registrar última ubicación GPS conocida del celular al desconectar
                 try {
@@ -203,14 +205,7 @@ class VoicePipelineManager(
             onError = { err ->
                 Log.e(TAG, "Error TTS nativo: $err")
                 if (!_isMicMuted.value) {
-                    val isCommActive = callManager?.isCommunicationModeActive() == true ||
-                            com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
-                    if (isCommActive) {
-                        ensureCallListeningActive()
-                    } else {
-                        phoneMicRecorder.stop()
-                        nativeRecognizer?.startContinuousListening()
-                    }
+                    ensureListeningActive()
                 }
             }
         )
@@ -270,15 +265,9 @@ class VoicePipelineManager(
                 Log.d(TAG, "SpeechRecognizer: $msg ($code)")
             },
             onRepeatedFailure = {
-                // Si el reconocedor de Google falla continuamente o entra en silencio,
-                // usar PhoneMicRecorder silencioso con Groq Whisper.
-                if (!_isMicMuted.value && !phoneMicRecorder.isRecording) {
-                    Log.i(TAG, "Google SpeechRecognizer pausado. Cambiando a PhoneMicRecorder silencioso.")
-                    nativeRecognizer?.stop()
-                    if (hasCloudStt) {
-                        startPhoneMic()
-                        _statusMessage.value = "Modo celular activo · Di 'Fifo' para hablar"
-                    }
+                if (!_isMicMuted.value) {
+                    Log.i(TAG, "Google SpeechRecognizer en pausa/error. Asegurando PhoneMicRecorder activo.")
+                    ensureListeningActive()
                 }
             }
         )
@@ -311,16 +300,9 @@ class VoicePipelineManager(
         )
         callManager?.startListening()
 
-        // Iniciar captura según disponibilidad: si hay videollamada o llamada activa, activar PhoneMicRecorder
+        // Iniciar captura según disponibilidad
         if (!_isMicMuted.value) {
-            val isCommActive = callManager?.isCommunicationModeActive() == true ||
-                    com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
-            if (isCommActive) {
-                ensureCallListeningActive()
-            } else {
-                phoneMicRecorder.stop()
-                nativeRecognizer?.startContinuousListening()
-            }
+            ensureListeningActive()
         } else {
             phoneMicRecorder.stop()
             nativeRecognizer?.stop()
@@ -405,16 +387,9 @@ class VoicePipelineManager(
                 Log.i(TAG, "Cambiado a micrófono de ESP32")
             }
             MicSource.PHONE -> {
-                val isCommActive = callManager?.isCommunicationModeActive() == true ||
-                        com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
-                if (isCommActive) {
-                    ensureCallListeningActive()
-                } else {
-                    phoneMicRecorder.stop()
-                    nativeRecognizer?.startContinuousListening()
-                }
+                ensureListeningActive()
                 _statusMessage.value = "Usando micrófono integrado del celular"
-                Log.i(TAG, "Cambiado a micrófono del celular (inCommActive=$isCommActive)")
+                Log.i(TAG, "Cambiado a micrófono del celular")
             }
         }
     }
@@ -447,14 +422,7 @@ class VoicePipelineManager(
         pcmBuffer.clear()
 
         if (!_isMicMuted.value) {
-            val isCommActive = callManager?.isCommunicationModeActive() == true ||
-                    com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
-            if (isCommActive) {
-                ensureCallListeningActive()
-            } else {
-                phoneMicRecorder.stop()
-                nativeRecognizer?.startContinuousListening()
-            }
+            ensureListeningActive()
             updateEspDisplay(state = "DURMIENDO", transcript = "", response = "")
         } else {
             phoneMicRecorder.stop()
@@ -503,15 +471,7 @@ class VoicePipelineManager(
             pcmBuffer.clear()
             autoSleepJob?.cancel()
 
-            val isCommActive = callManager?.isCommunicationModeActive() == true ||
-                    com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
-            if (isCommActive) {
-                ensureCallListeningActive()
-            } else {
-                phoneMicRecorder.stop()
-                nativeRecognizer?.startContinuousListening()
-            }
-
+            ensureListeningActive()
             _statusMessage.value = "Fifo en reposo · Diga 'Fifo' para hablar"
             updateEspDisplay(state = "DURMIENDO", transcript = "", response = "")
         }
@@ -535,6 +495,45 @@ class VoicePipelineManager(
         bleClient.disconnect()
         _state.value = PipelineState.DISCONNECTED
         _statusMessage.value = "Pipeline detenido"
+    }
+
+    /**
+     * Garantiza que la escucha esté activa según el estado del sistema:
+     * 1. Si el micrófono está silenciado por el usuario (Mute): detiene todo.
+     * 2. Si hay llamada telefónica celular o VoIP activa: entra en modo llamada con PhoneMicRecorder.
+     * 3. En condiciones normales:
+     *    - Si el ESP32 no está conectado, o la fuente es el celular, o tenemos STT de nube (Groq Whisper):
+     *      Se activa PhoneMicRecorder para capturar el micrófono del celular y audífonos Bluetooth continuamente.
+     *      El VAD filtra el silencio y al detectar voz ("Fifo..."), Whisper lo transcribe y despierta a Fifo.
+     *    - De lo contrario, si el ESP32 está conectado vía BLE, el audio proviene directamente del robot.
+     */
+    fun ensureListeningActive() {
+        if (_isMicMuted.value) {
+            phoneMicRecorder.stop()
+            nativeRecognizer?.stop()
+            _rmsLevel.value = 0.0
+            return
+        }
+
+        val isCallActive = callManager?.isCommunicationModeActive() == true ||
+                com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
+
+        if (isCallActive) {
+            ensureCallListeningActive()
+            return
+        }
+
+        if (hasCloudStt || _micSource.value == MicSource.PHONE || !bleClient.isConnected) {
+            nativeRecognizer?.stop()
+            if (!phoneMicRecorder.isRecording) {
+                startPhoneMic()
+            }
+        } else {
+            phoneMicRecorder.stop()
+            if (nativeRecognizer?.isAvailable() == true) {
+                nativeRecognizer?.startContinuousListening()
+            }
+        }
     }
 
     /**
@@ -565,13 +564,12 @@ class VoicePipelineManager(
             ensureCallListeningActive()
             return
         }
-        phoneMicRecorder.stop()
         if (!_isMicMuted.value) {
-            nativeRecognizer?.startContinuousListening()
+            ensureListeningActive()
         }
-        _statusMessage.value = "Fifo en reposo · Diga 'Fifo' para hablar"
         _isAwake.value = false
         _state.value = PipelineState.SLEEPING
+        _statusMessage.value = "Fifo en reposo · Diga 'Fifo' para hablar"
         updateEspDisplay(state = "DURMIENDO", transcript = "", response = "")
     }
 
@@ -691,14 +689,7 @@ class VoicePipelineManager(
         _isAwake.value = true
         _state.value = PipelineState.IDLE
         _statusMessage.value = "Fifo despierto — te escucho"
-        val isCommActive = callManager?.isCommunicationModeActive() == true ||
-                com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
-        if (isCommActive) {
-            ensureCallListeningActive()
-        } else {
-            phoneMicRecorder.stop()
-            nativeRecognizer?.startContinuousListening()
-        }
+        ensureListeningActive()
         updateEspDisplay(state = "ESCUCHANDO", transcript = "", response = "")
         resetAutoSleepTimer()
     }
@@ -1280,10 +1271,8 @@ class VoicePipelineManager(
         if (cleanText.isBlank()) return
         lastSpokenSentence = cleanText
 
-        // Mantener la escucha continua activa para permitir interrupciones ("Fifo cállate" / "silencio")
-        if (nativeRecognizer?.isAvailable() == true) {
-            nativeRecognizer?.startContinuousListening()
-        }
+        // Detener nativeRecognizer mientras Fifo habla para evitar ruidos de reconocimiento erráticos
+        nativeRecognizer?.stop()
 
         scope.launch {
             _state.value = PipelineState.SPEAKING
@@ -1436,14 +1425,7 @@ class VoicePipelineManager(
         vad.reset()
 
         if (!_isMicMuted.value) {
-            val isCallMode = callManager?.isCommunicationModeActive() == true ||
-                    com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
-            if (isCallMode) {
-                ensureCallListeningActive()
-            } else {
-                phoneMicRecorder.stop()
-                nativeRecognizer?.startContinuousListening()
-            }
+            ensureListeningActive()
         }
     }
 

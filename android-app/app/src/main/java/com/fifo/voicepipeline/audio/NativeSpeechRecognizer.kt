@@ -177,12 +177,12 @@ class NativeSpeechRecognizer(
             override fun onReadyForSpeech(params: Bundle?) {
                 if (generation != currentGeneration) return
                 isListening = true
-                consecutiveErrors = 0
                 callbackReady()
             }
 
             override fun onBeginningOfSpeech() {
                 if (generation != currentGeneration) return
+                consecutiveErrors = 0
             }
 
             override fun onRmsChanged(rmsdB: Float) {
