@@ -71,7 +71,8 @@ class VoicePipelineManager(
     private val _rmsLevel = MutableStateFlow(0.0)
     val rmsLevel: StateFlow<Double> = _rmsLevel.asStateFlow()
 
-    private val _isMicMuted = MutableStateFlow(false)
+    private val prefs = context.getSharedPreferences("fifo_prefs", Context.MODE_PRIVATE)
+    private val _isMicMuted = MutableStateFlow(prefs.getBoolean("is_mic_muted", false))
     val isMicMuted: StateFlow<Boolean> = _isMicMuted.asStateFlow()
 
     // Temporizador de auto-sueño para Fifo (25 segundos de inactividad)
@@ -288,11 +289,12 @@ class VoicePipelineManager(
             onAnnounceCall = { callerName, _ ->
                 scope.launch {
                     _isAwake.value = true
-                    _isMicMuted.value = false
                     _state.value = PipelineState.LISTENING
                     _statusMessage.value = "Llamada de $callerName · Diga 'Fifo contesta' o 'Fifo cuelga'"
                     updateEspDisplay(state = "LLAMADA", transcript = "Llamada entrante", response = callerName)
-                    ensureCallListeningActive()
+                    if (!_isMicMuted.value) {
+                        ensureCallListeningActive()
+                    }
                     speakResponseChunk("¡Lucía! Le está llamando $callerName. Diga 'Fifo contesta' o 'Fifo cuelga'.")
                 }
             },
@@ -319,6 +321,11 @@ class VoicePipelineManager(
                 phoneMicRecorder.stop()
                 nativeRecognizer?.startContinuousListening()
             }
+        } else {
+            phoneMicRecorder.stop()
+            nativeRecognizer?.stop()
+            _statusMessage.value = "Micrófono silenciado (Mute)"
+            updateEspDisplay(state = "MUTED", transcript = "", response = "")
         }
 
         // Observar solicitud de beep / alarma sonora para encontrar a Fifo
@@ -339,11 +346,12 @@ class VoicePipelineManager(
         com.fifo.voicepipeline.telephony.FifoPhoneCallReceiver.onIncomingCallDetected = { callerName, _ ->
             scope.launch {
                 _isAwake.value = true
-                _isMicMuted.value = false
                 _state.value = PipelineState.LISTENING
                 _statusMessage.value = "Llamada de $callerName · Diga 'Fifo contesta' o 'Fifo cuelga'"
                 updateEspDisplay(state = "LLAMADA", transcript = "Llamada entrante", response = callerName)
-                ensureCallListeningActive()
+                if (!_isMicMuted.value) {
+                    ensureCallListeningActive()
+                }
                 speakResponseChunk("¡Lucía! Le está llamando $callerName. Diga 'Fifo contesta' o 'Fifo cuelga'.")
             }
         }
@@ -428,29 +436,31 @@ class VoicePipelineManager(
      * y requiere que el usuario pronuncie la palabra de activación ("Fifo").
      */
     fun talkFromPhone() {
-        if (_isMicMuted.value) {
-            _isMicMuted.value = false
-        }
         _isAwake.value = false
         oneShotPushedToTalk = false
         expectFollowUpQuestion = false
         _micSource.value = MicSource.PHONE
         _state.value = PipelineState.SLEEPING
-        _statusMessage.value = "Modo celular activo · Di 'Fifo' para despertar"
+        _statusMessage.value = if (_isMicMuted.value) "Micrófono silenciado (Mute)" else "Modo celular activo · Di 'Fifo' para despertar"
         autoSleepJob?.cancel()
         vad.reset()
         pcmBuffer.clear()
 
-        val isCommActive = callManager?.isCommunicationModeActive() == true ||
-                com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
-        if (isCommActive) {
-            ensureCallListeningActive()
+        if (!_isMicMuted.value) {
+            val isCommActive = callManager?.isCommunicationModeActive() == true ||
+                    com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
+            if (isCommActive) {
+                ensureCallListeningActive()
+            } else {
+                phoneMicRecorder.stop()
+                nativeRecognizer?.startContinuousListening()
+            }
+            updateEspDisplay(state = "DURMIENDO", transcript = "", response = "")
         } else {
             phoneMicRecorder.stop()
-            nativeRecognizer?.startContinuousListening()
+            nativeRecognizer?.stop()
+            updateEspDisplay(state = "MUTED", transcript = "", response = "")
         }
-
-        updateEspDisplay(state = "DURMIENDO", transcript = "", response = "")
     }
 
     /**
@@ -467,6 +477,7 @@ class VoicePipelineManager(
      */
     fun setMicMuted(muted: Boolean) {
         _isMicMuted.value = muted
+        prefs.edit().putBoolean("is_mic_muted", muted).apply()
         if (muted) {
             Log.i(TAG, "Micrófono SILENCIADO por el usuario")
             // Detener cualquier habla o audio activo inmediatamente
@@ -670,7 +681,9 @@ class VoicePipelineManager(
      * Despierta a Fifo manualmente (por ejemplo, al tocar la pantalla).
      */
     fun wakeUpManually() {
-        _isMicMuted.value = false
+        if (_isMicMuted.value) {
+            setMicMuted(false)
+        }
         _isAwake.value = true
         _state.value = PipelineState.IDLE
         _statusMessage.value = "Fifo despierto — te escucho"
@@ -962,7 +975,6 @@ class VoicePipelineManager(
             val target = queryClean.replace(Regex("(?i)\\b(a|al|a la|a los|a las|hacia|para|ir a|ir al|ir a la)\\b"), "").trim()
                 .ifBlank { queryClean }
             _transcription.value = rawText
-            _isMicMuted.value = false
             _isAwake.value = true
             scope.launch {
                 isCurrentlyProcessing = true
@@ -996,7 +1008,6 @@ class VoicePipelineManager(
 
         // Si es un comando de control de llamada directo ("Fifo contesta", "Fifo cuelga", etc.):
         if (isCallControl) {
-            _isMicMuted.value = false
             _isAwake.value = true
             scope.launch {
                 isCurrentlyProcessing = true
@@ -1035,7 +1046,6 @@ class VoicePipelineManager(
                 }
 
                 // Despertar a Fifo para atender esta consulta
-                _isMicMuted.value = false
                 _isAwake.value = true
                 resetAutoSleepTimer()
                 _statusMessage.value = "¡Fifo despierto!"
@@ -1140,7 +1150,6 @@ class VoicePipelineManager(
                     val target = queryClean.replace(Regex("(?i)\\b(a|al|a la|a los|a las|hacia|para|ir a|ir al|ir a la)\\b"), "").trim()
                         .ifBlank { queryClean }
                     _transcription.value = transcript
-                    _isMicMuted.value = false
                     _isAwake.value = true
                     _state.value = PipelineState.PROCESSING
                     _statusMessage.value = "Calculando ruta..."
@@ -1169,7 +1178,6 @@ class VoicePipelineManager(
 
                 // Si es un comando de llamada telefónica activo:
                 if (isCallControl) {
-                    _isMicMuted.value = false
                     _isAwake.value = true
                     val directResult = skillRegistry.tryExecuteVoiceIntent(textLower)
                     if (directResult != null) {
@@ -1194,7 +1202,6 @@ class VoicePipelineManager(
                     return@launch
                 }
 
-                _isMicMuted.value = false
                 _isAwake.value = true
                 _state.value = PipelineState.PROCESSING
                 resetAutoSleepTimer()

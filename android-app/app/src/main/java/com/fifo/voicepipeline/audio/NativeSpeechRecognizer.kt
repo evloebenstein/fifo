@@ -46,25 +46,6 @@ class NativeSpeechRecognizer(
     private var shouldKeepListening = false
     private var currentGeneration = 0
     private var consecutiveErrors = 0
-    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
-
-    private fun suppressBeep() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                audioManager?.adjustStreamVolume(android.media.AudioManager.STREAM_NOTIFICATION, android.media.AudioManager.ADJUST_MUTE, 0)
-                audioManager?.adjustStreamVolume(android.media.AudioManager.STREAM_SYSTEM, android.media.AudioManager.ADJUST_MUTE, 0)
-            }
-        } catch (_: Exception) {}
-    }
-
-    private fun restoreBeep() {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                audioManager?.adjustStreamVolume(android.media.AudioManager.STREAM_NOTIFICATION, android.media.AudioManager.ADJUST_UNMUTE, 0)
-                audioManager?.adjustStreamVolume(android.media.AudioManager.STREAM_SYSTEM, android.media.AudioManager.ADJUST_UNMUTE, 0)
-            }
-        } catch (_: Exception) {}
-    }
 
     fun isAvailable(): Boolean {
         return SpeechRecognizer.isRecognitionAvailable(context)
@@ -83,7 +64,6 @@ class NativeSpeechRecognizer(
         mainHandler.removeCallbacksAndMessages(null)
         mainHandler.post {
             try {
-                restoreBeep()
                 isListening = false
                 speechRecognizer?.cancel()
             } catch (e: Exception) {
@@ -97,7 +77,6 @@ class NativeSpeechRecognizer(
         mainHandler.removeCallbacksAndMessages(null)
         mainHandler.post {
             try {
-                restoreBeep()
                 isListening = false
                 speechRecognizer?.destroy()
                 speechRecognizer = null
@@ -140,12 +119,10 @@ class NativeSpeechRecognizer(
                 }
             }
 
-            suppressBeep()
             speechRecognizer?.startListening(buildRecognizerIntent())
             isListening = true
             Log.d(TAG, "SpeechRecognizer startListening llamado...")
         } catch (e: Exception) {
-            restoreBeep()
             Log.e(TAG, "Error iniciando SpeechRecognizer: ${e.message}", e)
             consecutiveErrors++
             if (consecutiveErrors >= 3) {
@@ -164,12 +141,10 @@ class NativeSpeechRecognizer(
                     if (speechRecognizer == null) {
                         startInternal()
                     } else {
-                        suppressBeep()
                         speechRecognizer?.startListening(buildRecognizerIntent())
                         isListening = true
                     }
                 } catch (e: Exception) {
-                    restoreBeep()
                     Log.w(TAG, "Error reiniciando recognizer existente: ${e.message}, recreando...")
                     consecutiveErrors++
                     if (consecutiveErrors >= 3) {
@@ -200,7 +175,6 @@ class NativeSpeechRecognizer(
     private fun createListener(generation: Int): RecognitionListener {
         return object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
-                restoreBeep()
                 if (generation != currentGeneration) return
                 isListening = true
                 consecutiveErrors = 0
@@ -225,7 +199,6 @@ class NativeSpeechRecognizer(
             }
 
             override fun onError(error: Int) {
-                restoreBeep()
                 if (generation != currentGeneration) return
                 isListening = false
                 consecutiveErrors++
