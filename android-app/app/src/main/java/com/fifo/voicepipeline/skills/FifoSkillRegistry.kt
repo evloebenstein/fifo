@@ -168,12 +168,26 @@ class FifoSkillRegistry(private val context: Context) {
                 spokenFeedback = "Entendido Lucía, me quedo escuchándole con atención. Puede hablarme cuando guste sin decir 'Fifo'. Cuando desee que descanse, solo dígame 'Fifo, descansa'."
             )
         }
-        if (text.contains("deja de escuchar") || text.contains("ya no escuches") || text.contains("silencio") || text.contains("descansa fifo") || text.contains("puedes descansar") || text.contains("gracias fifo") || text.contains("listo fifo")) {
+        if (text.contains("deja de escuchar") || text.contains("ya no escuches") || text.contains("silencio") ||
+            text.contains("descansa") || text.contains("duérmete") || text.contains("duermete") ||
+            text.contains("apágate") || text.contains("apagate") || text.contains("cállate") || text.contains("callate") ||
+            text.contains("no necesito nada") || text.contains("no quiero nada") || text.contains("eso es todo") ||
+            text.contains("eso sería todo") || text.contains("gracias fifo") || text.contains("listo fifo") || text.contains("chao fifo")) {
             com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
             return SkillResult(
                 success = true,
-                spokenFeedback = "Con gusto, me quedo en reposo. Llámeme diciendo 'Fifo' cuando me necesite."
+                spokenFeedback = "Entendido, me quedo descansando. Si me necesita, solo diga 'Fifo'."
             )
+        }
+
+        // 0.0 Si el usuario está corrigiendo, negando o haciendo una aclaración conversacional ("no me refiero a...", "dije que no...", etc.),
+        // NUNCA disparar una skill rápida fija; delegar al LLM para que comprenda el contexto y el historial.
+        val isCorrectionOrNegation = text.startsWith("no ") || text.startsWith("no,") ||
+                text.contains(" no ") || text.contains("tampoco") || text.contains("dije que") ||
+                text.contains("no me refier") || text.contains("no era") || text.contains("no quiero") ||
+                text.contains("pero no") || text.contains("en vez de") || text.contains("en lugar de")
+        if (isCorrectionOrNegation) {
+            return null
         }
 
         // 0.1 GESTIÓN DE LLAMADAS TELEFÓNICAS TIPO ALEXA (Contestar / Colgar / Saber quién llama)
@@ -307,9 +321,12 @@ class FifoSkillRegistry(private val context: Context) {
                 text.contains("pantalla") || text.contains("en el celular") || text.contains("en mi celular") ||
                 text.contains("muestrame") || text.contains("muéstrame") || text.contains("abre el mapa") || text.contains("en el mapa")
 
+        val hasSearchIntent = text.contains("dónde") || text.contains("donde") || text.contains("busca") ||
+                text.contains("cerca") || text.contains("cuál") || text.contains("cual") || text.contains("hay") ||
+                text.contains("queda") || text.contains("ir a un") || text.contains("ir al") || text.contains("llegar a")
+
         // 2.0 SUPERMERCADOS (Lider, Jumbo, Unimarc, Santa Isabel, etc.)
-        if ((text.contains("supermercado") || text.contains("super") || text.contains("súper")) &&
-            (text.contains("cerca") || text.contains("dónde") || text.contains("donde") || text.contains("busca") || text.contains("cuál") || text.contains("cual") || text.contains("hay"))) {
+        if ((text.contains("supermercado") || text.contains("super") || text.contains("súper")) && hasSearchIntent) {
             val brand = when {
                 text.contains("lider") -> "lider"
                 text.contains("jumbo") -> "jumbo"
@@ -324,7 +341,7 @@ class FifoSkillRegistry(private val context: Context) {
             )
         }
 
-        if (text.contains("lider") || text.contains("jumbo") || text.contains("unimarc") || text.contains("santa isabel")) {
+        if ((text.contains("lider") || text.contains("jumbo") || text.contains("unimarc") || text.contains("santa isabel")) && hasSearchIntent) {
             val brand = when {
                 text.contains("lider") -> "lider"
                 text.contains("jumbo") -> "jumbo"
@@ -337,7 +354,7 @@ class FifoSkillRegistry(private val context: Context) {
             )
         }
 
-        if (text.contains("oxxo") || text.contains("oxo") || text.contains("ok market")) {
+        if ((text.contains("oxxo") || text.contains("oxo") || text.contains("ok market")) && hasSearchIntent) {
             return executeSkill(
                 "search_nearby_places",
                 mapOf("place_type" to "oxxo", "query_hint" to "OXXO", "open_screen_map" to wantsNearbyScreen)

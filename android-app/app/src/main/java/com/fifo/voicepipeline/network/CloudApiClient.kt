@@ -95,9 +95,13 @@ Eres Fifo, especialista en envejecimiento activo y bienestar para adultos mayore
 6. Ubicación, Navegación y Lugares Cercanos:
 - Guía 100% verbal: Fifo orienta por voz indicando nombre del local, dirección, metros, cuadras y minutos caminando.
 - NUNCA abras la pantalla a menos que el usuario lo pida expresamente (ej: "muéstrame en mi celular"). Por defecto, 'open_screen_map' DEBE ser false tanto en 'search_nearby_places' como en 'open_navigation_directions'.
-- OXXO SÍ existe en Chile (cadena OK Market convertida a OXXO). Para buscar locales (OXXO, farmacias, supermercados, parques, centros de salud), usa 'search_nearby_places'.
+- OXXO en Chile: Toda la cadena OK Market fue adquirida y convertida a OXXO. Si el usuario pide OXXO o un minimarket, nómbralo siempre como OXXO.
 
-7. Dispositivo Fifo, Teléfono y Hardware:
+7. Saludos, Horarios y Continuidad:
+- Adapta tu saludo estrictamente a la hora real del contexto temporal. Jamás digas 'Buenos días' en la tarde o noche.
+- Si ya has conversado previamente con el usuario hoy o en esta sesión, NO repitas saludos formales como si recién despertaras; responde de forma directa, cálida y natural (ej: 'Dígame Lucía', 'Aquí estoy', 'Hola de nuevo').
+
+8. Dispositivo Fifo, Teléfono y Hardware:
 - Si el usuario perdió el robot o pide que emita un sonido, usa 'find_fifo_device'.
 - Para llamadas telefónicas (contestar, colgar, consultar), usa 'manage_phone_call'.
 - Para revisar o buscar contactos del celular, usa 'read_phone_contacts'.
@@ -376,6 +380,67 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
     }
 
     /**
+     * Construye un fragmento contextual dinámico con la hora local real, fecha y continuidad de turnos.
+     */
+    private fun buildTemporalAndSessionContext(): String {
+        val now = java.util.Calendar.getInstance()
+        val hour = now.get(java.util.Calendar.HOUR_OF_DAY)
+        val minute = now.get(java.util.Calendar.MINUTE)
+        val timeFormatted = String.format(java.util.Locale.US, "%02d:%02d", hour, minute)
+        val dayOfWeek = when (now.get(java.util.Calendar.DAY_OF_WEEK)) {
+            java.util.Calendar.MONDAY -> "Lunes"
+            java.util.Calendar.TUESDAY -> "Martes"
+            java.util.Calendar.WEDNESDAY -> "Miércoles"
+            java.util.Calendar.THURSDAY -> "Jueves"
+            java.util.Calendar.FRIDAY -> "Viernes"
+            java.util.Calendar.SATURDAY -> "Sábado"
+            else -> "Domingo"
+        }
+        val dayOfMonth = now.get(java.util.Calendar.DAY_OF_MONTH)
+        val month = when (now.get(java.util.Calendar.MONTH)) {
+            0 -> "Enero"; 1 -> "Febrero"; 2 -> "Marzo"; 3 -> "Abril"; 4 -> "Mayo"; 5 -> "Junio"
+            6 -> "Julio"; 7 -> "Agosto"; 8 -> "Septiembre"; 9 -> "Octubre"; 10 -> "Noviembre"; else -> "Diciembre"
+        }
+        val year = now.get(java.util.Calendar.YEAR)
+        val fullDate = "$dayOfWeek, $dayOfMonth de $month de $year"
+
+        val (period, correctGreeting) = when (hour) {
+            in 6..11 -> "Mañana" to "Buenos días"
+            in 12..19 -> "Tarde" to "Buenas tardes"
+            else -> "Noche" to "Buenas noches"
+        }
+
+        val userTurnsInHistory = conversationHistory.count { it["role"] == "user" }
+        val pastConvsCount = FifoDataRepository.conversations.value.size
+
+        return """
+        === CONTEXTO TEMPORAL Y DINÁMICA DE CONVERSACIÓN ===
+        - HORA LOCAL EXACTA: $timeFormatted hrs ($period).
+        - FECHA ACTUAL: $fullDate.
+        - SALUDO ADECUADO POR HORARIO: "$correctGreeting".
+        - REGLA ESTRICTA DE SALUDO: NUNCA saludes diciendo "Buenos días" si la hora actual es tarde o noche ($timeFormatted hrs).
+        - CONTINUIDAD CONVERSACIONAL: ${if (userTurnsInHistory <= 1 && pastConvsCount == 0) "Es el inicio del contacto con el usuario." else "Ya has hablado $userTurnsInHistory veces con el usuario en esta interacción continua (y tienen $pastConvsCount charlas previas). NO te presentes de nuevo ni repitas un saludo formal en cada turno. Responde de forma cercana, directa y natural (ej: 'Dígame Lucía', 'Aquí estoy', 'Por supuesto', o respondiendo directamente a la consulta)."}
+        """.trimIndent()
+    }
+
+    /**
+     * Construye el prompt de sistema enriquecido con memoria y estado temporal en tiempo real.
+     */
+    private fun getEnrichedSystemPrompt(): String {
+        val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 5)
+        val temporalContext = buildTemporalAndSessionContext()
+        return buildString {
+            appendLine(SYSTEM_PROMPT)
+            appendLine()
+            appendLine(temporalContext)
+            if (compactContext.isNotBlank()) {
+                appendLine()
+                appendLine(compactContext)
+            }
+        }.trim()
+    }
+
+    /**
      * Motor conversacional principal con Groq LPU (gratuito, ultrarrápido).
      * Utiliza Qwen 27B con failover automático a GPT-OSS 120B y Claude.
      */
@@ -385,12 +450,7 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
         modelToUse: String = GROQ_PRIMARY_MODEL
     ): String {
         val apiKey = effectiveGroqKey
-        val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 5)
-        val enrichedSystemPrompt = if (compactContext.isNotBlank()) {
-            "$SYSTEM_PROMPT\n\n$compactContext"
-        } else {
-            SYSTEM_PROMPT
-        }
+        val enrichedSystemPrompt = getEnrichedSystemPrompt()
 
         val messagesList = mutableListOf<Map<String, String>>()
         messagesList.add(mapOf("role" to "system", "content" to enrichedSystemPrompt))
@@ -546,12 +606,7 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
             ""
         }
 
-        val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 5)
-        val enrichedSystemPrompt = if (compactContext.isNotBlank()) {
-            "$SYSTEM_PROMPT\n\n$compactContext"
-        } else {
-            SYSTEM_PROMPT
-        }
+        val enrichedSystemPrompt = getEnrichedSystemPrompt()
 
         val jsonBody = """
         {
@@ -766,12 +821,7 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
     ) {
         conversationHistory.add(mapOf("role" to "user", "content" to userText))
 
-        val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 5)
-        val enrichedSystemPrompt = if (compactContext.isNotBlank()) {
-            "$SYSTEM_PROMPT\n\n$compactContext"
-        } else {
-            SYSTEM_PROMPT
-        }
+        val enrichedSystemPrompt = getEnrichedSystemPrompt()
 
         val messagesList = mutableListOf<Map<String, String>>()
         messagesList.add(mapOf("role" to "system", "content" to enrichedSystemPrompt))
@@ -862,12 +912,7 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
 
         val messagesJson = gson.toJson(conversationHistory)
 
-        val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 5)
-        val enrichedSystemPrompt = if (compactContext.isNotBlank()) {
-            "$SYSTEM_PROMPT\n\n$compactContext"
-        } else {
-            SYSTEM_PROMPT
-        }
+        val enrichedSystemPrompt = getEnrichedSystemPrompt()
 
         val jsonBody = """
         {

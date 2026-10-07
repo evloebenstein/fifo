@@ -771,7 +771,7 @@ class VoicePipelineManager(
         val stopWords = listOf(
             "silencio", "callate", "cállate", "para", "parate", "basta", "detente",
             "alto", "stop", "shh", "shhh", "no hables", "pausa", "quieto", "parar",
-            "corta", "cortala", "calmate", "ya", "apagate", "mute"
+            "corta", "cortala", "calmate", "ya", "apagate", "apágate", "mute"
         )
 
         val hasStopWord = stopWords.any { word ->
@@ -783,16 +783,18 @@ class VoicePipelineManager(
 
         if (!hasStopWord) return false
 
-        // Si Fifo está hablando, aceptar la interrupción de inmediato
-        if (whileSpeaking) {
+        // Si Fifo está hablando o activo despierto, aceptar la interrupción de inmediato
+        if (whileSpeaking || _isAwake.value) {
             return true
         }
 
-        // Si está en reposo o escuchando, verificar que incluya a 'Fifo'
+        // Si está en reposo, verificar que incluya a 'Fifo' o variantes
         val noSpaces = normalized.replace(" ", "")
         val hasFifo = noSpaces.contains("fifo") ||
                 Regex("f+i+f+o+").containsMatchIn(noSpaces) ||
-                normalized.contains(Regex("\\b(fifo|feefo|fito|fifa|fibo|fipo|fi fo)\\b"))
+                noSpaces.contains("pifo") ||
+                Regex("p+i+f+o+").containsMatchIn(noSpaces) ||
+                normalized.contains(Regex("\\b(fifo|pifo|feefo|fito|fifa|fibo|fipo|fi fo)\\b"))
 
         return hasFifo
     }
@@ -825,16 +827,18 @@ class VoicePipelineManager(
         val cleaned = normalized.replace(Regex("[^a-z0-9\\s]"), " ").replace(Regex("\\s+"), " ").trim()
         val noSpaces = cleaned.replace(" ", "")
 
-        // 1. Coincidencia directa o comprimida ("fi fo", "fi-fo", "fiiifo", "fifo")
-        if (noSpaces.contains("fifo") || Regex("f+i+f+o+").containsMatchIn(noSpaces)) {
+        // 1. Coincidencia directa o comprimida ("fi fo", "fi-fo", "fiiifo", "fifo", "pifo")
+        if (noSpaces.contains("fifo") || Regex("f+i+f+o+").containsMatchIn(noSpaces) ||
+            noSpaces.contains("pifo") || Regex("p+i+f+o+").containsMatchIn(noSpaces)) {
             return true
         }
 
         // 2. Variantes fonéticas cuando hay ruido o reconocimiento imperfecto
         val wakeWords = listOf(
             "fifo", "feefo", "fito", "fifa", "fido", "fibo", "fipo", "fico", "fiko",
+            "pifo", "pito", "pipo", "bifo", "fifi", "pipa",
             "fee for", "fit for", "people", "free for", "feed for", "bebo", "feefa", "fefa",
-            "phifo", "vibo", "vivo", "filo", "fijo", "pipo", "kiko", "fi fo", "fe fo", "sifo"
+            "phifo", "vibo", "vivo", "filo", "fijo", "kiko", "fi fo", "fe fo", "sifo", "be cool"
         )
         return wakeWords.any { word ->
             cleaned.contains(Regex("\\b$word\\b")) ||
@@ -848,11 +852,48 @@ class VoicePipelineManager(
      * Extrae la consulta eliminando prefijos de activación como "Fifo", "Hola Fifo", etc.
      */
     private fun extractQuery(text: String): String {
-        return text.replace(Regex("(?i)\\b(hola|oye|hey|che|ok|bueno|dime|saludos)\\s+(fifo|fífo|feefo|fito|fifa|fido|fibo|fipo|fico|fiko|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko|fi\\s+fo)\\b"), "")
-            .replace(Regex("(?i)\\b(fifo|fífo|feefo|fito|fifa|fido|fibo|fipo|fico|fiko|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko|fi\\s+fo)\\b"), "")
+        return text.replace(Regex("(?i)\\b(hola|oye|hey|che|ok|bueno|dime|saludos)\\s+(fifo|pifo|fífo|feefo|fito|pito|fifa|fido|fibo|fipo|fico|fiko|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko|fi\\s+fo)\\b"), "")
+            .replace(Regex("(?i)\\b(fifo|pifo|fífo|feefo|fito|pito|fifa|fido|fibo|fipo|fico|fiko|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko|fi\\s+fo)\\b"), "")
             .trim()
             .trimStart(',', '.', ':', ';', '!', '?', ' ')
             .trim()
+    }
+
+    /**
+     * Identifica órdenes explícitas de despedida o descanso.
+     */
+    private fun isSleepCommand(textLower: String): Boolean {
+        return textLower.contains("duérmete") || textLower.contains("duermete") ||
+                textLower.contains("a dormir") || textLower.contains("buenas noches") ||
+                textLower.contains("descansa") || textLower.contains("adiós") ||
+                textLower.contains("adios") || textLower.contains("hasta luego") ||
+                textLower.contains("deja de escuchar") || textLower.contains("ya no escuches") ||
+                textLower.contains("apágate") || textLower.contains("apagate") ||
+                textLower.contains("no necesito nada") || textLower.contains("no quiero nada") ||
+                textLower.contains("eso es todo") || textLower.contains("eso sería todo") ||
+                textLower.contains("chao fifo") || textLower.contains("cállate") || textLower.contains("callate")
+    }
+
+    /**
+     * Genera un saludo dinámico según la hora del día y la continuidad conversacional.
+     */
+    private fun getDynamicGreeting(): String {
+        val now = java.util.Calendar.getInstance()
+        val hour = now.get(java.util.Calendar.HOUR_OF_DAY)
+        val hasSpokenRecently = activeSessionTurns.isNotEmpty() || cloudClient.hasRecentConversation()
+        return when {
+            hasSpokenRecently -> {
+                listOf(
+                    "¡Hola de nuevo, Lucía! Dígame, ¿en qué le puedo colaborar?",
+                    "Aquí estoy escuchándole con atención, cuénteme.",
+                    "Dígame, Lucía, le escucho.",
+                    "Aquí estoy a su disposición, dígame."
+                ).random()
+            }
+            hour in 6..11 -> "¡Buenos días, Lucía! Qué gusto saludarle hoy. ¿En qué le puedo colaborar?"
+            hour in 12..19 -> "¡Buenas tardes, Lucía! Aquí estoy para acompañarle. ¿En qué le puedo ayudar?"
+            else -> "¡Buenas noches, Lucía! Qué gusto acompañarle a esta hora. ¿En qué le puedo ayudar?"
+        }
     }
 
     /**
@@ -1028,14 +1069,11 @@ class VoicePipelineManager(
             isCurrentlyProcessing = true
             try {
                 // Verificar comandos de dormir o parar la escucha continua
-                val isSleepCmd = textLower.contains("duérmete") || textLower.contains("a dormir") ||
-                        textLower.contains("buenas noches") || textLower.contains("descansa") ||
-                        textLower.contains("adiós") || textLower.contains("hasta luego") ||
-                        textLower.contains("deja de escuchar") || textLower.contains("ya no escuches")
-
-                if (isSleepCmd) {
+                if (isSleepCommand(textLower)) {
                     com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
-                    speakResponseChunk("Hasta luego, que tenga un excelente descanso.")
+                    expectFollowUpQuestion = false
+                    pendingNavigationRequest = false
+                    speakResponseChunk("Entendido. Me quedo descansando. Si me necesita, solo diga Fifo.")
                     goToSleep()
                     return@launch
                 }
@@ -1048,14 +1086,8 @@ class VoicePipelineManager(
 
                 val query = extractQuery(rawText)
                 if (query.isBlank() || query.length < 2) {
-                    // El usuario solo dijo "Fifo" o "Hola Fifo"
-                    if (cloudClient.hasRecentConversation()) {
-                        expectFollowUpQuestion = true
-                        speakResponseChunk("Le escucho con atención, dígame.")
-                        return@launch
-                    }
                     expectFollowUpQuestion = true
-                    speakResponseChunk("¡Hola! Qué alegría saludarle. ¿En qué le puedo ayudar?")
+                    speakResponseChunk(getDynamicGreeting())
                     return@launch
                 }
 
@@ -1186,14 +1218,11 @@ class VoicePipelineManager(
                     }
                 }
 
-                val isSleepCmd = textLower.contains("duérmete") || textLower.contains("a dormir") ||
-                        textLower.contains("buenas noches") || textLower.contains("descansa") ||
-                        textLower.contains("adiós") || textLower.contains("hasta luego") ||
-                        textLower.contains("deja de escuchar") || textLower.contains("ya no escuches")
-
-                if (isSleepCmd) {
+                if (isSleepCommand(textLower)) {
                     com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
-                    speakResponseChunk("Hasta luego, que tenga un excelente descanso.")
+                    expectFollowUpQuestion = false
+                    pendingNavigationRequest = false
+                    speakResponseChunk("Entendido. Me quedo descansando. Si me necesita, solo diga Fifo.")
                     goToSleep()
                     return@launch
                 }
@@ -1207,7 +1236,7 @@ class VoicePipelineManager(
                 val query = extractQuery(transcript)
                 if (query.isBlank() || query.length < 2) {
                     expectFollowUpQuestion = true
-                    speakResponseChunk("¡Hola! Qué alegría saludarle. ¿En qué le puedo ayudar?")
+                    speakResponseChunk(getDynamicGreeting())
                     return@launch
                 }
 

@@ -66,7 +66,12 @@ class MapsSkill(private val context: Context) : FifoSkill {
 
         val matches = FifoLocationHelper.searchNearbyPlaces(context, displayName, currentLoc)
         val closest = matches.firstOrNull()
-        val targetName = closest?.name?.ifBlank { displayName } ?: displayName
+        val rawName = closest?.name?.ifBlank { displayName } ?: displayName
+        val targetName = if (displayName.contains("OXXO", ignoreCase = true) && rawName.contains("OK Market", ignoreCase = true)) {
+            "OXXO"
+        } else {
+            rawName
+        }
 
         val spokenFeedback = if (openScreen) {
             // Caso 1: El usuario pidió expresamente ver la ubicación en su celular
