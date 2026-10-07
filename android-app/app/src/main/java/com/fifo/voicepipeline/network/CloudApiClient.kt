@@ -72,10 +72,10 @@ class CloudApiClient(
 1. Identidad y Propósito:
 Eres Fifo, especialista en envejecimiento activo y bienestar para adultos mayores. Tu misión es brindarles compañía empática, motivación, apoyo en hobbies y facilitación en su vida diaria.
 
-2. Tono y Personalidad:
+2. Tono, Personalidad y Concisión Extrema:
 - Trata siempre al usuario de "usted" con paciencia, empatía y cariño.
-- Usa lenguaje directo, claro y accesible, sin jerga técnica ni palabras complejas.
-- Respuestas CONCISAS: Máximo 1 a 2 párrafos breves, diseñados para ser escuchados por voz.
+- Habla ÚNICAMENTE lo justo y necesario. Sé directo, cálido y conciso: 1 a 2 oraciones breves diseñadas para ser escuchadas por voz.
+- PROHIBIDO repetir discursos enlatados o largos como "Revisé su ubicación en [dirección]". Si te piden un lugar o dirección, da directamente el nombre del local, la calle y la distancia sin rodeos ni preámbulos.
 - Una sola pregunta a la vez. No hagas interrogatorios ni monólogos.
 - No eres médico: si mencionan dolor o problemas graves, sugiere consultar con su médico.
 
@@ -88,14 +88,14 @@ Eres Fifo, especialista en envejecimiento activo y bienestar para adultos mayore
 - Nunca divulgues datos confidenciales (salud, finanzas). Prohibido contenido de índole sexual.
 - Ante abuso o emergencia, escucha con empatía y ofrece contactar a un familiar o al SAMU 131.
 
-5. Memoria Conversacional:
-- Los fragmentos de contexto previo son antecedentes: NO menciones temas pasados de la nada si el usuario no los mencionó en la charla actual.
-- Responde directamente a la consulta del usuario. Para buscar anécdotas o datos profundos pasados, usa 'recall_past_context'.
+5. Memoria Episódica Profunda ('recall_past_context'):
+- Si el usuario menciona lugares o vivencias pasadas (ej: 'quiero ir a donde fui ayer', 'no me acuerdo cómo se llamaba ese local al que fui hace una semana', 'ese lugar donde vendían ricas empanadas', 'qué te conté de mi nieto'), debes consultar PRIMERO tu memoria profunda con 'recall_past_context' para descubrir qué lugar o anécdota fue.
+- Con los datos obtenidos de tu memoria (nombre del local, calle, qué compró o hizo), responde con naturalidad y amabilidad, o busca la ubicación ('search_nearby_places') si el usuario desea ir.
 
-6. Ubicación, Navegación y Lugares Cercanos ('search_nearby_places'):
-- Guía 100% verbal: Fifo orienta por voz indicando el nombre del local real que está en el mapa, dirección, metros, cuadras y minutos caminando.
-- NUNCA abras la pantalla a menos que el usuario lo pida expresamente (ej: "muéstrame en mi celular"). Por defecto, 'open_screen_map' DEBE ser false tanto en 'search_nearby_places' como en 'open_navigation_directions'.
-- Consulta los comercios y locales reales del entorno. Si un local figura históricamente registrado como OK Market, aclara que actualmente en Chile opera como OXXO.
+6. Ubicación, Navegación e Investigación Contextual ('search_nearby_places'):
+- Si el usuario menciona un lugar, marca o local del que no estés 100% seguro o que pueda haber cambiado de nombre/dueño (como ocurrió con OXXO y OK Market), primero investiga el contexto en internet con 'web_search' o en tu memoria antes de dar una respuesta errónea o buscar una ubicación equivocada.
+- Guía concisa: indica únicamente el local, la calle y la distancia en metros/minutos. Nada de sermones largos ni preámbulos sobre la ubicación del usuario.
+- NUNCA abras la pantalla a menos que el usuario lo pida expresamente (ej: "muéstrame en mi celular"). Por defecto, 'open_screen_map' DEBE ser false.
 
 7. Saludos, Horarios y Continuidad:
 - Adapta tu saludo estrictamente a la hora real del contexto temporal. Jamás digas 'Buenos días' en la tarde o noche.
@@ -109,8 +109,8 @@ Eres Fifo, especialista en envejecimiento activo y bienestar para adultos mayore
 - Si el usuario pide que sigas escuchando sin decir 'Fifo', confirma con afecto que permanecerás atento en modo continuo.
 
 9. Búsqueda en Internet en Tiempo Real ('web_search'):
-- Dispones de la herramienta 'web_search' para consultar internet en vivo (noticias de última hora, clima actual, resultados, hechos de hoy o datos que requieran información reciente).
-- Úsala SIEMPRE que el usuario pregunte por noticias de hoy, acontecimientos recientes, clima o cuando solicite buscar/averiguar algo en la web.
+- Dispones de la herramienta 'web_search' para consultar internet en vivo (noticias de última hora, clima actual, resultados deportivos, cambios de marcas, hechos de hoy o datos que requieran información reciente).
+- Úsala SIEMPRE que el usuario pregunte por noticias de hoy, acontecimientos recientes, clima o cuando requieras verificar hechos antes de actuar.
 - Sintetiza los datos encontrados de manera clara, humana y concisa para ser escuchados por voz.
 """
 
@@ -291,19 +291,19 @@ Analiza la siguiente conversación de voz reciente entre el usuario y Fifo:
 
 $conversationText
 
-Extrae la información clave para persistirla en la base de datos de memoria del asistente.
+Extrae la información clave para persistirla en la base de datos de memoria densa del asistente, prestando especial atención a: locales comerciales, tiendas, calles, comidas, gustos específicos, personas o lugares visitados o consultados.
 Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
 {
-  "primaryTag": "categoría temática corta (ej: Deportes, Lugares, Rutina, Familia, Salud, General)",
-  "keyTopics": ["tema1", "tema2"],
-  "namedEntities": ["entidades, nombres o lugares relevantes"],
+  "primaryTag": "categoría temática corta (ej: Lugares, Comida, Deportes, Rutina, Familia, Salud, General)",
+  "keyTopics": ["tema1", "tema2", "comidas o productos"],
+  "namedEntities": ["locales, tiendas, personas, calles o lugares específicos"],
   "detectedMood": "ánimo detectado (ej: motivado, tranquilo, contento, pensativo, neutral)",
-  "compactSummary": "resumen breve de 1 o 2 oraciones de lo que se habló",
-  "conversationTitle": "título conciso de la charla (ej: Plan de jiujitsu semanal, Búsqueda de OXXO cercano)",
+  "compactSummary": "resumen denso de 1 o 2 oraciones incluyendo nombres exactos de locales, lugares o temas hablados",
+  "conversationTitle": "título conciso de la charla (ej: Visita a Panadería Las Rosas, Búsqueda de OXXO)",
   "memoryTitle": "título de un recuerdo nuevo sobre el usuario (o null si solo fue saludo o charla trivial)",
-  "memoryDetail": "detalle específico del recuerdo aprendido sobre el usuario (o null si no aplica)",
-  "memoryEmoji": "emoji representativo (ej: 🥋, 📍, ⭐, 💊, 🏃)",
-  "newTaste": "nuevo gusto o interés del usuario mencionado (ej: jiujitsu, panadería, caminata) o null si no hubo"
+  "memoryDetail": "detalle específico denso del recuerdo aprendido sobre el usuario, locales o gustos (o null si no aplica)",
+  "memoryEmoji": "emoji representativo (ej: 📍, 🥐, 🥋, ⭐, 💊, 🏃)",
+  "newTaste": "nuevo gusto, comida o interés del usuario mencionado (o null si no hubo)"
 }
 """.trimIndent()
 
@@ -522,8 +522,14 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
 
             val toolCalls = messageObj.getAsJsonArray("tool_calls")
             if (toolCalls != null && toolCalls.size() > 0 && skillRegistry != null) {
+                val currentAssistantMessage = JsonParser.parseString(messageObj.toString()).asJsonObject
+
+                val toolResultMessages = mutableListOf<Map<String, Any?>>()
+                var lastSpokenFallback = ""
+
                 for (toolElement in toolCalls) {
                     val callObj = toolElement.asJsonObject
+                    val callId = callObj.get("id")?.asString ?: "call_${System.currentTimeMillis()}"
                     val funcObj = callObj.getAsJsonObject("function") ?: continue
                     val toolName = funcObj.get("name")?.asString ?: continue
                     val argsString = funcObj.get("arguments")?.asString ?: "{}"
@@ -555,32 +561,155 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
                         Log.e(TAG, "Error ejecutando skill '$toolName': ${e.message}", e)
                         com.fifo.voicepipeline.skills.SkillResult(
                             success = false,
-                            spokenFeedback = "He registrado la acción en su teléfono."
+                            spokenFeedback = "No se pudo completar la acción en este momento."
                         )
                     }
+
                     if (result.spokenFeedback.isNotBlank()) {
-                        toolFeedback = if (toolFeedback.isBlank()) result.spokenFeedback else "$toolFeedback ${result.spokenFeedback}"
+                        lastSpokenFallback = result.spokenFeedback
                     }
+
+                    val toolPayload = mapOf(
+                        "success" to result.success,
+                        "spoken_feedback" to result.spokenFeedback,
+                        "data" to result.data,
+                        "additional_data" to result.additionalData
+                    )
+                    toolResultMessages.add(
+                        mapOf(
+                            "role" to "tool",
+                            "tool_call_id" to callId,
+                            "name" to toolName,
+                            "content" to gson.toJson(toolPayload)
+                        )
+                    )
+                }
+
+                // Follow-up a Groq con los resultados de las herramientas para que formule una respuesta inteligente, concisa y contextual
+                val followUpMessages = mutableListOf<Any>()
+                followUpMessages.add(mapOf("role" to "system", "content" to enrichedSystemPrompt))
+                followUpMessages.addAll(conversationHistory)
+                followUpMessages.add(currentAssistantMessage)
+                followUpMessages.addAll(toolResultMessages)
+
+                try {
+                    val followUpBody = """
+                    {
+                        "model": "$modelToUse",
+                        "messages": ${gson.toJson(followUpMessages)},
+                        "max_tokens": 256,
+                        "temperature": 0.5
+                    }
+                    """.trimIndent()
+
+                    val followUpReq = Request.Builder()
+                        .url(GROQ_CHAT_URL)
+                        .header("Authorization", "Bearer $apiKey")
+                        .header("Content-Type", "application/json")
+                        .header("User-Agent", "FifoVoiceApp/1.0 (Android; okhttp)")
+                        .post(followUpBody.toRequestBody("application/json".toMediaType()))
+                        .build()
+
+                    val followUpResp = httpClient.newCall(followUpReq).executeSuspend()
+                    val followUpBodyStr = followUpResp.body?.string() ?: ""
+                    if (followUpResp.isSuccessful && followUpBodyStr.isNotBlank()) {
+                        val followUpJson = JsonParser.parseString(followUpBodyStr).asJsonObject
+                        val followUpChoice = followUpJson.getAsJsonArray("choices")?.get(0)?.asJsonObject
+                        val followUpMsg = followUpChoice?.getAsJsonObject("message")
+
+                        // ¿El modelo quiso encadenar una segunda herramienta (ej: recall_past_context -> search_nearby_places)?
+                        val secondToolCalls = followUpMsg?.getAsJsonArray("tool_calls")
+                        if (secondToolCalls != null && secondToolCalls.size() > 0) {
+                            val secondAssistantMsg = JsonParser.parseString(followUpMsg.toString()).asJsonObject
+                            val secondToolResults = mutableListOf<Map<String, Any?>>()
+                            for (elem in secondToolCalls) {
+                                val callObj = elem.asJsonObject
+                                val callId = callObj.get("id")?.asString ?: "call_2_${System.currentTimeMillis()}"
+                                val funcObj = callObj.getAsJsonObject("function") ?: continue
+                                val toolName = funcObj.get("name")?.asString ?: continue
+                                val argsString = funcObj.get("arguments")?.asString ?: "{}"
+                                val argsMap = mutableMapOf<String, Any?>()
+                                try {
+                                    val parsed = JsonParser.parseString(argsString).asJsonObject
+                                    parsed.keySet().forEach { k ->
+                                        val item = parsed.get(k)
+                                        if (item.isJsonPrimitive) {
+                                            val p = item.asJsonPrimitive
+                                            argsMap[k] = when {
+                                                p.isNumber -> p.asInt
+                                                p.isBoolean -> p.asBoolean
+                                                else -> p.asString
+                                            }
+                                        } else argsMap[k] = item.toString()
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error parseando args segunda tool: ${e.message}")
+                                }
+                                val res = skillRegistry.executeSkill(toolName, argsMap)
+                                if (res.spokenFeedback.isNotBlank()) lastSpokenFallback = res.spokenFeedback
+                                secondToolResults.add(
+                                    mapOf(
+                                        "role" to "tool",
+                                        "tool_call_id" to callId,
+                                        "name" to toolName,
+                                        "content" to gson.toJson(mapOf("success" to res.success, "spoken_feedback" to res.spokenFeedback, "data" to res.data))
+                                    )
+                                )
+                            }
+                            val finalMessages = mutableListOf<Any>()
+                            finalMessages.addAll(followUpMessages)
+                            finalMessages.add(secondAssistantMsg)
+                            finalMessages.addAll(secondToolResults)
+
+                            val finalBody = """
+                            {
+                                "model": "$modelToUse",
+                                "messages": ${gson.toJson(finalMessages)},
+                                "max_tokens": 256,
+                                "temperature": 0.5
+                            }
+                            """.trimIndent()
+                            val finalReq = Request.Builder()
+                                .url(GROQ_CHAT_URL)
+                                .header("Authorization", "Bearer $apiKey")
+                                .header("Content-Type", "application/json")
+                                .header("User-Agent", "FifoVoiceApp/1.0 (Android; okhttp)")
+                                .post(finalBody.toRequestBody("application/json".toMediaType()))
+                                .build()
+                            val finalResp = httpClient.newCall(finalReq).executeSuspend()
+                            val finalBodyStr = finalResp.body?.string() ?: ""
+                            if (finalResp.isSuccessful && finalBodyStr.isNotBlank()) {
+                                val fJson = JsonParser.parseString(finalBodyStr).asJsonObject
+                                val fChoice = fJson.getAsJsonArray("choices")?.get(0)?.asJsonObject
+                                val fMsg = fChoice?.getAsJsonObject("message")
+                                val text = fMsg?.get("content")?.run { if (isJsonNull) "" else asString }?.trim() ?: ""
+                                if (text.isNotBlank()) {
+                                    val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(text)
+                                    conversationHistory.add(mapOf("role" to "assistant", "content" to reply))
+                                    return reply
+                                }
+                            }
+                        } else {
+                            val finalContent = followUpMsg?.get("content")?.run { if (isJsonNull) "" else asString }?.trim() ?: ""
+                            if (finalContent.isNotBlank()) {
+                                val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(finalContent)
+                                conversationHistory.add(mapOf("role" to "assistant", "content" to reply))
+                                return reply
+                            }
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error en follow-up con Groq después de tools: ${e.message}")
+                }
+
+                if (lastSpokenFallback.isNotBlank()) {
+                    val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(lastSpokenFallback)
+                    conversationHistory.add(mapOf("role" to "assistant", "content" to reply))
+                    return reply
                 }
             }
 
-            val combinedReply = when {
-                toolFeedback.isNotBlank() && textReply.isNotBlank() -> {
-                    val tLower = textReply.lowercase().trim()
-                    val fLower = toolFeedback.lowercase().trim()
-                    if (fLower.contains(tLower) || tLower.contains(fLower) || toolFeedback.length > 25 ||
-                        tLower.contains("celular") || tLower.contains("pantalla") || tLower.contains("mapa") || tLower.contains("direcciones")) {
-                        toolFeedback.trim()
-                    } else {
-                        "$textReply $toolFeedback".trim()
-                    }
-                }
-                toolFeedback.isNotBlank() -> toolFeedback.trim()
-                textReply.isNotBlank() -> textReply.trim()
-                else -> "Listo, he registrado los cambios."
-            }
-
-            val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(combinedReply)
+            val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(textReply.ifBlank { "Listo, he registrado los cambios." })
             conversationHistory.add(mapOf("role" to "assistant", "content" to reply))
             reply
         } catch (e: Exception) {
@@ -642,17 +771,18 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
             val json = JsonParser.parseString(body).asJsonObject
             val contentArray = json.getAsJsonArray("content")
 
-            var textReply = ""
-            var toolFeedback = ""
+            val toolUseBlocks = contentArray?.filter { it.asJsonObject.get("type")?.asString == "tool_use" } ?: emptyList()
 
-            contentArray?.forEach { element ->
-                val block = element.asJsonObject
-                val type = block.get("type")?.asString
-                if (type == "text") {
-                    textReply += block.get("text")?.asString ?: ""
-                } else if (type == "tool_use" && skillRegistry != null) {
+            if (toolUseBlocks.isNotEmpty() && skillRegistry != null) {
+                val toolResultBlocks = mutableListOf<Map<String, Any?>>()
+                var lastSpokenFallback = ""
+
+                for (element in toolUseBlocks) {
+                    val block = element.asJsonObject
+                    val toolUseId = block.get("id")?.asString ?: "tool_use_${System.currentTimeMillis()}"
                     val toolName = block.get("name")?.asString ?: ""
                     val toolInput = block.getAsJsonObject("input")
+
                     val argsMap = mutableMapOf<String, Any?>()
                     toolInput?.keySet()?.forEach { key ->
                         val elementVal = toolInput.get(key)
@@ -667,29 +797,100 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
                             argsMap[key] = elementVal.toString()
                         }
                     }
-                    val result = skillRegistry.executeSkill(toolName, argsMap)
+
+                    Log.i(TAG, "Ejecutando tool desde Claude: $toolName con args=$argsMap")
+                    val result = try {
+                        skillRegistry.executeSkill(toolName, argsMap)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error ejecutando skill '$toolName': ${e.message}", e)
+                        com.fifo.voicepipeline.skills.SkillResult(
+                            success = false,
+                            spokenFeedback = "No se pudo completar la acción en este momento."
+                        )
+                    }
+
                     if (result.spokenFeedback.isNotBlank()) {
-                        toolFeedback = if (toolFeedback.isBlank()) result.spokenFeedback else "$toolFeedback ${result.spokenFeedback}"
+                        lastSpokenFallback = result.spokenFeedback
                     }
+
+                    val toolPayload = mapOf(
+                        "success" to result.success,
+                        "spoken_feedback" to result.spokenFeedback,
+                        "data" to result.data,
+                        "additional_data" to result.additionalData
+                    )
+
+                    toolResultBlocks.add(
+                        mapOf(
+                            "type" to "tool_result",
+                            "tool_use_id" to toolUseId,
+                            "content" to gson.toJson(toolPayload)
+                        )
+                    )
+                }
+
+                // Follow-up a Claude con tool_result blocks
+                try {
+                    val followUpHistory = mutableListOf<Any>()
+                    followUpHistory.addAll(conversationHistory)
+                    followUpHistory.add(mapOf("role" to "assistant", "content" to contentArray))
+                    followUpHistory.add(mapOf("role" to "user", "content" to toolResultBlocks))
+
+                    val followUpBody = """
+                    {
+                        "model": "$CLAUDE_MODEL",
+                        "max_tokens": 256,
+                        "system": ${gson.toJson(enrichedSystemPrompt)},
+                        "messages": ${gson.toJson(followUpHistory)}
+                    }
+                    """.trimIndent()
+
+                    val followUpReq = Request.Builder()
+                        .url("https://api.anthropic.com/v1/messages")
+                        .header("x-api-key", anthropicApiKey)
+                        .header("anthropic-version", "2023-06-01")
+                        .header("content-type", "application/json")
+                        .post(followUpBody.toRequestBody("application/json".toMediaType()))
+                        .build()
+
+                    val followUpResp = httpClient.newCall(followUpReq).executeSuspend()
+                    val followUpBodyStr = followUpResp.body?.string() ?: ""
+                    if (followUpResp.isSuccessful && followUpBodyStr.isNotBlank()) {
+                        val followUpJson = JsonParser.parseString(followUpBodyStr).asJsonObject
+                        val respContent = followUpJson.getAsJsonArray("content")
+                        var textFollowUp = ""
+                        respContent?.forEach { el ->
+                            val b = el.asJsonObject
+                            if (b.get("type")?.asString == "text") {
+                                textFollowUp += b.get("text")?.asString ?: ""
+                            }
+                        }
+                        if (textFollowUp.isNotBlank()) {
+                            val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(textFollowUp)
+                            conversationHistory.add(mapOf("role" to "assistant", "content" to reply))
+                            return reply
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error en follow-up con Claude después de tools: ${e.message}")
+                }
+
+                if (lastSpokenFallback.isNotBlank()) {
+                    val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(lastSpokenFallback)
+                    conversationHistory.add(mapOf("role" to "assistant", "content" to reply))
+                    return reply
                 }
             }
 
-            val combinedReply = when {
-                toolFeedback.isNotBlank() && textReply.isNotBlank() -> {
-                    val tLower = textReply.lowercase().trim()
-                    val fLower = toolFeedback.lowercase().trim()
-                    if (fLower.contains(tLower) || tLower.contains(fLower) || toolFeedback.length > 25) {
-                        toolFeedback.trim()
-                    } else {
-                        "$textReply $toolFeedback".trim()
-                    }
+            var textReply = ""
+            contentArray?.forEach { element ->
+                val block = element.asJsonObject
+                if (block.get("type")?.asString == "text") {
+                    textReply += block.get("text")?.asString ?: ""
                 }
-                toolFeedback.isNotBlank() -> toolFeedback.trim()
-                textReply.isNotBlank() -> textReply.trim()
-                else -> "Listo, he registrado los cambios."
             }
 
-            val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(combinedReply)
+            val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(textReply.ifBlank { "Listo, he registrado los cambios." })
             conversationHistory.add(mapOf("role" to "assistant", "content" to reply))
             reply
         } catch (e: Exception) {

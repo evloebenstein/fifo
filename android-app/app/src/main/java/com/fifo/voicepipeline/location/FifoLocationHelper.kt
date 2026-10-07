@@ -270,10 +270,10 @@ object FifoLocationHelper {
         val drivingMinutes = (distanceMeters / 400).coerceAtLeast(1)
 
         val spoken = if (distanceMeters < 1200) {
-            "Para ir a $resolvedName: le queda a unos $distanceMeters metros de distancia, aproximadamente a $walkingMinutes minutos caminando $cardinal (a unas $blocks cuadras). Salga a la calle y avance derecho en esa dirección. ¿Desea que le vaya avisando los siguientes pasos mientras camina, o prefiere que le muestre el mapa en su celular?"
+            "Para ir a $resolvedName: queda a unos $distanceMeters metros ($walkingMinutes minutos caminando $cardinal). ¿Te voy indicando los pasos?"
         } else {
             val km = String.format(Locale("es", "ES"), "%.1f", distanceMeters / 1000.0)
-            "Para ir a $resolvedName: está a unos $km kilómetros $cardinal. En vehículo o locomoción son aproximadamente $drivingMinutes minutos, o a pie son unos $walkingMinutes minutos caminando. ¿Desea que le muestre el mapa en su celular o prefiere pedir un transporte?"
+            "Para ir a $resolvedName: queda a unos $km kilómetros $cardinal ($drivingMinutes min en vehículo o $walkingMinutes min a pie). ¿Te indico la ruta?"
         }
 
         return SpokenRouteGuidance(

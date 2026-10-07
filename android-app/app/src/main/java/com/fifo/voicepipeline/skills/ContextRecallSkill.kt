@@ -30,7 +30,7 @@ class ContextRecallSkill(private val context: Context) : FifoSkill {
     override val name: String = "recall_past_context"
 
     override val description: String =
-        "Busca información detallada en conversaciones pasadas del usuario cuando necesitas recordar algo que se habló anteriormente. Usa esta herramienta cuando el usuario pregunte si recuerdas algo que le contó, o cuando necesites más contexto sobre un tema de nicho que no está en los fragmentos recientes."
+        "Busca en la memoria profunda y registros pasados de Fifo: lugares visitados ayer o la semana pasada, nombres de locales olvidados, anécdotas, compras, gustos, personas y temas de charlas anteriores. Úsalo SIEMPRE que el usuario diga 'a dónde fui ayer', 'no me acuerdo cómo se llamaba ese local', o pregunte por algo que hicieron o hablaron antes."
 
     override val parameterSchemaJson: String = """
     {
@@ -38,11 +38,11 @@ class ContextRecallSkill(private val context: Context) : FifoSkill {
         "properties": {
             "query": {
                 "type": "string",
-                "description": "Término o tema a buscar en las conversaciones pasadas (ej: 'recetario abuela', 'orquídeas', 'nieto Tomás', 'música Chopin')"
+                "description": "Término, lugar, comida, persona o pista temporal a buscar en la memoria (ej: 'local ayer', 'empanadas', 'recetario abuela', 'orquídeas', 'dónde fui ayer')"
             },
             "context_hint": {
                 "type": "string",
-                "description": "Pista adicional sobre qué tipo de información buscas (ej: 'detalle de receta', 'nombre de persona', 'fecha de evento')"
+                "description": "Pista adicional sobre qué tipo de información buscas (ej: 'nombre de local', 'detalle de receta', 'fecha de evento', 'persona')"
             }
         },
         "required": ["query"]

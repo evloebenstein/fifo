@@ -191,6 +191,18 @@ class FifoSkillRegistry(private val context: Context) {
             return null
         }
 
+        // 0.0.1 Si la consulta hace referencia a vivencias, lugares o charlas pasadas ("a donde fui ayer", "ese local", "no me acuerdo"),
+        // NUNCA asumir un destino fijo en mapas; delegar al LLM para que use 'recall_past_context' y razone con su memoria profunda.
+        val isPastMemoryQuery = text.contains("ayer") || text.contains("semana pasada") ||
+                text.contains("antier") || text.contains("fui a") || text.contains("donde fui") ||
+                text.contains("dónde fui") || text.contains("ese local") || text.contains("ese lugar") ||
+                text.contains("no me acuerdo") || text.contains("no recuerdo") ||
+                text.contains("te acuerdas") || text.contains("te acordai") || text.contains("recuerdas cuando") ||
+                text.contains("hablamos de") || text.contains("te conté") || text.contains("te conte")
+        if (isPastMemoryQuery) {
+            return null
+        }
+
         // 0.1 GESTIÓN DE LLAMADAS TELEFÓNICAS TIPO ALEXA (Contestar / Colgar / Saber quién llama)
         val isCallAnswerIntent = text.contains("contesta") || text.contains("contestar") || text.contains("contéstame") ||
                 text.contains("atiende") || text.contains("atender") || text.contains("atiéndeme") ||

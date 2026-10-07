@@ -86,12 +86,8 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
             if (closest != null) {
                 val targetName = closest.name.ifBlank { destInput }
                 if (openScreen) {
-                    val spoken = if (closest.distanceMeters < 1200) {
-                        "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano está en ${closest.fullAddressText}, a unos ${closest.distanceMeters} metros (a unos ${closest.walkingMinutes} minutos caminando ${closest.cardinalDirection}). Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
-                    } else {
-                        val km = String.format(java.util.Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)
-                        "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano se encuentra en ${closest.fullAddressText}, a unos $km kilómetros. En vehículo son aproximadamente ${closest.drivingMinutes} minutos, o a pie son unos ${closest.walkingMinutes} minutos. Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
-                    }
+                    val distText = if (closest.distanceMeters < 1200) "${closest.distanceMeters} metros (${closest.walkingMinutes} min a pie)" else "${String.format(java.util.Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)} km"
+                    val spoken = "El $targetName más cercano está en ${closest.fullAddressText}, a unos $distText ${closest.cardinalDirection}. Te abrí la ruta en la pantalla."
                     val (navSuccess, appUsed) = FifoLocationHelper.startNavigation(context, "${closest.latitude},${closest.longitude}", appChoice)
                     return SkillResult(
                         success = navSuccess,
@@ -108,12 +104,12 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
                         )
                     )
                 } else {
-                    // Guía 100% verbal manos libres por voz sin abrir el celular
+                    // Guía 100% verbal concisa y sin discursos redundantes
                     val spoken = if (closest.distanceMeters < 1200) {
-                        "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano a usted está en ${closest.fullAddressText}, a unos ${closest.distanceMeters} metros de distancia (unas ${closest.blocks} cuadras, a solo ${closest.walkingMinutes} minutos caminando). Para llegar, salga a la calle y camine ${closest.cardinalDirection} por ${closest.road.ifBlank { "la calle principal" }}. ¿Desea que le vaya indicando los pasos mientras camina, o prefiere que le muestre el mapa en su celular?"
+                        "El $targetName más cercano está en ${closest.fullAddressText}, a ${closest.distanceMeters} metros (${closest.walkingMinutes} min caminando ${closest.cardinalDirection}). ¿Quieres que te guíe hacia allá?"
                     } else {
                         val km = String.format(java.util.Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)
-                        "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano se encuentra en ${closest.fullAddressText}, a unos $km kilómetros ${closest.cardinalDirection}. En vehículo son aproximadamente ${closest.drivingMinutes} minutos, o a pie son unos ${closest.walkingMinutes} minutos caminando. ¿Desea que le muestre el mapa en la pantalla o prefiere pedir un transporte?"
+                        "El $targetName más cercano está en ${closest.fullAddressText}, a unos $km kilómetros ${closest.cardinalDirection} (${closest.drivingMinutes} min en auto). ¿Quieres que te indique la ruta?"
                     }
                     return SkillResult(
                         success = true,
@@ -148,7 +144,7 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
         // 2. Si el usuario pidió explícitamente abrir el mapa visual en pantalla
         if (openScreen) {
             val (success, appUsed) = FifoLocationHelper.startNavigation(context, resolvedDestination, appChoice)
-            val combinedSpoken = "Para ir a $resolvedDestination: le queda a unos ${routeGuidance.distanceMeters} metros, a unos ${routeGuidance.walkingMinutes} minutos caminando ${routeGuidance.cardinalDirection}. Le acabo de abrir la ruta en $appUsed en la pantalla del celular."
+            val combinedSpoken = "Para ir a $resolvedDestination: queda a ${routeGuidance.distanceMeters} metros (${routeGuidance.walkingMinutes} min caminando). Te abrí la ruta en el celular."
             return SkillResult(
                 success = success,
                 spokenFeedback = combinedSpoken,
