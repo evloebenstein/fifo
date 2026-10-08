@@ -267,9 +267,7 @@ class VoicePipelineManager(
             onRepeatedFailure = {
                 if (!_isMicMuted.value) {
                     Log.i(TAG, "Google SpeechRecognizer en pausa/error. Asegurando PhoneMicRecorder activo.")
-                    if (!phoneMicRecorder.isRecording) {
-                        startPhoneMic()
-                    }
+                    ensureListeningActive()
                 }
             }
         )
@@ -525,24 +523,15 @@ class VoicePipelineManager(
             return
         }
 
-        // Si el robot Fifo físico está conectado por BLE y la fuente activa es el ESP32,
-        // el micrófono activo es el del robot (recibido por paquetes BLE)
-        if (bleClient.isConnected && _micSource.value == MicSource.ESP32) {
-            phoneMicRecorder.stop()
+        if (hasCloudStt || _micSource.value == MicSource.PHONE || !bleClient.isConnected) {
             nativeRecognizer?.stop()
-            return
-        }
-
-        // En modo celular o cuando Fifo físico no está conectado:
-        // Priorizar NativeSpeechRecognizer (Google Voice nativo): activa el indicador verde de micrófono
-        // de Android, transcribe en tiempo real sin latencia ni cuotas de red, y despierta instantáneamente al oír "Fifo".
-        if (nativeRecognizer?.isAvailable() == true) {
-            phoneMicRecorder.stop()
-            nativeRecognizer?.startContinuousListening()
-        } else {
-            // Fallback: PhoneMicRecorder con VAD y Whisper si Google Voice no está disponible
             if (!phoneMicRecorder.isRecording) {
                 startPhoneMic()
+            }
+        } else {
+            phoneMicRecorder.stop()
+            if (nativeRecognizer?.isAvailable() == true) {
+                nativeRecognizer?.startContinuousListening()
             }
         }
     }

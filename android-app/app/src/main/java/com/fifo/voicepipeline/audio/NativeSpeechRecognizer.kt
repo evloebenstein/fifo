@@ -201,19 +201,11 @@ class NativeSpeechRecognizer(
             override fun onError(error: Int) {
                 if (generation != currentGeneration) return
                 isListening = false
-
-                val isSilenceTimeout = error == SpeechRecognizer.ERROR_NO_MATCH ||
-                        error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
-
-                if (isSilenceTimeout) {
-                    consecutiveErrors = 0
-                } else {
-                    consecutiveErrors++
-                }
+                consecutiveErrors++
 
                 val errorMsg = when (error) {
-                    SpeechRecognizer.ERROR_NO_MATCH -> "No se detectaron palabras (silencio)"
-                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Tiempo de espera agotado (silencio)"
+                    SpeechRecognizer.ERROR_NO_MATCH -> "No se detectaron palabras"
+                    SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Tiempo de espera agotado"
                     SpeechRecognizer.ERROR_AUDIO -> "Error de audio (micrófono ocupado)"
                     SpeechRecognizer.ERROR_SERVER -> "Error de servidor de Google"
                     SpeechRecognizer.ERROR_NETWORK -> "Error de red"
@@ -224,14 +216,15 @@ class NativeSpeechRecognizer(
                     13 -> "Idioma no disponible"
                     else -> "Error de reconocimiento ($error)"
                 }
-                Log.d(TAG, "SpeechRecognizer onError: $errorMsg ($error) [Consecutivos reales: $consecutiveErrors]")
+                Log.d(TAG, "SpeechRecognizer onError: $errorMsg ($error) [Consecutivos: $consecutiveErrors]")
                 callbackError(error, errorMsg)
 
                 if (!shouldKeepListening) return
 
-                // Si se acumulan 3 o más errores graves REALES (ej. permiso revocado, audio ocupado por llamada):
-                if (consecutiveErrors >= 3) {
-                    Log.i(TAG, "Fallo persistente en SpeechRecognizer ($consecutiveErrors). Transfiriendo a grabador alternativo.")
+                // Si se acumulan 2 o más errores consecutivos (ej. silencio de usuario o timeout en reposo):
+                // DETENERSE para no producir el molesto sonido repetitivo de Google ("prende y apaga")
+                if (consecutiveErrors >= 2) {
+                    Log.i(TAG, "Pausando SpeechRecognizer por silencio prolongado ($consecutiveErrors). Deteniendo bucle de sonidos.")
                     shouldKeepListening = false
                     try {
                         speechRecognizer?.cancel()
@@ -241,10 +234,10 @@ class NativeSpeechRecognizer(
                 }
 
                 when (error) {
-                    // Silencio normal o timeout: reiniciar para seguir escuchando "Fifo"
+                    // Silencio normal o timeout: pausar suavemente una única vez
                     SpeechRecognizer.ERROR_NO_MATCH,
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> {
-                        restartListening(300L)
+                        restartListening(1000L)
                     }
                     // Idioma no descargado sin conexión: reintentar con delay
                     13 -> {
