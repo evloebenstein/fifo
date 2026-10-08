@@ -447,8 +447,9 @@ object FifoLocationHelper {
             queryLower.contains("farmacia") -> listOf("pharmacy", "farmacia", "cruz verde", "ahumada", "salcobrand")
             queryLower.contains("minimarket") || queryLower.contains("almacen") || queryLower.contains("almacén") -> listOf("convenience", "minimarket", "almacen")
             queryLower.contains("panaderia") || queryLower.contains("panadería") -> listOf("bakery", "panaderia")
-            queryLower.contains("cafe") || queryLower.contains("café") || queryLower.contains("cafeteria") || queryLower.contains("cafetería") -> listOf("cafe", "cafeteria")
-            queryLower.contains("restaurante") || queryLower.contains("restaurant") || queryLower.contains("comida") -> listOf("restaurant", "comida")
+            queryLower.contains("pizz") -> listOf("pizza", "restaurant", "fast_food")
+            queryLower.contains("restaurante") || queryLower.contains("restaurant") || queryLower.contains("comida") || queryLower.contains("comer") || queryLower.contains("almuerzo") ->
+                listOf("restaurant", "fast_food", "food")
             queryLower.contains("comercio") || queryLower.contains("local") || queryLower.contains("tienda") || queryLower.contains("negocio") || queryLower.contains("alrededor") ->
                 listOf("convenience", "supermarket", "bakery", "shop", "cafe", "pharmacy")
             queryLower.contains("banco") -> listOf("bank", "banco")

@@ -624,9 +624,11 @@ class VoicePipelineManager(
         // Si hay llamada o el robot NO está conectado, procesar el mic del celular como fallback.
         if (!isCallActive && source != _micSource.value && bleClient.isConnected) return
 
-        // Supresión de eco estricta: si el celular o TTS está hablando, silenciar micrófono y vaciar buffer
-        if (_state.value == PipelineState.SPEAKING || _state.value == PipelineState.PROCESSING ||
-            androidTtsSpeaker?.isSpeaking == true || audioPlayer.isPlaying) {
+        val isSpeakingNow = _state.value == PipelineState.SPEAKING ||
+            androidTtsSpeaker?.isSpeaking == true || audioPlayer.isPlaying
+
+        // Si Fifo está procesando en la nube (Groq/Claude) y aún no habla, descartar chunks para no superponer turnos
+        if (_state.value == PipelineState.PROCESSING && !isSpeakingNow) {
             pcmBuffer.clear()
             vad.reset()
             return
@@ -634,6 +636,18 @@ class VoicePipelineManager(
 
         val result = vad.processChunk(pcmData)
         _rmsLevel.value = result.rms
+
+        // Interrupción instantánea y fluida por voz (Barge-in):
+        // Si Fifo está hablando y el usuario empieza a hablar, callar a Fifo de inmediato
+        if (isSpeakingNow && (result is VadResult.SpeechStart || result is VadResult.SpeechContinue)) {
+            Log.i(TAG, "Barge-in detectado: usuario interrumpió el habla de Fifo (RMS=${result.rms})")
+            androidTtsSpeaker?.stop()
+            audioPlayer.stop()
+            _state.value = PipelineState.LISTENING
+            _isAwake.value = true
+            _statusMessage.value = "Te escucho..."
+            updateEspDisplay(state = "ESCUCHANDO")
+        }
 
         when (result) {
             is VadResult.SpeechStart -> {

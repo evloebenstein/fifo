@@ -173,11 +173,17 @@ class FifoSkillRegistry(private val context: Context) {
             text.contains("descansa") || text.contains("duérmete") || text.contains("duermete") ||
             text.contains("apágate") || text.contains("apagate") || text.contains("cállate") || text.contains("callate") ||
             text.contains("no necesito nada") || text.contains("no quiero nada") || text.contains("eso es todo") ||
-            text.contains("eso sería todo") || text.contains("gracias fifo") || text.contains("listo fifo") || text.contains("chao fifo")) {
+            text.contains("eso sería todo") || text.contains("gracias fifo") || text.contains("listo fifo") || text.contains("chao fifo") ||
+            text == "gracias" || text == "muchas gracias" || text == "gracias lucia" || text == "chao" || text == "adios" || text == "hasta luego") {
             com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
+            val reply = if (text.contains("gracias")) {
+                "De nada Lucía, un gusto ayudarle. Si me necesita, solo diga 'Fifo'."
+            } else {
+                "Entendido, me quedo descansando. Si me necesita, solo diga 'Fifo'."
+            }
             return SkillResult(
                 success = true,
-                spokenFeedback = "Entendido, me quedo descansando. Si me necesita, solo diga 'Fifo'."
+                spokenFeedback = reply
             )
         }
 
@@ -395,6 +401,27 @@ class FifoSkillRegistry(private val context: Context) {
                 mapOf("place_type" to "oxxo", "query_hint" to "OXXO", "open_screen_map" to wantsNearbyScreen)
             )
         }
+
+        // 2.0.1 RESTAURANTES Y LUGARES DE COMIDA (Almuerzo, restaurante, picada, comida, pizza, etc.)
+        val isFoodSearch = text.contains("restaurante") || text.contains("restaurant") ||
+                text.contains("comida") || text.contains("comer") || text.contains("almorzar") ||
+                text.contains("almuerzo") || text.contains("cenar") || text.contains("cena") ||
+                text.contains("pizz") || text.contains("sandwich") || text.contains("sándwich") ||
+                text.contains("hamburguesa") || text.contains("sushi") || text.contains("picada")
+        if (isFoodSearch && (hasSearchIntent || text.contains("local") || text.contains("donde") || text.contains("dónde"))) {
+            val foodHint = when {
+                text.contains("pizza") || text.contains("pizz") -> "pizzeria"
+                text.contains("sandwich") || text.contains("sándwich") -> "sandwich"
+                text.contains("sushi") -> "sushi"
+                text.contains("hamburguesa") -> "hamburguesas"
+                else -> ""
+            }
+            return executeSkill(
+                "search_nearby_places",
+                mapOf("place_type" to "restaurante", "query_hint" to foodHint, "open_screen_map" to wantsNearbyScreen)
+            )
+        }
+
         if ((text.contains("local") || text.contains("locales") || text.contains("tienda") || text.contains("tiendas") || text.contains("negocio") || text.contains("negocios") || text.contains("comercio") || text.contains("comercios")) && hasSearchIntent) {
             return executeSkill(
                 "search_nearby_places",

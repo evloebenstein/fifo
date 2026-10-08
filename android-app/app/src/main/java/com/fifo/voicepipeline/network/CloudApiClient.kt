@@ -124,14 +124,13 @@ Eres Fifo, especialista en envejecimiento activo y bienestar para adultos mayore
             if (norm.isBlank() || norm.length <= 1) return true
 
             val knownHallucinations = setOf(
-                "gracias", "muchas gracias", "gracias por ver", "gracias por ver el video",
+                "gracias por ver", "gracias por ver el video",
                 "gracias por ver este video", "gracias por mirar", "gracias por su atencion",
                 "subtitulos realizados por la comunidad de amara org",
                 "subtitulos por la comunidad de amara org", "amara org", "amara",
                 "suscribete", "suscribete al canal", "suscribanse", "dale like y suscribete",
                 "dale like", "compartir", "comenta",
-                "thank you", "thank you for watching", "thanks for watching",
-                "chao", "adios", "bye", "ok", "okay"
+                "thank you for watching", "thanks for watching"
             )
             return knownHallucinations.contains(norm)
         }

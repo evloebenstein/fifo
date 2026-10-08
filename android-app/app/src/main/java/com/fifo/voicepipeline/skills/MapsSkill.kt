@@ -73,43 +73,30 @@ class MapsSkill(private val context: Context) : FifoSkill {
             else -> rawName
         }
 
-        val otherMatches = matches.drop(1).take(2)
-        val extraNearby = if (otherMatches.isNotEmpty()) {
-            val otherNames = otherMatches.map { m ->
-                val mName = if (m.name.contains("OK Market", ignoreCase = true)) "un OXXO (ex OK Market)" else m.name
-                "$mName a ${m.distanceMeters} metros"
-            }.joinToString(", ")
-            " Además, cerca tiene a: $otherNames."
-        } else ""
-
         val spokenFeedback = if (openScreen) {
             // Caso 1: El usuario pidió expresamente ver la ubicación en su celular
             if (closest != null) {
-                val addrText = closest.fullAddressText
-                if (closest.distanceMeters < 1200) {
-                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano está en $addrText, a unos ${closest.distanceMeters} metros (a unos ${closest.walkingMinutes} minutos caminando ${closest.cardinalDirection}).$extraNearby Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
-                } else {
-                    val km = String.format(Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)
-                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano se encuentra en $addrText, a unos $km kilómetros. En vehículo son aproximadamente ${closest.drivingMinutes} minutos, o a pie son unos ${closest.walkingMinutes} minutos.$extraNearby Le acabo de abrir la ruta en el mapa en la pantalla de su celular."
-                }
+                val streetOnly = closest.road.ifBlank { closest.fullAddressText }
+                val distText = if (closest.distanceMeters < 1200) "${closest.distanceMeters} metros" else "${String.format(Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)} kilómetros"
+                "El $targetName más cercano está en $streetOnly, a unos $distText. Le abrí la ruta en la pantalla de su celular."
             } else {
-                "Revisé su ubicación en ${currentLoc.address}. Le acabo de abrir el mapa en la pantalla de su celular con la búsqueda de $displayName para que pueda explorar los alrededores."
+                "Le abrí el mapa en su celular con la búsqueda de $displayName."
             }
         } else {
-            // Caso 2: Guía 100% verbal y manos libres por voz (comportamiento predeterminado)
+            // Caso 2: Guía 100% verbal y concisa (comportamiento predeterminado)
             if (closest != null) {
-                val addrText = closest.fullAddressText
+                val streetOnly = closest.road.ifBlank { closest.fullAddressText }
                 if (closest.distanceMeters < 1200) {
-                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano a usted está en $addrText, a unos ${closest.distanceMeters} metros de distancia (unas ${closest.blocks} cuadras, a solo ${closest.walkingMinutes} minutos caminando). Para llegar, camine ${closest.cardinalDirection} por ${closest.road.ifBlank { "la calle principal" }}.$extraNearby ¿Desea que le vaya indicando los pasos mientras camina, o prefiere que le muestre el mapa en su celular?"
+                    "El $targetName más cercano está en $streetOnly, a unos ${closest.distanceMeters} metros (unos ${closest.walkingMinutes} minutos caminando). ¿Desea que le abra el mapa en su celular?"
                 } else {
                     val km = String.format(Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)
-                    "Revisé su ubicación en ${currentLoc.address}. El $targetName más cercano se encuentra en $addrText, a unos $km kilómetros ${closest.cardinalDirection}. En vehículo son aproximadamente ${closest.drivingMinutes} minutos, o a pie son unos ${closest.walkingMinutes} minutos caminando.$extraNearby ¿Desea que le muestre el mapa en la pantalla o prefiere pedir un transporte?"
+                    "El $targetName más cercano se encuentra en $streetOnly, a unos $km kilómetros. ¿Desea que le abra la ruta?"
                 }
             } else {
                 if (currentLoc.isGpsActive) {
-                    "Revisé su ubicación en ${currentLoc.address}. No encontré locales de $displayName registrados a poca distancia a la redonda. ¿Desea que le abra el mapa en su celular para ver más opciones?"
+                    "No encontré locales de $displayName cercanos a su ubicación actual. ¿Desea que le abra el mapa en su celular?"
                 } else {
-                    "No alcancé a captar la señal GPS de su teléfono en este momento para buscar el local de $displayName más cercano. ¿Desea que le abra el mapa en su celular?"
+                    "No alcancé a captar la señal GPS de su teléfono para buscar el local de $displayName. ¿Desea abrir el mapa?"
                 }
             }
         }
