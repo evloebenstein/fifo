@@ -411,24 +411,21 @@ class VoicePipelineManager(
      * y requiere que el usuario pronuncie la palabra de activación ("Fifo").
      */
     fun talkFromPhone() {
+        if (_isMicMuted.value) {
+            setMicMuted(false)
+        }
         _isAwake.value = false
         oneShotPushedToTalk = false
         expectFollowUpQuestion = false
         _micSource.value = MicSource.PHONE
         _state.value = PipelineState.SLEEPING
-        _statusMessage.value = if (_isMicMuted.value) "Micrófono silenciado (Mute)" else "Modo celular activo · Di 'Fifo' para despertar"
+        _statusMessage.value = "Modo celular activo · Di 'Fifo' para despertar"
         autoSleepJob?.cancel()
         vad.reset()
         pcmBuffer.clear()
 
-        if (!_isMicMuted.value) {
-            ensureListeningActive()
-            updateEspDisplay(state = "DURMIENDO", transcript = "", response = "")
-        } else {
-            phoneMicRecorder.stop()
-            nativeRecognizer?.stop()
-            updateEspDisplay(state = "MUTED", transcript = "", response = "")
-        }
+        ensureListeningActive()
+        updateEspDisplay(state = "DURMIENDO", transcript = "", response = "")
     }
 
     /**
@@ -1412,13 +1409,15 @@ class VoicePipelineManager(
             return
         }
 
-        // Si se usó temporalmente el micrófono del teléfono, volver al micrófono de Fifo
+        // Si se usó temporalmente el micrófono del teléfono, volver al micrófono de Fifo solo si el ESP32 está conectado
         if (_micSource.value == MicSource.PHONE && bleClient.isConnected) {
             phoneMicRecorder.stop()
             _micSource.value = MicSource.ESP32
         }
 
-        if (!bleClient.isConnected && _micSource.value == MicSource.ESP32) {
+        // Si el robot BLE no está conectado pero tenemos STT en la nube (Groq Whisper) o modo celular,
+        // no cortar la escucha: continuar escuchando por el micrófono del celular sin apagar a Fifo.
+        if (!bleClient.isConnected && !hasCloudStt && _micSource.value == MicSource.ESP32) {
             _state.value = PipelineState.DISCONNECTED
             _statusMessage.value = "Fifo desconectado · Conecte por Bluetooth"
             return
