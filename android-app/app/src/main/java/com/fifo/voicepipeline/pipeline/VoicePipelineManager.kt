@@ -92,6 +92,13 @@ class VoicePipelineManager(
     // Turnos de la sesión activa para consolidación en SQLite al dormir
     private val activeSessionTurns = mutableListOf<Pair<String, String>>()
 
+    // Buffer circular de pre-roll (15 chunks ~480ms) para que el inicio de 'Fi-' nunca se corte
+    private val preRollBuffer = java.util.ArrayDeque<ByteArray>(15)
+
+    // Control de Barge-in sin auto-interrupciones por el propio altavoz
+    private var ttsStartTimestamp = 0L
+    private var bargeInConsecutiveFrames = 0
+
     // Reconocedor de voz nativo de Google (100% GRATIS, no requiere claves de API)
     private var nativeRecognizer: NativeSpeechRecognizer? = null
 
@@ -195,6 +202,8 @@ class VoicePipelineManager(
         androidTtsSpeaker = AndroidTtsSpeaker(
             context = context,
             onStart = {
+                ttsStartTimestamp = System.currentTimeMillis()
+                bargeInConsecutiveFrames = 0
                 _state.value = PipelineState.SPEAKING
                 _statusMessage.value = "Hablando..."
                 updateEspDisplay(state = "HABLANDO")
@@ -630,23 +639,48 @@ class VoicePipelineManager(
         // Si Fifo está procesando en la nube (Groq/Claude) y aún no habla, descartar chunks para no superponer turnos
         if (_state.value == PipelineState.PROCESSING && !isSpeakingNow) {
             pcmBuffer.clear()
+            synchronized(preRollBuffer) {
+                preRollBuffer.clear()
+            }
             vad.reset()
             return
+        }
+
+        // Mantener buffer circular de pre-roll (15 frames = ~480ms de audio continuo)
+        synchronized(preRollBuffer) {
+            if (preRollBuffer.size >= 15) {
+                preRollBuffer.pollFirst()
+            }
+            preRollBuffer.addLast(pcmData.clone())
         }
 
         val result = vad.processChunk(pcmData)
         _rmsLevel.value = result.rms
 
         // Interrupción instantánea y fluida por voz (Barge-in):
-        // Si Fifo está hablando y el usuario empieza a hablar, callar a Fifo de inmediato
-        if (isSpeakingNow && (result is VadResult.SpeechStart || result is VadResult.SpeechContinue)) {
-            Log.i(TAG, "Barge-in detectado: usuario interrumpió el habla de Fifo (RMS=${result.rms})")
-            androidTtsSpeaker?.stop()
-            audioPlayer.stop()
-            _state.value = PipelineState.LISTENING
-            _isAwake.value = true
-            _statusMessage.value = "Te escucho..."
-            updateEspDisplay(state = "ESCUCHANDO")
+        // Si Fifo está hablando, solo permitir que el usuario interrumpa si:
+        // 1. Han pasado al menos 700ms desde que empezó a hablar (evitar filtración acústica inicial)
+        // 2. El volumen (RMS >= 650.0) supera con creces el eco del altavoz filtrado por AEC
+        // 3. La voz del usuario se sostiene por al menos 3 frames consecutivos (~96ms)
+        if (isSpeakingNow) {
+            val elapsedTts = System.currentTimeMillis() - ttsStartTimestamp
+            if (elapsedTts >= 700L && result.rms >= 650.0) {
+                bargeInConsecutiveFrames++
+                if (bargeInConsecutiveFrames >= 3) {
+                    Log.i(TAG, "Barge-in confirmado: usuario interrumpió a Fifo (RMS=${result.rms}, frames=$bargeInConsecutiveFrames)")
+                    androidTtsSpeaker?.stop()
+                    audioPlayer.stop()
+                    bargeInConsecutiveFrames = 0
+                    _state.value = PipelineState.LISTENING
+                    _isAwake.value = true
+                    _statusMessage.value = "Te escucho..."
+                    updateEspDisplay(state = "ESCUCHANDO")
+                }
+            } else {
+                bargeInConsecutiveFrames = 0
+            }
+        } else {
+            bargeInConsecutiveFrames = 0
         }
 
         when (result) {
@@ -658,6 +692,12 @@ class VoicePipelineManager(
                     updateEspDisplay(state = "ESCUCHANDO")
                 }
                 pcmBuffer.clear()
+                // Copiar el pre-roll acumulado para que consonantes iniciales suaves como la 'F' de 'Fifo' no se pierdan
+                synchronized(preRollBuffer) {
+                    while (preRollBuffer.isNotEmpty()) {
+                        pcmBuffer.append(preRollBuffer.pollFirst()!!)
+                    }
+                }
                 pcmBuffer.append(pcmData)
             }
 
@@ -675,13 +715,16 @@ class VoicePipelineManager(
             is VadResult.SpeechEnd -> {
                 Log.i(TAG, "Fin de frase detectado en $source — enviando a Whisper...")
                 pcmBuffer.append(pcmData)
+                synchronized(preRollBuffer) {
+                    preRollBuffer.clear()
+                }
                 val fullWav = pcmBuffer.toWav()
                 pcmBuffer.clear()
                 processUserAudio(fullWav)
             }
 
             is VadResult.Silence -> {
-                // Silencio normal, sin acción
+                // Silencio normal: preRollBuffer sigue manteniendo los últimos 15 chunks en ventana deslizante
             }
         }
     }
@@ -805,7 +848,7 @@ class VoicePipelineManager(
                 Regex("f+i+f+o+").containsMatchIn(noSpaces) ||
                 noSpaces.contains("pifo") ||
                 Regex("p+i+f+o+").containsMatchIn(noSpaces) ||
-                normalized.contains(Regex("\\b(fifo|pifo|feefo|fito|fifa|fibo|fipo|fi fo)\\b"))
+                normalized.contains(Regex("\\b(fifo|pifo|tifo|tufo|hipo|tipo|feefo|fito|fifa|fibo|fipo|fi fo)\\b"))
 
         return hasFifo
     }
@@ -848,6 +891,7 @@ class VoicePipelineManager(
         val wakeWords = listOf(
             "fifo", "feefo", "fito", "fifa", "fido", "fibo", "fipo", "fico", "fiko",
             "pifo", "pito", "pipo", "bifo", "fifi", "pipa",
+            "tifo", "tufo", "hipo", "tipo",
             "fee for", "fit for", "people", "free for", "feed for", "bebo", "feefa", "fefa",
             "phifo", "vibo", "vivo", "filo", "fijo", "kiko", "fi fo", "fe fo", "sifo", "be cool"
         )
@@ -863,8 +907,8 @@ class VoicePipelineManager(
      * Extrae la consulta eliminando prefijos de activación como "Fifo", "Hola Fifo", etc.
      */
     private fun extractQuery(text: String): String {
-        return text.replace(Regex("(?i)\\b(hola|oye|hey|che|ok|bueno|dime|saludos)\\s+(fifo|pifo|fífo|feefo|fito|pito|fifa|fido|fibo|fipo|fico|fiko|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko|fi\\s+fo)\\b"), "")
-            .replace(Regex("(?i)\\b(fifo|pifo|fífo|feefo|fito|pito|fifa|fido|fibo|fipo|fico|fiko|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko|fi\\s+fo)\\b"), "")
+        return text.replace(Regex("(?i)\\b(hola|oye|hey|che|ok|bueno|dime|saludos)\\s+(fifo|pifo|tifo|tufo|hipo|tipo|fífo|feefo|fito|pito|fifa|fido|fibo|fipo|fico|fiko|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko|fi\\s+fo)\\b"), "")
+            .replace(Regex("(?i)\\b(fifo|pifo|tifo|tufo|hipo|tipo|fífo|feefo|fito|pito|fifa|fido|fibo|fipo|fico|fiko|fee\\s+for|fit\\s+for|people|free\\s+for|feed\\s+for|bebo|feefa|fefa|phifo|vibo|vivo|filo|fijo|pipo|kiko|fi\\s+fo)\\b"), "")
             .trim()
             .trimStart(',', '.', ':', ';', '!', '?', ' ')
             .trim()
@@ -1005,8 +1049,8 @@ class VoicePipelineManager(
         val wasPushed = oneShotPushedToTalk
         oneShotPushedToTalk = false
 
-        // Se debe decir "Fifo" a menos que estemos en ventana de respuesta activa, modo continuo o botón
-        if (!hasWakeWord && !wasPushed && !isWaitingFollowUp && !isContinuous && !isCallControl) {
+        // Se debe decir "Fifo" a menos que estemos en ventana de respuesta activa, modo continuo, botón o ya estemos despiertos
+        if (!hasWakeWord && !wasPushed && !isWaitingFollowUp && !isContinuous && !isCallControl && !_isAwake.value) {
             Log.d(TAG, "Audio ignorado: Fifo en reposo y no se detectó 'Fifo'. Oído: $rawText")
             return
         }
@@ -1174,8 +1218,8 @@ class VoicePipelineManager(
 
                 val isWaitingFollowUp = (expectFollowUpQuestion || pendingNavigationRequest) && _isAwake.value
 
-                // Si no se dijo "Fifo", verificar si estábamos en conversación activa, pregunta pendiente, o modo continuo
-                if (!hasWakeWord && !wasPushed && !isWaitingFollowUp && !isContinuous && !isCallControl) {
+                // Si no se dijo "Fifo", verificar si estábamos en conversación activa, pregunta pendiente, modo continuo o ya despiertos
+                if (!hasWakeWord && !wasPushed && !isWaitingFollowUp && !isContinuous && !isCallControl && !_isAwake.value) {
                     Log.d(TAG, "Audio ignorado: Fifo en reposo y no se detectó 'Fifo'. Oído: $transcript")
                     _state.value = PipelineState.SLEEPING
                     updateEspDisplay(state = "DURMIENDO")
@@ -1245,7 +1289,7 @@ class VoicePipelineManager(
                 updateEspDisplay(state = "PENSANDO")
 
                 val query = extractQuery(transcript)
-                if (query.isBlank() || query.length < 2) {
+                if (query.isBlank() || query.length < 2 || isWakeWord(transcript.lowercase().trim())) {
                     expectFollowUpQuestion = true
                     speakResponseChunk(getDynamicGreeting())
                     return@launch
@@ -1275,25 +1319,33 @@ class VoicePipelineManager(
                 pendingNavigationRequest = true
                 expectFollowUpQuestion = true
             }
+            if (directResult.data?.get("keep_listening") == true) {
+                expectFollowUpQuestion = true
+                _isAwake.value = true
+            }
             val directFeedback = TextSanitizer.cleanForSpeech(directResult.spokenFeedback)
             _aiResponse.value = directFeedback
             _statusMessage.value = "Respondiendo..."
             cloudClient.recordTurn(query, directFeedback)
             activeSessionTurns.add(query to directFeedback)
             speakResponseChunk(directFeedback)
-            resetAutoSleepTimer()
+            if (directResult.data?.get("go_to_sleep") == true) {
+                goToSleep()
+            } else {
+                resetAutoSleepTimer()
+            }
             return
         }
 
         // 2. Si no es un comando directo, consultar al cerebro de IA (Groq LPU / Claude)
         _state.value = PipelineState.PROCESSING
-        val brainName = if (cloudClient.isGroqActive) "Groq (Qwen 27B)" else "Claude"
+        val brainName = if (cloudClient.isGroqActive) "Groq" else "Claude"
         _statusMessage.value = "Consultando a $brainName..."
         updateEspDisplay(state = "PENSANDO", transcript = query)
 
         val reply = withTimeoutOrNull(20000L) {
             cloudClient.chat(query, skillRegistry)
-        } ?: "Disculpe, la respuesta de $brainName tardó demasiado tiempo. Por favor consulte de nuevo."
+        } ?: "Disculpe, la respuesta tardó demasiado tiempo. Por favor consulte de nuevo."
 
         val cleanReply = TextSanitizer.cleanForSpeech(reply)
         _aiResponse.value = cleanReply
@@ -1310,6 +1362,10 @@ class VoicePipelineManager(
         val cleanText = TextSanitizer.cleanForSpeech(text)
         if (cleanText.isBlank()) return
         lastSpokenSentence = cleanText
+
+        // Registrar timestamp para evitar auto-interrupción de Barge-in
+        ttsStartTimestamp = System.currentTimeMillis()
+        bargeInConsecutiveFrames = 0
 
         // Detener nativeRecognizer mientras Fifo habla para evitar ruidos de reconocimiento erráticos
         nativeRecognizer?.stop()
@@ -1439,7 +1495,7 @@ class VoicePipelineManager(
 
         val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
         val endsWithQuestion = spokenText.trim().endsWith("?") || spokenText.contains("¿")
-        val shouldStayAwake = isContinuous || expectFollowUpQuestion || pendingNavigationRequest || endsWithQuestion
+        val shouldStayAwake = isContinuous || expectFollowUpQuestion || pendingNavigationRequest || endsWithQuestion || _isAwake.value
 
         if (shouldStayAwake) {
             expectFollowUpQuestion = true
@@ -1451,7 +1507,7 @@ class VoicePipelineManager(
                 "Le escucho... Puede responder directamente"
             }
             updateEspDisplay(state = "ESCUCHANDO")
-            resetFollowUpSleepTimer(timeoutMs = if (isContinuous) 120000L else 14000L)
+            resetFollowUpSleepTimer(timeoutMs = if (isContinuous) 120000L else 18000L)
         } else {
             _isAwake.value = false
             _state.value = PipelineState.SLEEPING

@@ -55,9 +55,9 @@ class CloudApiClient(
         private const val TTS_URL = "https://api.openai.com/v1/audio/speech"
 
         // ── Modelos ──────────────────────────────────
-        // Modelo principal de Groq: Qwen 27B (ultra-rápido ~200ms, tools precisas sin token overhead)
-        const val GROQ_PRIMARY_MODEL = "qwen/qwen3.8-27b"
-        // Modelo de respaldo si hay rate limit: OpenAI GPT-OSS 20B (ligero, veloz ~800ms y con límites altos de RPM)
+        // Modelo principal de Groq: OpenAI GPT-OSS 120B (potente, veloz y con cuota amplia de tokens)
+        const val GROQ_PRIMARY_MODEL = "openai/gpt-oss-120b"
+        // Modelo de respaldo si hay congestión: OpenAI GPT-OSS 20B (ultra-rápido y ligero)
         const val GROQ_FALLBACK_MODEL = "openai/gpt-oss-20b"
         const val GROQ_WHISPER_MODEL = "whisper-large-v3-turbo"
 
@@ -189,7 +189,7 @@ Eres Fifo, especialista en envejecimiento activo y bienestar para adultos mayore
             .addFormDataPart("language", language)
             .addFormDataPart(
                 "prompt",
-                "Transcripción en español en un ambiente concurrido y ruidoso con gente hablando de fondo. Ignorar murmullos y conversaciones de terceros. Transcribir únicamente la voz principal que habla de cerca al micrófono."
+                "Fifo. Hola Fifo. Conversación con el robot Fifo. Transcripción fiel en español de la voz principal dirigida a Fifo."
             )
             .build()
 
@@ -235,7 +235,7 @@ Eres Fifo, especialista en envejecimiento activo y bienestar para adultos mayore
         skillRegistry: com.fifo.voicepipeline.skills.FifoSkillRegistry? = null
     ): String {
         conversationHistory.add(mapOf("role" to "user", "content" to userText))
-        while (conversationHistory.size > 20) {
+        while (conversationHistory.size > 8) {
             conversationHistory.removeAt(0)
         }
 
@@ -270,7 +270,7 @@ Eres Fifo, especialista en envejecimiento activo y bienestar para adultos mayore
         }
         conversationHistory.add(mapOf("role" to "user", "content" to userText.trim()))
         conversationHistory.add(mapOf("role" to "assistant", "content" to assistantText.trim()))
-        while (conversationHistory.size > 20) {
+        while (conversationHistory.size > 8) {
             conversationHistory.removeAt(0)
         }
     }
@@ -431,7 +431,7 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
      * Construye el prompt de sistema enriquecido con memoria y estado temporal en tiempo real.
      */
     private fun getEnrichedSystemPrompt(): String {
-        val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 5)
+        val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 2)
         val temporalContext = buildTemporalAndSessionContext()
         return buildString {
             appendLine(SYSTEM_PROMPT)

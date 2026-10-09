@@ -56,10 +56,10 @@ class VadProcessor(
         val now = System.currentTimeMillis()
 
         // Umbrales adaptativos basados en el ruido ambiente actual
-        // Para empezar a hablar, la voz debe superar el ruido de fondo por un margen claro
-        val startThreshold = max(160.0, ambientNoiseFloor * 1.4 + 50.0)
+        // Para empezar a hablar, la voz debe superar el ruido de fondo pero ser sensible a consonantes iniciales suaves como la 'f' de 'Fifo'
+        val startThreshold = max(65.0, ambientNoiseFloor * 1.25 + 20.0)
         // Para continuar hablando, el umbral es menor (histéresis) para no cortar palabras suaves
-        val continueThreshold = max(110.0, ambientNoiseFloor * 1.15 + 30.0)
+        val continueThreshold = max(50.0, ambientNoiseFloor * 1.1 + 10.0)
 
         val threshold = if (inSpeech) continueThreshold else startThreshold
         val hasSpeechEnergy = rms > threshold

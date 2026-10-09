@@ -169,21 +169,28 @@ class FifoSkillRegistry(private val context: Context) {
                 spokenFeedback = "Entendido Lucía, me quedo escuchándole con atención. Puede hablarme cuando guste sin decir 'Fifo'. Cuando desee que descanse, solo dígame 'Fifo, descansa'."
             )
         }
+        // 0. Agradecimiento cortés (no duerme a Fifo, mantiene conversación fluida)
+        if (text == "gracias" || text == "muchas gracias" || text == "gracias fifo" || text == "muchas gracias fifo" ||
+            text == "te lo agradezco" || text == "te agradezco") {
+            return SkillResult(
+                success = true,
+                spokenFeedback = "¡Con mucho gusto, Lucía! ¿Hay algo más en lo que le pueda colaborar?",
+                data = mapOf("keep_listening" to true)
+            )
+        }
+
+        // 0.0 Comandos explícitos de descanso / despedida / silencio
         if (text.contains("deja de escuchar") || text.contains("ya no escuches") || text.contains("silencio") ||
             text.contains("descansa") || text.contains("duérmete") || text.contains("duermete") ||
             text.contains("apágate") || text.contains("apagate") || text.contains("cállate") || text.contains("callate") ||
             text.contains("no necesito nada") || text.contains("no quiero nada") || text.contains("eso es todo") ||
-            text.contains("eso sería todo") || text.contains("gracias fifo") || text.contains("listo fifo") || text.contains("chao fifo") ||
-            text == "gracias" || text == "muchas gracias" || text == "gracias lucia" || text == "chao" || text == "adios" || text == "hasta luego") {
+            text.contains("eso sería todo") || text.contains("listo fifo") || text.contains("chao fifo") ||
+            text == "chao" || text == "adios" || text == "adiós" || text == "hasta luego") {
             com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
-            val reply = if (text.contains("gracias")) {
-                "De nada Lucía, un gusto ayudarle. Si me necesita, solo diga 'Fifo'."
-            } else {
-                "Entendido, me quedo descansando. Si me necesita, solo diga 'Fifo'."
-            }
             return SkillResult(
                 success = true,
-                spokenFeedback = reply
+                spokenFeedback = "Entendido, me quedo descansando. Si me necesita, solo diga 'Fifo'.",
+                data = mapOf("go_to_sleep" to true)
             )
         }
 
