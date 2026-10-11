@@ -172,4 +172,12 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ## 📚 Documentación Adicional
 
+- **[PRODUCT.md](PRODUCT.md):** Visión del producto, arquitectura invisible de telefonía tipo Alexa, principios de accesibilidad y políticas de privacidad para personas mayores.
 - **[FIFO_DATABASE_MAP.md](FIFO_DATABASE_MAP.md):** Mapa exhaustivo de la base de datos central, catálogo de Skills (Function Calling) y flujo de mutaciones automáticas por voz.
+- **[CONTRIBUTING.md](CONTRIBUTING.md):** Guía de contribución, entorno de desarrollo y estándares de código.
+
+---
+
+## 📄 Licencia
+
+Este proyecto está bajo la Licencia **MIT** — consulta el archivo [LICENSE](LICENSE) para más detalles.
