@@ -49,21 +49,39 @@ class FifoCallManager(
         FifoDataRepository.onHangupCallAction = { hangupCall() }
     }
 
+    @Volatile
+    private var cachedCommActive: Boolean = false
+
     /**
      * Comprueba si el teléfono está actualmente en una llamada o videollamada activa
      * (VoIP como WhatsApp, Google Meet, Zoom o llamada celular clásica).
      */
     fun isCommunicationModeActive(): Boolean {
-        if (FifoDataRepository.incomingCall.value != null) return true
+        return cachedCommActive || FifoDataRepository.incomingCall.value != null
+    }
+
+    /**
+     * Actualiza el estado en caché del modo de comunicación.
+     */
+    fun refreshCommunicationMode(): Boolean {
+        if (FifoDataRepository.incomingCall.value != null) {
+            cachedCommActive = true
+            return true
+        }
         val isCellularCall = try {
             telephonyManager?.callState != TelephonyManager.CALL_STATE_IDLE
         } catch (_: Exception) {
             false
         }
-        if (isCellularCall) return true
+        if (isCellularCall) {
+            cachedCommActive = true
+            return true
+        }
 
         val mode = audioManager?.mode ?: AudioManager.MODE_NORMAL
-        return mode == AudioManager.MODE_IN_COMMUNICATION || mode == AudioManager.MODE_IN_CALL
+        val active = mode == AudioManager.MODE_IN_COMMUNICATION || mode == AudioManager.MODE_IN_CALL
+        cachedCommActive = active
+        return active
     }
 
     /**
@@ -134,6 +152,7 @@ class FifoCallManager(
         when (mode) {
             AudioManager.MODE_IN_COMMUNICATION, AudioManager.MODE_IN_CALL -> {
                 Log.i(TAG, "Detectada llamada/videollamada activa (modo audio: $mode)")
+                cachedCommActive = true
                 val current = FifoDataRepository.incomingCall.value
                 if (current == null) {
                     FifoDataRepository.setIncomingCall(
@@ -148,6 +167,7 @@ class FifoCallManager(
             }
             AudioManager.MODE_NORMAL -> {
                 Log.i(TAG, "Llamada finalizada, restableciendo audio a MODE_NORMAL")
+                cachedCommActive = false
                 resetCallAudioRouting()
                 onCommunicationModeChanged?.invoke(false)
             }
@@ -191,10 +211,14 @@ class FifoCallManager(
             }
 
             TelephonyManager.CALL_STATE_IDLE -> {
-                Log.i(TAG, "Teléfono en reposo (llamada finalizada o colgada)")
+                Log.i(TAG, "Teléfono en reposo (llamada celular finalizada o inactiva)")
                 FifoDataRepository.setIncomingCall(null)
-                resetCallAudioRouting()
-                onCommunicationModeChanged?.invoke(false)
+                if (!isCommunicationModeActive()) {
+                    resetCallAudioRouting()
+                    onCommunicationModeChanged?.invoke(false)
+                } else {
+                    Log.i(TAG, "Teléfono en reposo pero comunicación VoIP activa (manteniendo modo llamada)")
+                }
             }
         }
     }
@@ -282,6 +306,10 @@ class FifoCallManager(
      */
     fun resetCallAudioRouting() {
         try {
+            if (isCommunicationModeActive()) {
+                Log.i(TAG, "Omitiendo resetCallAudioRouting porque hay llamada VoIP o videollamada activa")
+                return
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 audioManager?.clearCommunicationDevice()
             }

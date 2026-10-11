@@ -86,8 +86,13 @@ class AudioPlayer(
     fun stop() {
         audioTrack?.let {
             if (isPlaying) {
-                it.stop()
-                it.flush()
+                try {
+                    it.pause()
+                    it.flush()
+                    it.stop()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error deteniendo AudioTrack: ${e.message}")
+                }
                 isPlaying = false
                 Log.d(TAG, "Reproducción detenida")
             }

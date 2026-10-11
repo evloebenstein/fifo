@@ -51,19 +51,28 @@ class VadProcessor(
      * @param pcmData Bytes crudos PCM (Little Endian, 16-bit signed)
      * @return [VadResult] con el estado de detección
      */
-    fun processChunk(pcmData: ByteArray): VadResult {
+    fun processChunk(pcmData: ByteArray, isSpeaking: Boolean = false): VadResult {
         val rms = calculateFilteredRms(pcmData)
         val now = System.currentTimeMillis()
 
         // Umbrales adaptativos con piso calibrado:
-        // Habitación en silencio: 80 - 150 RMS.
-        // Voz casual del usuario ("Fifo"): 250 - 900 RMS.
-        // Umbral de inicio a 220 RMS permite captar la palabra clave al 1er intento sin disparos falsos de ruido.
-        val startThreshold = max(220.0, ambientNoiseFloor * 1.35 + 35.0)
-        val continueThreshold = max(150.0, ambientNoiseFloor * 1.15 + 15.0)
+        // Si Fifo está hablando por parlante, el umbral de arranque sube para captar la voz directa del usuario
+        // por encima de la locución del altavoz sin falsos disparos.
+        val baseStart = if (isSpeaking) 420.0 else 220.0
+        val baseContinue = if (isSpeaking) 280.0 else 150.0
+
+        val startThreshold = max(baseStart, ambientNoiseFloor * 1.35 + 35.0)
+        val continueThreshold = max(baseContinue, ambientNoiseFloor * 1.15 + 15.0)
 
         val threshold = if (inSpeech) continueThreshold else startThreshold
         val hasSpeechEnergy = rms > threshold
+
+        // Tiempos máximos de corte:
+        // Si Fifo está hablando (Barge-in), no esperar 8 segundos ni 800ms de silencio:
+        // Un comando de corte ("Fifo silencio", "cállate", "basta") dura ~500-1000ms.
+        // Al detectar 1.1s de voz sostenida o 300ms de pausa, cortar inmediatamente para silenciar a Fifo al instante.
+        val effectiveMaxSpeechMs = if (isSpeaking) 1100L else maxSpeechDurationMs
+        val effectiveSilenceTimeoutMs = if (isSpeaking) 300L else silenceTimeoutMs
 
         if (hasSpeechEnergy) {
             consecutiveSpeechChunks++
@@ -71,8 +80,9 @@ class VadProcessor(
             isSpeechDetected = true
 
             if (!inSpeech) {
-                // 2 chunks (~64ms) de energía sostenida para iniciar captura sin perder la consonante suave 'F'
-                if (consecutiveSpeechChunks >= 2) {
+                // Si Fifo está hablando, requerimos 3 chunks (~96ms) para descartar picos del altavoz
+                val requiredChunks = if (isSpeaking) 3 else 2
+                if (consecutiveSpeechChunks >= requiredChunks) {
                     inSpeech = true
                     speechStartTimestamp = now
                     return VadResult.SpeechStart(rms)
@@ -81,8 +91,8 @@ class VadProcessor(
                 }
             }
 
-            // Si se alcanza el tiempo máximo de frase, forzar fin de frase (evita quedarse atrapado en murmullo constante)
-            if (now - speechStartTimestamp >= maxSpeechDurationMs) {
+            // Si se alcanza el tiempo máximo de frase (o ventana rápida de barge-in), forzar fin de frase
+            if (now - speechStartTimestamp >= effectiveMaxSpeechMs) {
                 inSpeech = false
                 isSpeechDetected = false
                 consecutiveSpeechChunks = 0
@@ -94,12 +104,14 @@ class VadProcessor(
             consecutiveSpeechChunks = 0
         }
 
-        // Si no hay voz activa, adaptamos suavemente el piso de ruido ambiental
+        // Si no hay voz activa, adaptamos suavemente el piso de ruido ambiental (solo si Fifo no está hablando)
         if (!inSpeech) {
-            // Filtro exponencial para seguir el ruido del entorno sin saltos bruscos
-            ambientNoiseFloor = ambientNoiseFloor * 0.96 + rms * 0.04
-            // Mantener el piso dentro de límites razonables
-            ambientNoiseFloor = min(800.0, max(25.0, ambientNoiseFloor))
+            if (!isSpeaking) {
+                // Filtro exponencial para seguir el ruido del entorno sin saltos bruscos
+                ambientNoiseFloor = ambientNoiseFloor * 0.96 + rms * 0.04
+                // Mantener el piso dentro de límites razonables
+                ambientNoiseFloor = min(800.0, max(25.0, ambientNoiseFloor))
+            }
             return VadResult.Silence(rms)
         }
 
@@ -107,12 +119,13 @@ class VadProcessor(
         val silenceDuration = now - lastSpeechTimestamp
         val totalSpeechDuration = now - speechStartTimestamp
 
-        if (silenceDuration >= silenceTimeoutMs) {
+        if (silenceDuration >= effectiveSilenceTimeoutMs) {
             inSpeech = false
             isSpeechDetected = false
 
             // Si la frase total fue más corta que el mínimo, se descarta como ruido
-            if (totalSpeechDuration < minSpeechDurationMs) {
+            val effectiveMinSpeechMs = if (isSpeaking) 200L else minSpeechDurationMs
+            if (totalSpeechDuration < effectiveMinSpeechMs) {
                 return VadResult.Silence(rms)
             }
 

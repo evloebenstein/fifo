@@ -98,6 +98,7 @@ class VoicePipelineManager(
     private var ttsStartTimestamp = 0L
     private var ttsFinishTimestamp = 0L
     private var bargeInConsecutiveFrames = 0
+    private var currentTtsJob: kotlinx.coroutines.Job? = null
 
     // Reconocedor de voz nativo de Google (100% GRATIS, no requiere claves de API)
     private var nativeRecognizer: NativeSpeechRecognizer? = null
@@ -578,11 +579,19 @@ class VoicePipelineManager(
      */
     fun ensureCallListeningActive() {
         if (_isMicMuted.value) return
-        _isAwake.value = false
-        if (_state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
-            val isRinging = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value?.isRinging == true
-            _state.value = if (isRinging) PipelineState.LISTENING else PipelineState.SLEEPING
-            _statusMessage.value = if (isRinging) "Llamada entrante · Diga 'contesta' o 'cuelga'" else "Llamada activa · Diga 'Fifo' para hablar"
+        val isRinging = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value?.isRinging == true
+        if (expectFollowUpQuestion) {
+            _isAwake.value = true
+            if (_state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
+                _state.value = PipelineState.LISTENING
+                _statusMessage.value = "Le escucho... Puede responder directamente"
+            }
+        } else {
+            _isAwake.value = false
+            if (_state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
+                _state.value = if (isRinging) PipelineState.LISTENING else PipelineState.SLEEPING
+                _statusMessage.value = if (isRinging) "Llamada entrante · Diga 'contesta' o 'cuelga'" else "Llamada activa · Diga 'Fifo' para hablar"
+            }
         }
         nativeRecognizer?.stop()
         phoneMicRecorder.switchToCallMode(inCall = true) { chunk ->
@@ -692,7 +701,7 @@ class VoicePipelineManager(
             preRollBuffer.addLast(pcmData.clone())
         }
 
-        val result = vad.processChunk(pcmData)
+        val result = vad.processChunk(pcmData, isSpeaking = isSpeakingNow)
         _rmsLevel.value = result.rms
 
         // La interrupción inteligente (Barge-in) se evalúa por contenido una vez transcrito el audio,
@@ -901,6 +910,8 @@ class VoicePipelineManager(
      */
     fun stopSpeakingSilently() {
         Log.i(TAG, "Deteniendo habla inmediatamente por orden de silencio (Barge-in seamless)")
+        currentTtsJob?.cancel()
+        currentTtsJob = null
         androidTtsSpeaker?.stop()
         audioPlayer.stop()
         _state.value = PipelineState.SLEEPING
@@ -1373,7 +1384,7 @@ class VoicePipelineManager(
                 val isSpeakingRightNow = isSpeakingNow || _state.value == PipelineState.SPEAKING ||
                     androidTtsSpeaker?.isSpeaking == true || audioPlayer.isPlaying
                 val isSilence = isSilenceCommand(transcript, whileSpeaking = isSpeakingRightNow || wasCapturedWhileSpeaking)
-                val isEcho = isEchoOfLastSpokenSentence(transcript)
+                val isEcho = (isSpeakingRightNow || wasCapturedWhileSpeaking) && isEchoOfLastSpokenSentence(transcript)
 
                 // Si Fifo estaba hablando o el audio se grabó durante la locución:
                 // Solo parar si es comando explícito de silencio ("Fifo silencio", "cállate", etc.)
@@ -1384,23 +1395,23 @@ class VoicePipelineManager(
                         stopSpeakingSilently()
                         return@launch
                     }
-                    if (hasWakeWord && !isEcho) {
-                        Log.i(TAG, "Interrupción confirmada mientras Fifo hablaba: nueva consulta con 'Fifo' ('$transcript')")
+                    if ((hasWakeWord || expectFollowUpQuestion) && !isEcho) {
+                        Log.i(TAG, "Interrupción o follow-up confirmado mientras Fifo hablaba: wake=$hasWakeWord, followUp=$expectFollowUpQuestion ('$transcript')")
+                        currentTtsJob?.cancel()
                         androidTtsSpeaker?.stop()
                         audioPlayer.stop()
-                        // Continuar al procesamiento de esta nueva consulta
+                        // Continuar al procesamiento de esta consulta o respuesta
                     } else {
                         Log.d(TAG, "Audio capturado durante o inmediatamente después de locución descartado (eco o ruido de fondo): '$transcript'.")
+                        _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
+                        _statusMessage.value = if (_isAwake.value) "Listo — habla cuando quieras" else "Fifo en reposo · Diga 'Fifo' para hablar"
+                        updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
                         return@launch
                     }
                 } else {
                     if (isSilence) {
                         Log.i(TAG, "Comando de silencio recibido vía Whisper: '$transcript'. Callando a Fifo...")
                         stopSpeakingSilently()
-                        return@launch
-                    }
-                    if (isEcho && !hasWakeWord) {
-                        Log.d(TAG, "Audio descartado por ser eco de la última locución de Fifo: '$transcript'")
                         return@launch
                     }
                 }
@@ -1412,10 +1423,11 @@ class VoicePipelineManager(
                 oneShotPushedToTalk = false
                 val isWaitingFollowUp = expectFollowUpQuestion
 
-                // Si no se dijo "Fifo", verificar si estábamos en pregunta pendiente formulada por Fifo (follow-up), modo continuo, botón o control de llamada
+                // Si no se dijo "Fifo", verificar si estábamos en pregunta pendiente formulada por Fifo (follow-up), modo continuo, botón táctil o control de llamada
                 if (!hasWakeWord && !wasPushed && !isWaitingFollowUp && !isContinuous && !isCallControl) {
                     Log.d(TAG, "Audio ignorado: no se detectó 'Fifo' y no se esperaba respuesta directa. Oído: $transcript")
                     _state.value = PipelineState.SLEEPING
+                    _statusMessage.value = "Fifo en reposo · Diga 'Fifo' para hablar"
                     updateEspDisplay(state = "DURMIENDO")
                     return@launch
                 }
@@ -1463,6 +1475,9 @@ class VoicePipelineManager(
                 if (!coherenceResult.isCoherent) {
                     Log.w(TAG, "Audio transcrito descartado por baja coherencia: '$query' (${coherenceResult.reason})")
                     // Silencio paciente: no hablar ni crear bucle de aclaraciones ante ruido de fondo
+                    _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
+                    _statusMessage.value = if (_isAwake.value) "Listo — habla cuando quieras" else "Fifo en reposo · Diga 'Fifo' para hablar"
+                    updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
                     return@launch
                 }
 
@@ -1536,8 +1551,8 @@ class VoicePipelineManager(
 
         // Detener nativeRecognizer mientras Fifo habla para evitar ruidos de reconocimiento erráticos
         nativeRecognizer?.stop()
-
-        scope.launch {
+        currentTtsJob?.cancel()
+        currentTtsJob = scope.launch {
             _state.value = PipelineState.SPEAKING
             _statusMessage.value = "Hablando..."
             updateEspDisplay(state = "HABLANDO", response = cleanText)

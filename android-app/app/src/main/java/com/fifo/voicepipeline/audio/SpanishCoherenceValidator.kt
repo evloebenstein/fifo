@@ -34,8 +34,9 @@ object SpanishCoherenceValidator {
     private val SHORT_VALID_COMMANDS = setOf(
         "si", "no", "ya", "ok", "bien", "mal", "ayuda", "gracias", "para", "callate", "silencio",
         "hola", "fifo", "adios", "chao", "que", "como", "donde", "cuando", "quien", "cuanto",
-        "cual", "cuales", "vamos", "guiame", "ubicame", "hora", "clima", "tiempo", "vale", "listo",
-        "porfa", "oye", "dime", "escuchas", "estas", "aqui", "aca"
+        "cual", "cuales", "vamos", "guiame", "guíame", "ubicame", "hora", "clima", "tiempo", "vale", "listo",
+        "porfa", "oye", "dime", "escuchas", "estas", "aqui", "aca", "dale", "bueno", "claro", "obvio",
+        "sipo", "sip", "nop", "adelante", "hazlo", "inicia"
     )
 
     // Secuencias de caracteres y clusters consonánticos que NO existen en el español (ruido fonético de Whisper)
@@ -148,7 +149,7 @@ object SpanishCoherenceValidator {
      * Valida la coherencia de una frase en español.
      * Retorna [ValidationResult] con el score de validez y mensaje de repregunta si no es coherente.
      */
-    fun validate(rawText: String): ValidationResult {
+    fun validate(rawText: String, isFollowUp: Boolean = false): ValidationResult {
         val cleaned = normalize(rawText)
         if (cleaned.isBlank()) {
             return ValidationResult(
@@ -157,6 +158,23 @@ object SpanishCoherenceValidator {
                 reason = "Texto vacío",
                 clarificationMessage = CLARIFICATION_RESPONSES.first()
             )
+        }
+
+        // Si es respuesta de confirmación a una pregunta directa previa de Fifo:
+        if (isFollowUp) {
+            val followUpAffirmations = setOf(
+                "si", "no", "dale", "vamos", "bueno", "claro", "obvio", "por favor", "porfa",
+                "adelante", "hazlo", "inicia", "comienza", "guiame", "guíame", "ubicame",
+                "si por favor", "si porfa", "dale vamos", "dale fifo", "bueno fifo", "si fifo",
+                "sipo", "sip", "nop", "claro que si", "por favor fifo", "vamos fifo", "cancela",
+                "no gracias", "ok", "okay", "vale", "listo", "ya"
+            )
+            if (followUpAffirmations.contains(cleaned) ||
+                cleaned.startsWith("si ") || cleaned.startsWith("dale ") ||
+                cleaned.startsWith("guiame") || cleaned.startsWith("vamos") ||
+                cleaned.startsWith("bueno ") || cleaned.startsWith("claro ")) {
+                return ValidationResult(isCoherent = true, score = 1.0f, reason = "Respuesta de seguimiento válida", clarificationMessage = "")
+            }
         }
 
         val tokens = cleaned.split(" ").filter { it.isNotBlank() }

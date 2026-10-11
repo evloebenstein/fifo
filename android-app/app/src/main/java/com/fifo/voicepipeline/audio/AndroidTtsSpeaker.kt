@@ -99,9 +99,21 @@ class AndroidTtsSpeaker(
      * Detiene inmediatamente cualquier locución en curso.
      */
     fun stop() {
+        isSpeaking = false
         if (isInitialized) {
-            tts?.stop()
-            isSpeaking = false
+            try {
+                tts?.stop()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error en tts.stop(): ${e.message}")
+            }
+            android.os.Handler(android.os.Looper.getMainLooper()).post {
+                try {
+                    tts?.stop()
+                    tts?.playSilentUtterance(1L, TextToSpeech.QUEUE_FLUSH, null)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error deteniendo TTS en main looper: ${e.message}")
+                }
+            }
         }
     }
 
