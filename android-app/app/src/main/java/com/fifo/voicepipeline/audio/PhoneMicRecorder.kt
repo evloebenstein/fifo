@@ -83,6 +83,7 @@ class PhoneMicRecorder(
             val audioManager = context?.getSystemService(android.content.Context.AUDIO_SERVICE) as? AudioManager
             val inCallMode = forceCallSource ?: (
                 audioManager?.mode == AudioManager.MODE_IN_CALL ||
+                audioManager?.mode == AudioManager.MODE_IN_COMMUNICATION ||
                 com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
             )
 
@@ -112,17 +113,16 @@ class PhoneMicRecorder(
                 }
             }
 
-            // Cuando otra app (WeChat, WhatsApp, Meet) tiene una llamada o videollamada activa,
-            // VOICE_COMMUNICATION es silenciado exclusivamente para apps secundarias por AudioPolicy.
-            // Para captura concurrente asistida (Accessibility), AudioSource.VOICE_RECOGNITION y MIC
-            // entregan el audio real del micrófono o auricular Bluetooth.
+            // Cuando una llamada telefónica o VoIP está activa en Android,
+            // VOICE_COMMUNICATION es silenciado exclusivamente por AudioPolicy para apps secundarias (entregando buffers de ceros).
+            // MediaRecorder.AudioSource.VOICE_RECOGNITION y MIC son las fuentes designadas por Android para captura concurrente.
             val audioSources = if (inCallMode) {
-                Log.i(TAG, "Modo llamada detectado: priorizando MediaRecorder.AudioSource.VOICE_RECOGNITION")
+                Log.i(TAG, "Modo llamada detectado: priorizando MediaRecorder.AudioSource.VOICE_RECOGNITION para captura concurrente")
                 listOf(
                     MediaRecorder.AudioSource.VOICE_RECOGNITION,
-                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                     MediaRecorder.AudioSource.MIC,
                     MediaRecorder.AudioSource.DEFAULT,
+                    MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                     MediaRecorder.AudioSource.UNPROCESSED
                 )
             } else {
@@ -294,22 +294,6 @@ class PhoneMicRecorder(
             Log.e(TAG, "Error al detener AudioRecord: ${e.message}", e)
         } finally {
             audioRecord = null
-            try {
-                // Solo limpiar enrutamiento de comunicación si Fifo lo había configurado para llamada celular
-                if (com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null) {
-                    val audioManager = context?.getSystemService(android.content.Context.AUDIO_SERVICE) as? AudioManager
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                        audioManager?.clearCommunicationDevice()
-                    } else {
-                        if (audioManager?.isBluetoothScoOn == true) {
-                            audioManager.isBluetoothScoOn = false
-                            audioManager.stopBluetoothSco()
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error limpiando dispositivo de comunicación: ${e.message}")
-            }
             Log.i(TAG, "Grabación desde micrófono del celular detenida")
         }
     }

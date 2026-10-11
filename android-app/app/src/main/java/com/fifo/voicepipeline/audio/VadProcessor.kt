@@ -19,7 +19,7 @@ import kotlin.math.sqrt
 class VadProcessor(
     private val silenceTimeoutMs: Long = AudioConfig.VAD_SILENCE_TIMEOUT_MS,
     private val maxSpeechDurationMs: Long = 8000L, // 8 segundos máx por turno
-    private val minSpeechDurationMs: Long = 200L   // Frases menores a 200ms se consideran ruido (permite 'Fifo' y comandos cortos)
+    private val minSpeechDurationMs: Long = 300L   // Frases menores a 300ms se consideran ruido
 ) {
     /** Piso de ruido ambiental estimado dinámicamente */
     var ambientNoiseFloor: Double = 70.0
@@ -55,11 +55,12 @@ class VadProcessor(
         val rms = calculateFilteredRms(pcmData)
         val now = System.currentTimeMillis()
 
-        // Umbrales adaptativos basados en el ruido ambiente actual
-        // Para empezar a hablar, la voz debe superar el ruido de fondo pero ser sensible a consonantes iniciales suaves como la 'f' de 'Fifo'
-        val startThreshold = max(65.0, ambientNoiseFloor * 1.25 + 20.0)
-        // Para continuar hablando, el umbral es menor (histéresis) para no cortar palabras suaves
-        val continueThreshold = max(50.0, ambientNoiseFloor * 1.1 + 10.0)
+        // Umbrales adaptativos con piso calibrado:
+        // Habitación en silencio: 80 - 150 RMS.
+        // Voz casual del usuario ("Fifo"): 250 - 900 RMS.
+        // Umbral de inicio a 220 RMS permite captar la palabra clave al 1er intento sin disparos falsos de ruido.
+        val startThreshold = max(220.0, ambientNoiseFloor * 1.35 + 35.0)
+        val continueThreshold = max(150.0, ambientNoiseFloor * 1.15 + 15.0)
 
         val threshold = if (inSpeech) continueThreshold else startThreshold
         val hasSpeechEnergy = rms > threshold
@@ -70,8 +71,8 @@ class VadProcessor(
             isSpeechDetected = true
 
             if (!inSpeech) {
-                // Al primer chunk (~32ms) con energía clara de voz, iniciar la captura
-                if (consecutiveSpeechChunks >= 1) {
+                // 2 chunks (~64ms) de energía sostenida para iniciar captura sin perder la consonante suave 'F'
+                if (consecutiveSpeechChunks >= 2) {
                     inSpeech = true
                     speechStartTimestamp = now
                     return VadResult.SpeechStart(rms)

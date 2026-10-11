@@ -51,9 +51,11 @@ class FindFifoDeviceSkill(private val context: Context) : FifoSkill {
             // El robot está conectado por Bluetooth cerca
             FifoDataRepository.triggerDeviceBeep(true)
 
+            val firstName = FifoDataRepository.userProfile.value.fullName.split(" ").firstOrNull { it.isNotBlank() } ?: ""
+            val nameClause = if (firstName.isNotBlank()) " $firstName" else ""
             SkillResult(
                 success = true,
-                spokenFeedback = "¡Aquí estoy, Lucía! Estoy conectado por Bluetooth y muy cerca de usted. Estoy haciendo sonar una melodía por mi parlante para que me escuche. ¡Siga el sonido!",
+                spokenFeedback = "¡Aquí estoy$nameClause! Estoy conectado por Bluetooth y muy cerca de usted. Estoy haciendo sonar una melodía por mi parlante para que me escuche. ¡Siga el sonido!",
                 data = mapOf(
                     "status" to "connected",
                     "rssi" to devLoc.signalStrengthRssi,
@@ -61,22 +63,29 @@ class FindFifoDeviceSkill(private val context: Context) : FifoSkill {
                 )
             )
         } else {
-            // El robot está desconectado: recurrir a la última ubicación GPS guardada
-            try {
-                FifoLocationHelper.openMapPin(
-                    context = context,
-                    latitude = devLoc.lastKnownLatitude,
-                    longitude = devLoc.lastKnownLongitude,
-                    label = "Última ubicación de Fifo"
-                )
-            } catch (e: Exception) {
-                Log.w(TAG, "No se pudo abrir mapa automático: ${e.message}")
+            // El robot está desconectado: recurrir a la última ubicación GPS guardada si existe
+            val hasCoordinates = devLoc.lastKnownLatitude != 0.0 && devLoc.lastKnownLongitude != 0.0
+            if (hasCoordinates) {
+                try {
+                    FifoLocationHelper.openMapPin(
+                        context = context,
+                        latitude = devLoc.lastKnownLatitude,
+                        longitude = devLoc.lastKnownLongitude,
+                        label = "Última ubicación de Fifo"
+                    )
+                } catch (e: Exception) {
+                    Log.w(TAG, "No se pudo abrir mapa automático: ${e.message}")
+                }
             }
 
             val feedback = buildString {
-                append("En este momento no tengo conexión Bluetooth directa con el robot, pero recuerdo exactamente dónde estuvimos juntos por última vez. ")
-                append("Fue ${devLoc.lastConnectedTime} en ${devLoc.lastKnownAddress}, cerca de ${devLoc.lastKnownRoom}. ")
-                append("Le acabo de abrir el mapa en su teléfono con el punto exacto para que lo encuentre fácilmente.")
+                append("En este momento no tengo conexión Bluetooth directa con el robot. ")
+                if (hasCoordinates) {
+                    append("Recuerdo que estuvimos juntos por última vez ${devLoc.lastConnectedTime} en ${devLoc.lastKnownAddress}, cerca de ${devLoc.lastKnownRoom}. ")
+                    append("Le acabo de abrir el mapa en su teléfono con el punto exacto para que lo encuentre fácilmente.")
+                } else {
+                    append("Aún no tenemos registrada una última ubicación GPS en este dispositivo. Le sugiero revisar en su mesa de noche o cerca de su lugar habitual de descanso.")
+                }
             }
 
             SkillResult(

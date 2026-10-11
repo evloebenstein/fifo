@@ -52,10 +52,37 @@ class ContactsSkill(private val context: Context) : FifoSkill {
             android.Manifest.permission.READ_CONTACTS
         ) == PackageManager.PERMISSION_GRANTED
 
+        // 1. Verificar si la consulta se puede resolver por el Grafo Relacional (sin depender de permisos telefónicos)
+        if (action == "search" && query.isNotBlank()) {
+            val relContact = FifoDataRepository.findContactByRoleOrName(query)
+            if (relContact != null) {
+                return SkillResult(
+                    success = true,
+                    spokenFeedback = "Encontré a ${relContact.contactName}, su ${relContact.relationshipRole.lowercase()}, con el número ${relContact.phoneNumber}. ¿Desea que le marque por teléfono?",
+                    data = mapOf(
+                        "name" to relContact.contactName,
+                        "role" to relContact.relationshipRole,
+                        "phone" to relContact.phoneNumber,
+                        "closeness" to relContact.closenessScore,
+                        "memory" to relContact.contextualMemory
+                    )
+                )
+            }
+        }
+
         if (!hasPermission) {
+            val relContacts = FifoDataRepository.relationalContacts.value
+            if (action == "list" && relContacts.isNotEmpty()) {
+                val names = relContacts.take(4).joinToString(", ") { "${it.contactName} (${it.relationshipRole})" }
+                return SkillResult(
+                    success = true,
+                    spokenFeedback = "Tengo en mi memoria a sus contactos más cercanos: $names. Para ver toda la libreta del celular necesitaría permiso de contactos.",
+                    data = mapOf("relational_contacts" to relContacts.map { it.contactName })
+                )
+            }
             return SkillResult(
                 success = false,
-                spokenFeedback = "Para poder ver tus contactos del teléfono, necesito que me concedas el permiso de Contactos en la aplicación.",
+                spokenFeedback = "Para poder ver todos tus contactos del teléfono, necesito que me concedas el permiso de Contactos en la aplicación.",
                 data = mapOf("has_permission" to false)
             )
         }
@@ -86,7 +113,15 @@ class ContactsSkill(private val context: Context) : FifoSkill {
                     } else {
                         // Revisar si coincide con el contacto de emergencia en perfil
                         val profile = FifoDataRepository.userProfile.value
-                        if (query.contains("carmen", ignoreCase = true) || query.contains("hija", ignoreCase = true) || query.contains("emergencia", ignoreCase = true)) {
+                        val emergName = profile.emergencyContactName.lowercase().trim()
+                        val isEmergencyMatch = (emergName.isNotBlank() && query.contains(emergName, ignoreCase = true)) ||
+                                query.contains("emergencia", ignoreCase = true) ||
+                                query.contains("apoyo", ignoreCase = true) ||
+                                query.contains("familiar", ignoreCase = true) ||
+                                query.contains("familia", ignoreCase = true) ||
+                                query.contains("hija", ignoreCase = true) ||
+                                query.contains("hijo", ignoreCase = true)
+                        if (isEmergencyMatch) {
                             SkillResult(
                                 success = true,
                                 spokenFeedback = "Tengo registrado a tu contacto de apoyo ${profile.emergencyContactName} con el número ${profile.emergencyContactPhone}. ¿Deseas que le marque?",
@@ -106,26 +141,28 @@ class ContactsSkill(private val context: Context) : FifoSkill {
             else -> { // "list"
                 val contacts = getAllContacts(limit = 8)
                 val totalCount = getTotalContactCount()
-                if (contacts.isNotEmpty()) {
-                    val namesSample = contacts.take(4).joinToString(", ") { it.first }
-                    val spoken = if (totalCount <= 4) {
-                        "Sí, puedo ver tus contactos del teléfono. Tienes a $namesSample. ¿Quieres que llame a alguno de ellos?"
-                    } else {
-                        "Sí, puedo ver tus contactos del teléfono. Tienes $totalCount contactos guardados, por ejemplo $namesSample, entre otros. ¿Deseas que llame a alguien o busque el teléfono de alguna persona en específico?"
-                    }
-                    SkillResult(
-                        success = true,
-                        spokenFeedback = spoken,
-                        data = mapOf("total" to totalCount, "sample" to contacts)
-                    )
+                val relContacts = FifoDataRepository.relationalContacts.value
+                val sampleNames = if (contacts.isNotEmpty()) {
+                    contacts.take(4).joinToString(", ") { it.first }
                 } else {
-                    val profile = FifoDataRepository.userProfile.value
-                    SkillResult(
-                        success = true,
-                        spokenFeedback = "Sí, puedo acceder a tus contactos del teléfono, aunque actualmente tu lista está vacía. Solo tengo registrado a tu contacto de apoyo ${profile.emergencyContactName}.",
-                        data = mapOf("total" to 0)
-                    )
+                    relContacts.take(4).joinToString(", ") { "${it.contactName} (${it.relationshipRole})" }
                 }
+
+                val spoken = if (contacts.isNotEmpty()) {
+                    if (totalCount <= 4) {
+                        "Sí, puedo ver tus contactos del teléfono. Tienes a $sampleNames. ¿Quieres que llame a alguno de ellos?"
+                    } else {
+                        "Sí, puedo ver tus contactos del teléfono. Tienes $totalCount contactos guardados, por ejemplo $sampleNames, entre otros. ¿Deseas que llame a alguien en específico?"
+                    }
+                } else {
+                    "En su red cercana tengo a $sampleNames. ¿Desea que marque a alguno de ellos?"
+                }
+
+                SkillResult(
+                    success = true,
+                    spokenFeedback = spoken,
+                    data = mapOf("count" to (if (contacts.isNotEmpty()) totalCount else relContacts.size), "sample" to sampleNames)
+                )
             }
         }
     }

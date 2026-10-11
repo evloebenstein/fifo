@@ -110,6 +110,41 @@ class MemoryCreateRequest(BaseModel):
     learned_date_label: str = "Aprendido recién"
 
 
+class RelationalContactCreateRequest(BaseModel):
+    contact_name: str
+    phone_number: Optional[str] = None
+    relationship_role: str
+    closeness_score: float = Field(default=0.5, ge=0.0, le=1.0)
+    trust_tier: int = Field(default=2, ge=1, le=4)
+    emotional_valence: str = "afectuoso"
+    contextual_memory: Optional[str] = None
+
+
+class RelationalContactUpdateRequest(BaseModel):
+    closeness_score: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    relationship_role: Optional[str] = None
+    phone_number: Optional[str] = None
+    emotional_valence: Optional[str] = None
+    contextual_memory: Optional[str] = None
+
+
+class DailyRoutineCreateRequest(BaseModel):
+    routine_name: str
+    category: str = "medication"
+    time_anchor: str = "morning"
+    typical_time_str: Optional[str] = None
+    frequency_rule: str = "daily"
+    confidence_score: float = Field(default=0.8, ge=0.0, le=1.0)
+    notes: Optional[str] = None
+
+
+class DailyRoutineUpdateRequest(BaseModel):
+    confidence_score: Optional[float] = None
+    typical_time_str: Optional[str] = None
+    notes: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
 class ConversationSaveRequest(BaseModel):
     title: str
     summary: str
@@ -120,6 +155,13 @@ class ConversationSaveRequest(BaseModel):
     named_entities: List[str] = []
     turns: List[Dict[str, Any]] = []
     full_transcript: Optional[str] = None
+
+
+class ConversationAnalyzeAndConsolidateRequest(BaseModel):
+    turns: List[Dict[str, Any]]
+    session_id: Optional[str] = None
+    duration_seconds: int = 180
+    primary_tag: str = "Conversación"
 
 
 class RecallContextRequest(BaseModel):
@@ -135,6 +177,7 @@ class DeviceLocationUpdateRequest(BaseModel):
     room_hint: Optional[str] = None
     rssi: Optional[int] = None
     is_beeping: Optional[bool] = None
+
 
 
 # -----------------------------------------------------------------------------
@@ -333,6 +376,33 @@ def sync_user_bundle(user_id: str):
         act["isJoined"] = bool(act["isJoined"])
         activities.append(act)
 
+    # 11. Grafo Social & Contactos Relacionales con Puntuación de Cercanía
+    cursor.execute("""
+        SELECT id, contact_name AS contactName, phone_number AS phoneNumber,
+               relationship_role AS relationshipRole, closeness_score AS closenessScore,
+               trust_tier AS trustTier, emotional_valence AS emotionalValence,
+               contextual_memory AS contextualMemory, mention_count AS mentionCount,
+               CAST(last_mentioned_at AS CHAR) AS lastMentionedAt
+        FROM user_contacts_relational
+        WHERE user_id = %s
+        ORDER BY closeness_score DESC, mention_count DESC
+    """, (user_id,))
+    relational_contacts = cursor.fetchall()
+
+    # 12. Hábitos y Patrones de Vida Diaria (Rutinas Circadianas)
+    cursor.execute("""
+        SELECT id, routine_name AS routineName, category, time_anchor AS timeAnchor,
+               typical_time_str AS typicalTimeStr, frequency_rule AS frequencyRule,
+               confidence_score AS confidenceScore, notes, is_active AS isActive
+        FROM user_daily_routines
+        WHERE user_id = %s AND is_active = 1
+        ORDER BY typical_time_str ASC, confidence_score DESC
+    """, (user_id,))
+    daily_routines = []
+    for r in cursor.fetchall():
+        r["isActive"] = bool(r["isActive"])
+        daily_routines.append(r)
+
     cursor.close()
     conn.close()
 
@@ -361,8 +431,11 @@ def sync_user_bundle(user_id: str):
         "conversationFragments": fragments,
         "deviceLocation": device_loc,
         "communityProfiles": community_profiles,
-        "activities": activities
+        "activities": activities,
+        "relationalContacts": relational_contacts,
+        "dailyRoutines": daily_routines
     }
+
 
 
 # -----------------------------------------------------------------------------
@@ -689,3 +762,346 @@ def update_device_location(user_id: str, req: DeviceLocationUpdateRequest):
     cursor.close()
     conn.close()
     return {"status": "updated", "device_id": cur["device_id"]}
+
+
+# -----------------------------------------------------------------------------
+# Endpoints de Grafo Social & Contactos Relacionales (Closeness Scoring)
+# -----------------------------------------------------------------------------
+@app.get("/users/{user_id}/contacts-relational")
+def list_user_relational_contacts(user_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT id, contact_name AS contactName, phone_number AS phoneNumber,
+               relationship_role AS relationshipRole, closeness_score AS closenessScore,
+               trust_tier AS trustTier, emotional_valence AS emotionalValence,
+               contextual_memory AS contextualMemory, mention_count AS mentionCount,
+               CAST(last_mentioned_at AS CHAR) AS lastMentionedAt
+        FROM user_contacts_relational
+        WHERE user_id = %s
+        ORDER BY closeness_score DESC, mention_count DESC
+    """, (user_id,))
+    contacts = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return {"contacts": contacts}
+
+
+@app.post("/users/{user_id}/contacts-relational")
+def create_user_relational_contact(user_id: str, req: RelationalContactCreateRequest):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    contact_id = f"ctc_rel_{uuid.uuid4().hex[:8]}"
+    cursor.execute("""
+        INSERT INTO user_contacts_relational (
+            id, user_id, contact_name, phone_number, relationship_role,
+            closeness_score, trust_tier, emotional_valence, contextual_memory, mention_count
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+    """, (
+        contact_id, user_id, req.contact_name.strip(), req.phone_number,
+        req.relationship_role.strip(), req.closeness_score, req.trust_tier,
+        req.emotional_valence, req.contextual_memory
+    ))
+    cursor.close()
+    conn.close()
+    return {"status": "created", "id": contact_id}
+
+
+@app.patch("/users/{user_id}/contacts-relational/{contact_id}")
+def update_user_relational_contact(user_id: str, contact_id: str, req: RelationalContactUpdateRequest):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM user_contacts_relational WHERE id = %s AND user_id = %s", (contact_id, user_id))
+    cur = cursor.fetchone()
+    if not cur:
+        cursor.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Contacto relacional no encontrado")
+
+    score = req.closeness_score if req.closeness_score is not None else cur["closeness_score"]
+    role = req.relationship_role if req.relationship_role is not None else cur["relationship_role"]
+    phone = req.phone_number if req.phone_number is not None else cur["phone_number"]
+    valence = req.emotional_valence if req.emotional_valence is not None else cur["emotional_valence"]
+    memory = req.contextual_memory if req.contextual_memory is not None else cur["contextual_memory"]
+
+    cursor.execute("""
+        UPDATE user_contacts_relational
+        SET closeness_score = %s, relationship_role = %s, phone_number = %s,
+            emotional_valence = %s, contextual_memory = %s
+        WHERE id = %s AND user_id = %s
+    """, (score, role, phone, valence, memory, contact_id, user_id))
+    cursor.close()
+    conn.close()
+    return {"status": "updated", "id": contact_id}
+
+
+# -----------------------------------------------------------------------------
+# Endpoints de Rutinas y Patrones Diarios
+# -----------------------------------------------------------------------------
+@app.get("/users/{user_id}/routines")
+def list_user_routines(user_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT id, routine_name AS routineName, category, time_anchor AS timeAnchor,
+               typical_time_str AS typicalTimeStr, frequency_rule AS frequencyRule,
+               confidence_score AS confidenceScore, notes, is_active AS isActive,
+               CAST(last_observed_at AS CHAR) AS lastObservedAt
+        FROM user_daily_routines
+        WHERE user_id = %s
+        ORDER BY typical_time_str ASC, confidence_score DESC
+    """, (user_id,))
+    routines = []
+    for r in cursor.fetchall():
+        r["isActive"] = bool(r["isActive"])
+        routines.append(r)
+    cursor.close()
+    conn.close()
+    return {"routines": routines}
+
+
+@app.post("/users/{user_id}/routines")
+def create_user_routine(user_id: str, req: DailyRoutineCreateRequest):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    routine_id = f"rtn_{uuid.uuid4().hex[:8]}"
+    cursor.execute("""
+        INSERT INTO user_daily_routines (
+            id, user_id, routine_name, category, time_anchor,
+            typical_time_str, frequency_rule, confidence_score, notes, is_active
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 1)
+    """, (
+        routine_id, user_id, req.routine_name.strip(), req.category,
+        req.time_anchor, req.typical_time_str, req.frequency_rule,
+        req.confidence_score, req.notes
+    ))
+    cursor.close()
+    conn.close()
+    return {"status": "created", "id": routine_id}
+
+
+@app.patch("/users/{user_id}/routines/{routine_id}")
+def update_user_routine(user_id: str, routine_id: str, req: DailyRoutineUpdateRequest):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM user_daily_routines WHERE id = %s AND user_id = %s", (routine_id, user_id))
+    cur = cursor.fetchone()
+    if not cur:
+        cursor.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Rutina no encontrada")
+
+    conf = req.confidence_score if req.confidence_score is not None else cur["confidence_score"]
+    time_str = req.typical_time_str if req.typical_time_str is not None else cur["typical_time_str"]
+    notes = req.notes if req.notes is not None else cur["notes"]
+    act = (1 if req.is_active else 0) if req.is_active is not None else cur["is_active"]
+
+    cursor.execute("""
+        UPDATE user_daily_routines
+        SET confidence_score = %s, typical_time_str = %s, notes = %s, is_active = %s
+        WHERE id = %s AND user_id = %s
+    """, (conf, time_str, notes, act, routine_id, user_id))
+    cursor.close()
+    conn.close()
+    return {"status": "updated", "id": routine_id}
+
+
+@app.get("/users/{user_id}/routines/anomalies")
+def list_user_routine_anomalies(user_id: str):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("""
+        SELECT a.id, a.routine_id AS routineId, a.anomaly_description AS anomalyDescription,
+               a.severity, a.is_acknowledged AS isAcknowledged,
+               CAST(a.detected_at AS CHAR) AS detectedAt,
+               r.routine_name AS routineName
+        FROM routine_anomalies a
+        LEFT JOIN user_daily_routines r ON r.id = a.routine_id
+        WHERE a.user_id = %s
+        ORDER BY a.detected_at DESC
+        LIMIT 20
+    """, (user_id,))
+    anomalies = []
+    for row in cursor.fetchall():
+        row["isAcknowledged"] = bool(row["isAcknowledged"])
+        anomalies.append(row)
+    cursor.close()
+    conn.close()
+    return {"anomalies": anomalies}
+
+
+# -----------------------------------------------------------------------------
+# Motor de Análisis y Consolidación de Sesiones Conversacionales
+# Implementa el procesamiento en backend de perfil, grafo de contactos y rutinas
+# -----------------------------------------------------------------------------
+@app.post("/users/{user_id}/conversations/analyze-and-consolidate")
+def analyze_and_consolidate_conversation(user_id: str, req: ConversationAnalyzeAndConsolidateRequest):
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("SELECT * FROM users WHERE id = %s", (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        cursor.close()
+        conn.close()
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+
+    cursor.execute("SELECT bio_ai FROM user_profiles WHERE user_id = %s", (user_id,))
+    profile = cursor.fetchone()
+    current_bio = profile["bio_ai"] if profile and profile["bio_ai"] else ""
+
+    user_utterances = []
+    assistant_utterances = []
+    for turn in req.turns:
+        speaker = turn.get("role", turn.get("speaker", "user"))
+        text = turn.get("text", turn.get("content", "")).strip()
+        if not text:
+            continue
+        if speaker in ("user", "usuario"):
+            user_utterances.append(text)
+        else:
+            assistant_utterances.append(text)
+
+    full_conversation_text = "\n".join([
+        f"{turn.get('role', 'speaker')}: {turn.get('text', turn.get('content', ''))}"
+        for turn in req.turns
+    ])
+    user_text_combined = " ".join(user_utterances).lower()
+
+    # 1. Análisis de Contactos y Grafo Relacional
+    cursor.execute("SELECT * FROM user_contacts_relational WHERE user_id = %s", (user_id,))
+    existing_contacts = cursor.fetchall()
+    contacts_analyzed = []
+
+    for c in existing_contacts:
+        c_name = c["contact_name"].lower()
+        c_role = c["relationship_role"].lower()
+        is_mentioned = any(
+            token in user_text_combined
+            for token in c_name.split() if len(token) > 3
+        ) or any(
+            token in user_text_combined
+            for token in c_role.split() if len(token) > 3
+        )
+        if is_mentioned:
+            new_mentions = c["mention_count"] + 1
+            new_closeness = min(1.0, round(float(c["closeness_score"]) + 0.02, 2))
+            cursor.execute("""
+                UPDATE user_contacts_relational
+                SET mention_count = %s, closeness_score = %s, last_mentioned_at = CURRENT_TIMESTAMP
+                WHERE id = %s
+            """, (new_mentions, new_closeness, c["id"]))
+            contacts_analyzed.append({
+                "contactId": c["id"],
+                "name": c["contact_name"],
+                "newCloseness": new_closeness,
+                "mentions": new_mentions
+            })
+
+    # 2. Análisis de Rutinas Diarias y Detección de Anomalías
+    cursor.execute("SELECT * FROM user_daily_routines WHERE user_id = %s AND is_active = 1", (user_id,))
+    existing_routines = cursor.fetchall()
+    routines_analyzed = []
+    anomalies_detected = []
+
+    for r in existing_routines:
+        r_name = r["routine_name"].lower()
+        keywords = [w for w in r_name.split() if len(w) > 4]
+        was_relevant = any(kw in user_text_combined for kw in keywords)
+        if was_relevant:
+            is_anomaly = any(neg in user_text_combined for neg in [
+                "no pude", "no alcancé", "se me olvidó", "me dolió", "dolor",
+                "mareada", "mareado", "cansada", "cansado", "malestar", "no salí"
+            ])
+            if is_anomaly:
+                anom_id = f"anom_{uuid.uuid4().hex[:8]}"
+                desc = f"Interrupción o molestia reportada en '{r['routine_name']}'."
+                cursor.execute("""
+                    INSERT INTO routine_anomalies (id, user_id, routine_id, anomaly_description, severity)
+                    VALUES (%s, %s, %s, %s, 'medium')
+                """, (anom_id, user_id, r["id"], desc))
+                anomalies_detected.append({"id": anom_id, "routine": r["routine_name"], "description": desc})
+            else:
+                new_conf = min(1.0, round(float(r["confidence_score"]) + 0.03, 2))
+                cursor.execute("""
+                    UPDATE user_daily_routines
+                    SET confidence_score = %s, last_observed_at = CURRENT_TIMESTAMP
+                    WHERE id = %s
+                """, (new_conf, r["id"]))
+                routines_analyzed.append({"routineId": r["id"], "name": r["routine_name"], "confidence": new_conf})
+
+    # 3. Detección de Gustos Positivos Nuevos
+    tastes_added = []
+    potential_tastes = [
+        ("orquídeas", "naturaleza"), ("piano", "musica"), ("cazuela", "cocina"),
+        ("chopin", "musica"), ("jardinería", "naturaleza"), ("caminata", "bienestar"),
+        ("acuarela", "arte"), ("lectura", "lectura"), ("poesía", "lectura"),
+        ("tango", "musica"), ("boleros", "musica"), ("ajedrez", "juegos")
+    ]
+    for taste_term, cat in potential_tastes:
+        if taste_term in user_text_combined:
+            t_id = f"tst_{uuid.uuid4().hex[:8]}"
+            cursor.execute("""
+                INSERT INTO tastes (id, user_id, name, category, is_active)
+                VALUES (%s, %s, %s, %s, 1)
+                ON DUPLICATE KEY UPDATE is_active = 1
+            """, (t_id, user_id, taste_term.capitalize(), cat))
+            if cursor.rowcount > 0:
+                tastes_added.append(taste_term.capitalize())
+
+    # 4. Guardado de conversación en Doble Capa
+    srv_id = f"srv_conv_{uuid.uuid4().hex[:8]}"
+    frag_id = f"frag_{uuid.uuid4().hex[:8]}"
+    past_id = f"c_{uuid.uuid4().hex[:8]}"
+    mins = max(1, req.duration_seconds // 60)
+    summary_text = f"Charla de {mins} min sobre actividades cotidianas y bienestar."
+    if user_utterances:
+        summary_text = f"El usuario conversó sobre {user_utterances[0][:120]}..."
+
+    cursor.execute("""
+        INSERT INTO conversations_full (
+            id, user_id, duration_seconds, turns_json, full_transcript,
+            extracted_topics, named_entities, sentiment_trend
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, 'positivo')
+    """, (
+        srv_id, user_id, req.duration_seconds,
+        json.dumps(req.turns, ensure_ascii=False),
+        full_conversation_text,
+        json.dumps([t for t in tastes_added], ensure_ascii=False),
+        json.dumps([c["name"] for c in contacts_analyzed], ensure_ascii=False)
+    ))
+
+    cursor.execute("""
+        INSERT INTO conversation_fragments (
+            id, user_id, server_conversation_id, key_topics, named_entities,
+            detected_mood, compact_summary, primary_tag, duration_seconds
+        ) VALUES (%s, %s, %s, %s, %s, 'amable', %s, %s, %s)
+    """, (
+        frag_id, user_id, srv_id,
+        json.dumps([t for t in tastes_added], ensure_ascii=False),
+        json.dumps([c["name"] for c in contacts_analyzed], ensure_ascii=False),
+        summary_text, req.primary_tag, req.duration_seconds
+    ))
+
+    cursor.execute("""
+        INSERT INTO past_conversations (
+            id, user_id, title, date_label, duration_label, duration_seconds, summary, topic_tag
+        ) VALUES (%s, %s, %s, 'Hoy', %s, %s, %s, %s)
+    """, (
+        past_id, user_id, f"Charla con Fifo", f"{mins} min", req.duration_seconds, summary_text, req.primary_tag
+    ))
+
+    cursor.close()
+    conn.close()
+
+    return {
+        "status": "consolidated",
+        "userId": user_id,
+        "serverConversationId": srv_id,
+        "fragmentId": frag_id,
+        "contactsAnalyzed": contacts_analyzed,
+        "routinesAnalyzed": routines_analyzed,
+        "anomaliesDetected": anomalies_detected,
+        "tastesAdded": tastes_added
+    }
+

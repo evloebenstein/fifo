@@ -96,16 +96,18 @@ Para la especificación completa del esquema de base de datos, mapeo de componen
 ## Alexa-Style Invisible Phone Architecture: Hands-Free Telephony & Hardware Control
 
 - **El Celular como Cerebro Invisible**: El adulto mayor nunca necesita desbloquear la pantalla, navegar menús ni abrir aplicaciones complejas. Fifo gestiona las tareas del teléfono por voz como un parlante inteligente Alexa pero con la movilidad y sensores del celular.
-- **Gestión Proactiva de Llamadas Telefónicas**:
+- **Gestión Proactiva de Llamadas Telefónicas y Captura Concurrente**:
   - Fifo anuncia en voz alta y clara quién llama consultando la agenda de contactos (*"¡Lucía! Le está llamando Carmen (Hija)..."*).
-  - Comandos directos de voz: *"Fifo, contesta"* (atiende automáticamente en altavoz manos libres) o *"Fifo, cuelga / detener llamada"*.
+  - Captura de audio concurrente en llamadas celulares y VoIP (WhatsApp, Google Meet, WeChat, Zoom) utilizando `MediaRecorder.AudioSource.VOICE_RECOGNITION` y supresión de ruido por hardware, asegurando que el micrófono nunca sea silenciado por las políticas de `AudioPolicy` de Android.
+  - Comandos directos de voz: *"Fifo, contesta"* o simplemente *"contesta / atiende"* durante el timbrado, y *"Fifo, cuelga / cortar llamada"* durante la llamada activa.
 - **Modo de Escucha Continua ("Fifo sigue escuchando")**:
   - Permite encadenar preguntas o conversar libremente sin tener que repetir el comando de activación "Fifo" en cada frase.
   - Margen de silencio extendido a 120 segundos para respetar las pausas naturales al hablar del adulto mayor.
   - Finalización con comandos amables: *"Fifo, descansa"* o *"ya no escuches"*.
-- **Guía de Navegación 100% Hablada (Hands-Free)**:
-  - Instrucciones verbales de orientación espacial (distancia en metros, minutos a pie y rumbo cardinal) para caminar por la calle sin tener que mirar ni manipular el celular.
-  - Apertura visual de Google Maps o Waze únicamente si el usuario lo solicita explícitamente.
+- **Guía de Navegación 100% Hablada (Copiloto Peatonal en Tiempo Real)**:
+  - Instrucciones verbales de orientación espacial y conciencia ambiental (*"¿Dónde estoy?", "¿Qué calle es esta?"*).
+  - Acompañamiento en tiempo real con sensor giroscópico y brújula magnética integrada (`FifoOrientationHelper`), alertando sobre giros relativos (*"gire a su izquierda"*, *"continúe hacia el norte"*, *"le faltan 2 cuadras"*).
+  - Búsqueda directa y autónoma de locales esenciales cercanos (Oxxo, farmacias, supermercados, panaderías) con cálculo de distancia y apertura inteligente de mapas si se solicita.
 - **Control de Hardware del Teléfono por Voz**:
   - Linterna para emergencias y noche (*"Fifo, prende la linterna"* / *"apaga la linterna"*).
   - Consulta de batería (*"Fifo, ¿cuánta batería le queda al celular?"*).

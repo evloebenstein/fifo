@@ -169,12 +169,12 @@ data class DeepContextResult(
  */
 data class FifoDeviceLocation(
     val isConnected: Boolean = false,
-    val lastConnectedTime: String = "Hoy a las 18:30",
-    val lastKnownLatitude: Double = -33.4255,
-    val lastKnownLongitude: Double = -70.6143,
-    val lastKnownAddress: String = "Av. Providencia 1234, Providencia, Santiago",
-    val lastKnownRoom: String = "Cerca del Living / Mesa de noche",
-    val signalStrengthRssi: Int = -64,
+    val lastConnectedTime: String = "Desconectado",
+    val lastKnownLatitude: Double = 0.0,
+    val lastKnownLongitude: Double = 0.0,
+    val lastKnownAddress: String = "Sin registro de ubicación",
+    val lastKnownRoom: String = "Sin registrar",
+    val signalStrengthRssi: Int = 0,
     val isBeeping: Boolean = false
 )
 
@@ -182,11 +182,11 @@ data class FifoDeviceLocation(
  * Información de ubicación geográfica actual obtenida del GPS del celular.
  */
 data class CurrentLocationInfo(
-    val latitude: Double = -33.4255,
-    val longitude: Double = -70.6143,
-    val address: String = "Av. Providencia 1234",
-    val city: String = "Providencia, Santiago",
-    val isGpsActive: Boolean = true
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
+    val address: String = "Ubicación desconocida",
+    val city: String = "",
+    val isGpsActive: Boolean = false
 )
 
 // ═════════════════════════════════════════════════════════════════════
@@ -212,3 +212,55 @@ data class PhoneHardwareStatus(
     val isFlashlightOn: Boolean = false,
     val volumePercent: Int = 80
 )
+
+// ═════════════════════════════════════════════════════════════════════
+//  GRAFO SOCIAL RELACIONAL Y HÁBITOS DE VIDA DIARIA
+// ═════════════════════════════════════════════════════════════════════
+
+/**
+ * Contacto en el grafo social del usuario con rol relacional,
+ * puntuación de cercanía afectiva (0.0 a 1.0) y memoria episódica.
+ */
+data class RelationalContact(
+    val id: String,
+    val contactName: String,
+    val phoneNumber: String? = null,
+    val relationshipRole: String,
+    val closenessScore: Float = 0.5f,
+    val trustTier: Int = 2, // 1: Emergencia/Tutor, 2: Familia directa/Médico, 3: Amigos/Vecinos, 4: Servicios
+    val emotionalValence: String = "afectuoso",
+    val contextualMemory: String? = null,
+    val mentionCount: Int = 1,
+    val lastMentionedAt: String = "",
+    val alias: String? = null
+)
+
+/**
+ * Patrón o hábito de actividad diaria (rutina circadiana).
+ */
+data class DailyRoutine(
+    val id: String,
+    val routineName: String,
+    val category: String = "medication", // medication, exercise, meal, social, rest, hobby
+    val timeAnchor: String = "morning", // morning, noon, afternoon, evening, night
+    val typicalTimeStr: String? = null,
+    val frequencyRule: String = "daily",
+    val confidenceScore: Float = 0.8f,
+    val notes: String? = null,
+    val isActive: Boolean = true,
+    val reminderAssociated: Boolean = false
+)
+
+/**
+ * Registro de anomalía o ruptura de patrón en una rutina observada.
+ */
+data class RoutineAnomaly(
+    val id: String,
+    val routineId: String? = null,
+    val routineName: String = "",
+    val anomalyDescription: String,
+    val severity: String = "low",
+    val isAcknowledged: Boolean = false,
+    val detectedAt: String = ""
+)
+

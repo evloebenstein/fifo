@@ -51,29 +51,48 @@ object FifoLocationHelper {
             android.Manifest.permission.ACCESS_COARSE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
 
-        val defaultCity = FifoDataRepository.userProfile.value.city.ifBlank { "Santiago, Chile" }
-        val defaultAddress = FifoDataRepository.userProfile.value.preferredAddress.ifBlank { "Av. Providencia 1234, Providencia" }
+        val userProfile = FifoDataRepository.userProfile.value
+        val profileCity = userProfile.city.trim()
+        val profileAddress = userProfile.preferredAddress.trim().ifBlank { profileCity }
 
-        if (!hasFine && !hasCoarse) {
-            Log.w(TAG, "Permisos de ubicación no otorgados; usando ubicación de perfil.")
+        fun resolveProfileFallback(): CurrentLocationInfo {
+            val query = profileAddress.ifBlank { profileCity }
+            if (query.isNotBlank()) {
+                try {
+                    val geocoder = android.location.Geocoder(context, java.util.Locale.getDefault())
+                    @Suppress("DEPRECATION")
+                    val results = geocoder.getFromLocationName(query, 1)
+                    if (!results.isNullOrEmpty()) {
+                        val first = results[0]
+                        return CurrentLocationInfo(
+                            latitude = first.latitude,
+                            longitude = first.longitude,
+                            address = profileAddress.ifBlank { query },
+                            city = profileCity,
+                            isGpsActive = false
+                        )
+                    }
+                } catch (e: Exception) {
+                    Log.d(TAG, "No se pudo geocodificar dirección de perfil: ${e.message}")
+                }
+            }
             return CurrentLocationInfo(
-                latitude = -33.4255,
-                longitude = -70.6143,
-                address = defaultAddress,
-                city = defaultCity,
+                latitude = 0.0,
+                longitude = 0.0,
+                address = profileAddress.ifBlank { "Ubicación no disponible" },
+                city = profileCity,
                 isGpsActive = false
             )
         }
 
+        if (!hasFine && !hasCoarse) {
+            Log.w(TAG, "Permisos de ubicación no otorgados; usando ubicación de perfil.")
+            return resolveProfileFallback()
+        }
+
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
         if (lm == null) {
-            return CurrentLocationInfo(
-                latitude = -33.4255,
-                longitude = -70.6143,
-                address = defaultAddress,
-                city = defaultCity,
-                isGpsActive = false
-            )
+            return resolveProfileFallback()
         }
 
         var bestLocation: Location? = null
@@ -103,26 +122,57 @@ object FifoLocationHelper {
         }
 
         if (bestLocation == null) {
-            return CurrentLocationInfo(
-                latitude = -33.4255,
-                longitude = -70.6143,
-                address = defaultAddress,
-                city = defaultCity,
-                isGpsActive = false
-            )
+            return resolveProfileFallback()
         }
 
         val lat = bestLocation.latitude
         val lon = bestLocation.longitude
-        val addressName = reverseGeocode(context, lat, lon) ?: defaultAddress
+        val geocoded = reverseGeocodeDetailed(context, lat, lon)
+        val addressName = geocoded?.first ?: profileAddress
+        val detectedCity = geocoded?.second?.ifBlank { profileCity } ?: profileCity
 
         return CurrentLocationInfo(
             latitude = lat,
             longitude = lon,
             address = addressName,
-            city = defaultCity,
+            city = detectedCity,
             isGpsActive = true
         )
+    }
+
+    /**
+     * Convierte coordenadas de latitud/longitud en una dirección humana y la comuna/ciudad detectada.
+     * Retorna Pair(direcciónCompleta, comunaOCiudad)
+     */
+    fun reverseGeocodeDetailed(context: Context, latitude: Double, longitude: Double): Pair<String, String>? {
+        return try {
+            val geocoder = Geocoder(context, Locale("es", "CL"))
+            @Suppress("DEPRECATION")
+            val addresses = geocoder.getFromLocation(latitude, longitude, 1)
+            if (!addresses.isNullOrEmpty()) {
+                val addr = addresses[0]
+                val thoroughfare = addr.thoroughfare ?: ""
+                val subThoroughfare = addr.subThoroughfare ?: ""
+                val locality = addr.subLocality ?: addr.locality ?: addr.subAdminArea ?: addr.adminArea ?: ""
+                val feature = addr.featureName ?: ""
+
+                val fullAddr = when {
+                    thoroughfare.isNotBlank() && subThoroughfare.isNotBlank() ->
+                        "$thoroughfare $subThoroughfare, $locality".trim().removePrefix(",").trim()
+                    thoroughfare.isNotBlank() ->
+                        "$thoroughfare, $locality".trim().removePrefix(",").trim()
+                    feature.isNotBlank() ->
+                        "$feature, $locality".trim().removePrefix(",").trim()
+                    else -> addr.getAddressLine(0) ?: locality
+                }
+                Pair(fullAddr, locality)
+            } else {
+                null
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error en Geocoder: ${e.message}")
+            null
+        }
     }
 
     /**
@@ -223,10 +273,8 @@ object FifoLocationHelper {
      */
     fun getSpokenRouteGuidance(context: Context, destination: String): SpokenRouteGuidance {
         val currentLoc = getCurrentLocation(context)
-        val defaultAddress = FifoDataRepository.userProfile.value.preferredAddress
-
-        var destLat = currentLoc.latitude
-        var destLon = currentLoc.longitude
+        var destLat: Double
+        var destLon: Double
         var resolvedName = destination
 
         try {
@@ -265,7 +313,6 @@ object FifoLocationHelper {
             else -> "hacia el norponiente"
         }
 
-        val blocks = (distanceMeters / 100).coerceAtLeast(1)
         val walkingMinutes = (distanceMeters / 75).coerceAtLeast(2) // 75 m/min (~4.5 km/h)
         val drivingMinutes = (distanceMeters / 400).coerceAtLeast(1)
 
@@ -282,7 +329,9 @@ object FifoLocationHelper {
             walkingMinutes = walkingMinutes,
             drivingMinutes = drivingMinutes,
             cardinalDirection = cardinal,
-            spokenGuidance = spoken
+            spokenGuidance = spoken,
+            destinationLat = destLat,
+            destinationLon = destLon
         )
     }
 
@@ -360,15 +409,41 @@ object FifoLocationHelper {
                     val neighbourhood = addrObj?.get("neighbourhood")?.asString ?: ""
                     val suburb = addrObj?.get("suburb")?.asString ?: ""
                     val city = addrObj?.get("city")?.asString ?: addrObj?.get("county")?.asString ?: currentLoc.city
-                    val rawName = item.get("name")?.asString
+                    val rawName = item.get("name")?.asString ?: ""
                     val shopType = addrObj?.get("shop")?.asString
                     val amenityType = addrObj?.get("amenity")?.asString
+                    val osmClass = item.get("class")?.asString?.lowercase() ?: ""
+                    val osmType = item.get("type")?.asString?.lowercase() ?: ""
+                    val addressType = item.get("addresstype")?.asString?.lowercase() ?: ""
+
+                    // 1. FILTRO ESTRICTO: Descartar comunas, límites administrativos, suburbios y entidades no comerciales
+                    val isAdministrative = osmClass in listOf("boundary", "place", "highway", "waterway", "natural", "landuse") ||
+                            osmType in listOf("administrative", "suburb", "city", "town", "neighbourhood", "quarter", "borough", "postcode", "state", "country") ||
+                            addressType in listOf("suburb", "city", "town", "administrative", "neighbourhood", "postcode", "country", "state", "county")
+
+                    val isCityName = rawName.equals(currentLoc.city, ignoreCase = true) ||
+                            rawName.equals("Vitacura", ignoreCase = true) ||
+                            rawName.equals("Santiago", ignoreCase = true) ||
+                            rawName.equals("Las Condes", ignoreCase = true) ||
+                            rawName.equals("Providencia", ignoreCase = true) ||
+                            rawName.equals("Lo Barnechea", ignoreCase = true)
+
+                    if (isAdministrative && shopType.isNullOrBlank() && amenityType.isNullOrBlank()) {
+                        continue
+                    }
+                    if (isCityName && shopType.isNullOrBlank() && amenityType.isNullOrBlank()) {
+                        continue
+                    }
 
                     val shopName = when {
-                        !rawName.isNullOrBlank() -> rawName
+                        rawName.isNotBlank() && !isCityName -> rawName
                         !shopType.isNullOrBlank() -> shopType.replaceFirstChar { it.uppercase() }
                         !amenityType.isNullOrBlank() -> amenityType.replaceFirstChar { it.uppercase() }
                         else -> query.replaceFirstChar { it.uppercase() }
+                    }
+
+                    if (shopName.equals(currentLoc.city, ignoreCase = true) || shopName.equals("Vitacura", ignoreCase = true)) {
+                        continue
                     }
 
                     val distResults = FloatArray(2)
@@ -428,43 +503,53 @@ object FifoLocationHelper {
         val currentLoc = currentLocation ?: getCurrentLocation(context)
         val queryLower = query.lowercase().trim()
 
+        val cleanQuery = if (currentLoc.isGpsActive && !currentLoc.city.contains("Providencia", ignoreCase = true)) {
+            // Si el GPS real no está en Providencia, evitar que query_hint contenga direcciones viejas de Providencia
+            queryLower.replace("providencia", "").replace("av.", "").trim()
+        } else {
+            queryLower
+        }
+
         val searchTerms = when {
-            queryLower.contains("supermercado") || queryLower.contains("super") || queryLower.contains("súper") -> {
+            cleanQuery.contains("mercado") || cleanQuery.contains("market") || cleanQuery.contains("supermercado") || cleanQuery.contains("super") || cleanQuery.contains("súper") -> {
                 when {
-                    queryLower.contains("lider") -> listOf("lider", "supermarket", "supermercado")
-                    queryLower.contains("jumbo") -> listOf("jumbo", "supermarket", "supermercado")
-                    queryLower.contains("unimarc") -> listOf("unimarc", "supermarket", "supermercado")
-                    queryLower.contains("santa isabel") -> listOf("santa isabel", "supermarket", "supermercado")
-                    queryLower.contains("alvi") -> listOf("alvi", "supermarket", "supermercado")
-                    else -> listOf("supermarket", "lider", "unimarc", "supermercado", "jumbo", "santa isabel")
+                    cleanQuery.contains("lider") -> listOf("lider", "supermarket", "supermercado")
+                    cleanQuery.contains("jumbo") -> listOf("jumbo", "supermarket", "supermercado")
+                    cleanQuery.contains("unimarc") -> listOf("unimarc", "supermarket", "supermercado")
+                    cleanQuery.contains("santa isabel") -> listOf("santa isabel", "supermarket", "supermercado")
+                    cleanQuery.contains("alvi") -> listOf("alvi", "supermarket", "supermercado")
+                    cleanQuery.contains("oxxo") -> listOf("oxxo", "convenience")
+                    else -> listOf("supermarket", "convenience", "supermercado", "minimarket", "almacen", "deli")
                 }
             }
-            queryLower.contains("lider") -> listOf("lider", "supermarket")
-            queryLower.contains("jumbo") -> listOf("jumbo", "supermarket")
-            queryLower.contains("unimarc") -> listOf("unimarc", "supermarket")
-            queryLower.contains("santa isabel") -> listOf("santa isabel", "supermarket")
-            queryLower.contains("oxxo") -> listOf("oxxo", "ok market")
-            queryLower.contains("farmacia") -> listOf("pharmacy", "farmacia", "cruz verde", "ahumada", "salcobrand")
-            queryLower.contains("minimarket") || queryLower.contains("almacen") || queryLower.contains("almacén") -> listOf("convenience", "minimarket", "almacen")
-            queryLower.contains("panaderia") || queryLower.contains("panadería") -> listOf("bakery", "panaderia")
-            queryLower.contains("pizz") -> listOf("pizza", "restaurant", "fast_food")
-            queryLower.contains("restaurante") || queryLower.contains("restaurant") || queryLower.contains("comida") || queryLower.contains("comer") || queryLower.contains("almuerzo") ->
+            cleanQuery.contains("lider") -> listOf("lider", "supermarket")
+            cleanQuery.contains("jumbo") -> listOf("jumbo", "supermarket")
+            cleanQuery.contains("unimarc") -> listOf("unimarc", "supermarket")
+            cleanQuery.contains("santa isabel") -> listOf("santa isabel", "supermarket")
+            cleanQuery.contains("oxxo") -> listOf("oxxo", "ok market")
+            cleanQuery.contains("farmacia") -> listOf("pharmacy", "farmacia", "cruz verde", "ahumada", "salcobrand")
+            cleanQuery.contains("minimarket") || cleanQuery.contains("almacen") || cleanQuery.contains("almacén") -> listOf("convenience", "minimarket", "almacen")
+            cleanQuery.contains("panaderia") || cleanQuery.contains("panadería") -> listOf("bakery", "panaderia")
+            cleanQuery.contains("pizz") -> listOf("pizza", "restaurant", "fast_food")
+            cleanQuery.contains("restaurante") || cleanQuery.contains("restaurant") || cleanQuery.contains("comida") || cleanQuery.contains("comer") || cleanQuery.contains("almuerzo") ->
                 listOf("restaurant", "fast_food", "food")
-            queryLower.contains("comercio") || queryLower.contains("local") || queryLower.contains("tienda") || queryLower.contains("negocio") || queryLower.contains("alrededor") ->
+            cleanQuery.contains("comercio") || cleanQuery.contains("local") || cleanQuery.contains("tienda") || cleanQuery.contains("negocio") || cleanQuery.contains("alrededor") ->
                 listOf("convenience", "supermarket", "bakery", "shop", "cafe", "pharmacy")
-            queryLower.contains("banco") -> listOf("bank", "banco")
-            queryLower.contains("hospital") || queryLower.contains("cesfam") || queryLower.contains("consultorio") -> listOf("hospital", "clinic", "cesfam", "consultorio")
-            queryLower.contains("parque") || queryLower.contains("plaza") -> listOf("park", "plaza", "parque")
+            cleanQuery.contains("banco") -> listOf("bank", "banco")
+            cleanQuery.contains("hospital") || cleanQuery.contains("cesfam") || cleanQuery.contains("consultorio") -> listOf("hospital", "clinic", "cesfam", "consultorio")
+            cleanQuery.contains("parque") || cleanQuery.contains("plaza") -> listOf("park", "plaza", "parque")
             else -> listOf(query.trim())
         }
 
         val resultsList = mutableListOf<NearbyPlaceMatch>()
         val seenCoords = mutableSetOf<String>()
 
-        // Fase 1: Búsqueda acotada al entorno inmediato (~2.5 km a la redonda)
-        val deltaNear = 0.025
-        for (term in searchTerms.take(4)) {
-            val matches = fetchNominatimPlaces(term, currentLoc, delta = deltaNear, limit = 15)
+        // Fase 0: Búsqueda inmediata a pie (~1.2 km a la redonda, delta = 0.012)
+        // Esto captura negocios inmediatos de barrio (ej: Oxxo en Lo Pasteur / Manquehue Norte en Vitacura)
+        // que Nominatim de otro modo relega por score de 'importancia' nacional
+        val deltaImmediate = 0.012
+        for (term in searchTerms.take(3)) {
+            val matches = fetchNominatimPlaces(term, currentLoc, delta = deltaImmediate, limit = 30)
             for (m in matches) {
                 val coordKey = "${String.format(Locale.US, "%.4f", m.latitude)},${String.format(Locale.US, "%.4f", m.longitude)}"
                 if (seenCoords.add(coordKey)) {
@@ -473,11 +558,25 @@ object FifoLocationHelper {
             }
         }
 
+        // Fase 1: Búsqueda acotada al entorno inmediato (~2.5 km a la redonda) si no se halló en 1.2 km
+        if (resultsList.isEmpty()) {
+            val deltaNear = 0.025
+            for (term in searchTerms.take(4)) {
+                val matches = fetchNominatimPlaces(term, currentLoc, delta = deltaNear, limit = 35)
+                for (m in matches) {
+                    val coordKey = "${String.format(Locale.US, "%.4f", m.latitude)},${String.format(Locale.US, "%.4f", m.longitude)}"
+                    if (seenCoords.add(coordKey)) {
+                        resultsList.add(m)
+                    }
+                }
+            }
+        }
+
         // Fase 2: Si no hubo resultados en 2.5 km, ampliar radio a ~5 km con los términos principales
         if (resultsList.isEmpty()) {
             val deltaExpanded = 0.05
             for (term in searchTerms.take(2)) {
-                val matches = fetchNominatimPlaces(term, currentLoc, delta = deltaExpanded, limit = 15)
+                val matches = fetchNominatimPlaces(term, currentLoc, delta = deltaExpanded, limit = 35)
                 for (m in matches) {
                     val coordKey = "${String.format(Locale.US, "%.4f", m.latitude)},${String.format(Locale.US, "%.4f", m.longitude)}"
                     if (seenCoords.add(coordKey)) {
@@ -496,6 +595,16 @@ object FifoLocationHelper {
                 val matches = geocoder.getFromLocationName("$fallbackQuery, ${currentLoc.city}", 5)
                 if (!matches.isNullOrEmpty()) {
                     for (m in matches) {
+                        val featName = m.featureName ?: ""
+                        val thoroughfare = m.thoroughfare ?: ""
+                        // Descartar si el resultado de Geocoder es únicamente la comuna/ciudad
+                        if (featName.equals(currentLoc.city, ignoreCase = true) ||
+                            featName.equals("Vitacura", ignoreCase = true) ||
+                            featName.equals("Santiago", ignoreCase = true) ||
+                            (thoroughfare.isBlank() && featName.isBlank())) {
+                            continue
+                        }
+
                         val distResults = FloatArray(2)
                         Location.distanceBetween(currentLoc.latitude, currentLoc.longitude, m.latitude, m.longitude, distResults)
                         val distMeters = distResults[0].toInt().coerceAtLeast(50)
@@ -504,7 +613,7 @@ object FifoLocationHelper {
                         val walkingMin = (distMeters / 75).coerceAtLeast(1)
                         val drivingMin = (distMeters / 400).coerceAtLeast(1)
                         val blocks = (distMeters / 100).coerceAtLeast(1)
-                        val road = m.thoroughfare ?: m.featureName ?: fallbackQuery
+                        val road = thoroughfare.ifBlank { featName }.ifBlank { fallbackQuery }
                         val houseNumber = m.subThoroughfare ?: ""
                         val suburb = m.subLocality ?: m.locality ?: ""
                         val streetText = if (houseNumber.isNotBlank()) "$road $houseNumber" else road
@@ -512,7 +621,7 @@ object FifoLocationHelper {
 
                         resultsList.add(
                             NearbyPlaceMatch(
-                                name = m.featureName ?: fallbackQuery.replaceFirstChar { it.uppercase() },
+                                name = featName.ifBlank { fallbackQuery.replaceFirstChar { it.uppercase() } },
                                 road = road,
                                 houseNumber = houseNumber,
                                 neighbourhood = "",
@@ -571,5 +680,7 @@ data class SpokenRouteGuidance(
     val walkingMinutes: Int,
     val drivingMinutes: Int,
     val cardinalDirection: String,
-    val spokenGuidance: String
+    val spokenGuidance: String,
+    val destinationLat: Double = 0.0,
+    val destinationLon: Double = 0.0
 )

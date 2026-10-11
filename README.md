@@ -28,6 +28,13 @@ Asistente robótico interactivo de compañía para adultos mayores con **conexi�
   - **HABLANDO:** Boca animada sincronizada con ondas de voz en vivo.
 - **Filtro de Ruido Acústico en ESP32-S3:**
   - Filtro IIR Pasa-Altos a 150 Hz y puerta de ruido (*Noise Gate*) para capturar voz nítida desde el micrófono analógico UCC.
+- **Control Telefónico Manos Libres y Captura Concurrente en Llamadas:**
+  - Anuncio por voz del contacto entrante consultando la libreta telefónica (*"¡Lucía! Le está llamando Carmen..."*).
+  - Comandos directos: *"contesta"* / *"atiende"* en altavoz manos libres o *"cuelga"* / *"rechaza"*.
+  - Captura concurrente con `VOICE_RECOGNITION` y supresión de ruido hardware, permitiendo que Fifo escuche activamente las órdenes del usuario mientras una llamada celular o VoIP (WhatsApp, Meet) está en curso.
+- **Copiloto Peatonal y Orientación Espacial en Tiempo Real:**
+  - Orientación por voz con giroscopio y brújula integrada (*"¿dónde estoy?", "hacia dónde voy?"*), avisando rumbos relativos y cuadras restantes.
+  - Búsqueda autónoma de locales esenciales cercanos (Oxxo, farmacias, supermercados) sin latencia.
 - **Interfaz Móvil Accesible (Jetpack Compose):**
   - Diseñada especialmente para adultos mayores con alto contraste, tipografía grande, retroalimentación táctil, botón de silencio con protección visual, localizador GPS/sonoro para encontrar el robot extraviado y comunidad *Fifo Amigos*.
 

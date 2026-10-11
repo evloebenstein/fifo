@@ -26,7 +26,8 @@ import java.nio.ByteOrder
 class CloudApiClient(
     var groqApiKey: String = "",
     var anthropicApiKey: String = "",
-    var openAiApiKey: String = ""
+    var openAiApiKey: String = "",
+    var context: android.content.Context? = null
 ) {
     /**
      * Clave efectiva para Groq: verifica groqApiKey o si openAiApiKey / anthropicApiKey inician con 'gsk_'.
@@ -55,10 +56,10 @@ class CloudApiClient(
         private const val TTS_URL = "https://api.openai.com/v1/audio/speech"
 
         // ── Modelos ──────────────────────────────────
-        // Modelo principal de Groq: OpenAI GPT-OSS 120B (potente, veloz y con cuota amplia de tokens)
-        const val GROQ_PRIMARY_MODEL = "openai/gpt-oss-120b"
-        // Modelo de respaldo si hay congestión: OpenAI GPT-OSS 20B (ultra-rápido y ligero)
-        const val GROQ_FALLBACK_MODEL = "openai/gpt-oss-20b"
+        // Modelo principal de Groq: Qwen 27B (ultra-rápido, con tool calling nativo y baja huella de tokens)
+        const val GROQ_PRIMARY_MODEL = "qwen/qwen3.8-27b"
+        // Modelo de respaldo si hay congestión: OpenAI GPT-OSS 120B
+        const val GROQ_FALLBACK_MODEL = "openai/gpt-oss-120b"
         const val GROQ_WHISPER_MODEL = "whisper-large-v3-turbo"
 
         private const val CLAUDE_MODEL = "claude-haiku-4-5-20251001"
@@ -66,53 +67,20 @@ class CloudApiClient(
         private const val TTS_MODEL = "tts-1"
         private const val TTS_VOICE = "nova"
 
-        // ── System prompt del robot Fifo ─────────────────
-        private const val SYSTEM_PROMPT = """SYSTEM PROMPT: Agente Fifo
-
-1. Identidad y Propósito:
-Eres Fifo, especialista en envejecimiento activo y bienestar para adultos mayores. Tu misión es brindarles compañía empática, motivación, apoyo en hobbies y facilitación en su vida diaria.
-
-2. Tono, Personalidad y Concisión Extrema:
-- Trata siempre al usuario de "usted" con paciencia, empatía y cariño.
-- Habla ÚNICAMENTE lo justo y necesario. Sé directo, cálido y conciso: 1 a 2 oraciones breves diseñadas para ser escuchadas por voz.
-- PROHIBIDO repetir discursos enlatados o largos como "Revisé su ubicación en [dirección]". Si te piden un lugar o dirección, da directamente el nombre del local, la calle y la distancia sin rodeos ni preámbulos.
-- Una sola pregunta a la vez. No hagas interrogatorios ni monólogos.
-- No eres médico: si mencionan dolor o problemas graves, sugiere consultar con su médico.
-
-3. Formato Estricto para Síntesis de Voz (TTS):
-- NUNCA uses emojis (😊, 👋, ❤️), markdown (*, **, #, -), ni acotaciones escénicas (*sonríe*, *pausa*).
-- NUNCA uses encabezados de diálogo como "Fifo:". Responde únicamente con las palabras que hablarás en voz alta.
-
-4. Privacidad y Seguridad:
-- Solo registra intereses, gustos y recuerdos positivos.
-- Nunca divulgues datos confidenciales (salud, finanzas). Prohibido contenido de índole sexual.
-- Ante abuso o emergencia, escucha con empatía y ofrece contactar a un familiar o al SAMU 131.
-
-5. Memoria Episódica Profunda ('recall_past_context'):
-- Si el usuario menciona lugares o vivencias pasadas (ej: 'quiero ir a donde fui ayer', 'no me acuerdo cómo se llamaba ese local al que fui hace una semana', 'ese lugar donde vendían ricas empanadas', 'qué te conté de mi nieto'), debes consultar PRIMERO tu memoria profunda con 'recall_past_context' para descubrir qué lugar o anécdota fue.
-- Con los datos obtenidos de tu memoria (nombre del local, calle, qué compró o hizo), responde con naturalidad y amabilidad, o busca la ubicación ('search_nearby_places') si el usuario desea ir.
-
-6. Ubicación, Navegación e Investigación Contextual ('search_nearby_places'):
-- Si el usuario menciona un lugar, marca o local del que no estés 100% seguro o que pueda haber cambiado de nombre/dueño (como ocurrió con OXXO y OK Market), primero investiga el contexto en internet con 'web_search' o en tu memoria antes de dar una respuesta errónea o buscar una ubicación equivocada.
-- Guía concisa: indica únicamente el local, la calle y la distancia en metros/minutos. Nada de sermones largos ni preámbulos sobre la ubicación del usuario.
-- NUNCA abras la pantalla a menos que el usuario lo pida expresamente (ej: "muéstrame en mi celular"). Por defecto, 'open_screen_map' DEBE ser false.
-
-7. Saludos, Horarios y Continuidad:
-- Adapta tu saludo estrictamente a la hora real del contexto temporal. Jamás digas 'Buenos días' en la tarde o noche.
-- Si ya has conversado previamente con el usuario hoy o en esta sesión, NO repitas saludos formales como si recién despertaras; responde de forma directa, cálida y natural (ej: 'Dígame Lucía', 'Aquí estoy', 'Hola de nuevo').
-
-8. Dispositivo Fifo, Teléfono y Hardware:
-- Si el usuario perdió el robot o pide que emita un sonido, usa 'find_fifo_device'.
-- Para llamadas telefónicas (contestar, colgar, consultar), usa 'manage_phone_call'.
-- Para revisar o buscar contactos del celular, usa 'read_phone_contacts'.
-- Para controlar hardware (linterna, volumen, batería, hora), usa 'control_device_hardware'.
-- Si el usuario pide que sigas escuchando sin decir 'Fifo', confirma con afecto que permanecerás atento en modo continuo.
-
-9. Búsqueda en Internet en Tiempo Real ('web_search'):
-- Dispones de la herramienta 'web_search' para consultar internet en vivo (noticias de última hora, clima actual, resultados deportivos, cambios de marcas, hechos de hoy o datos que requieran información reciente).
-- Úsala SIEMPRE que el usuario pregunte por noticias de hoy, acontecimientos recientes, clima o cuando requieras verificar hechos antes de actuar.
-- Sintetiza los datos encontrados de manera clara, humana y concisa para ser escuchados por voz.
-"""
+        // ── System prompt ultra-compacto del robot Fifo (optimizado para voz y bajo consumo de tokens) ──
+        private const val SYSTEM_PROMPT = """Eres Fifo, asistente robótico y compañero empático para adultos mayores (especialista en bienestar y vida diaria).
+REGLAS ESTRICTAS DE INTERACCIÓN:
+1. Voz concisa: Trata siempre de "usted" con cariño. Responde ÚNICAMENTE en 1 o 2 oraciones breves diseñadas para ser habladas en voz alta por TTS. Sin emojis, sin markdown (*, #), sin "Fifo:".
+2. Sin preámbulos: Prohibido decir "Revisé su ubicación en...". Si piden un local o dirección, da directamente el nombre, la calle y la distancia sin rodeos.
+3. Ubicación, comercios y navegación en vivo ('search_nearby_places', 'open_navigation_directions'):
+   - Usa la ubicación física real para responder comercios reales. NUNCA respondas con el nombre de la comuna o ciudad como si fuera un local o mercado.
+   - Variedad y naturalidad humana: Sé variado, espontáneo y cálido. PROHIBIDO usar siempre las mismas frases mecánicas o plantillas fijas. Respeta género y artículo ("el OXXO", "la farmacia", "el supermercado Líder").
+   - Acompañante de navegación tipo Waze: Si el usuario pregunta "¿a dónde voy?", "¿y ahora?", "¿por dónde sigo?", usa el bloque de MODO NAVEGACIÓN ACTIVA. NUNCA digas que no te acuerdas ni cambies de tema; guíale directamente indicando su orientación y distancia restante.
+   - Plural vs Singular: Si pregunta en plural, ofrece 2 o 3 opciones con sus distancias. Si pregunta en singular, destaca el principal y ofrece guiarle con naturalidad.
+4. Comprensión de voz y aclaraciones: Si lo dicho por el usuario suena entrecortado, ininteligible o incoherente, NO inventes respuestas; pide con amabilidad que te repita la frase.
+5. Memoria episódica ('recall_past_context'): Si mencionan anécdotas, personas o lugares pasados, consulta 'recall_past_context' antes de responder.
+6. Llamadas y robot: 'manage_phone_call' para llamadas, 'find_fifo_device' para hacer sonar el robot, 'read_phone_contacts' para contactos del celular.
+7. Internet en vivo ('web_search'): Úsala para noticias del día, clima o información reciente."""
 
         fun isWhisperHallucination(rawText: String): Boolean {
             val norm = java.text.Normalizer.normalize(rawText.lowercase().trim(), java.text.Normalizer.Form.NFD)
@@ -124,13 +92,17 @@ Eres Fifo, especialista en envejecimiento activo y bienestar para adultos mayore
             if (norm.isBlank() || norm.length <= 1) return true
 
             val knownHallucinations = setOf(
-                "gracias por ver", "gracias por ver el video",
+                "gracias", "muchas gracias", "gracias por ver", "gracias por ver el video",
                 "gracias por ver este video", "gracias por mirar", "gracias por su atencion",
                 "subtitulos realizados por la comunidad de amara org",
                 "subtitulos por la comunidad de amara org", "amara org", "amara",
                 "suscribete", "suscribete al canal", "suscribanse", "dale like y suscribete",
                 "dale like", "compartir", "comenta",
-                "thank you for watching", "thanks for watching"
+                "thank you for watching", "thanks for watching", "thank you",
+                "conex", "conexion", "conexion con el robot fifo", "conectro",
+                "filin gud", "filin", "you", "bye", "bye bye",
+                "musica", "aplausos", "silencio", "continuara",
+                "conversacion de bunos", "conversacion", "oh", "ah", "eh", "no", "si", "ok"
             )
             return knownHallucinations.contains(norm)
         }
@@ -189,7 +161,7 @@ Eres Fifo, especialista en envejecimiento activo y bienestar para adultos mayore
             .addFormDataPart("language", language)
             .addFormDataPart(
                 "prompt",
-                "Fifo. Hola Fifo. Conversación con el robot Fifo. Transcripción fiel en español de la voz principal dirigida a Fifo."
+                "Transcripción clara en español."
             )
             .build()
 
@@ -241,6 +213,8 @@ Eres Fifo, especialista en envejecimiento activo y bienestar para adultos mayore
 
         val response = if (isGroqActive) {
             chatWithGroq(userText, skillRegistry)
+        } else if (anthropicApiKey.isNotBlank() && !anthropicApiKey.startsWith("gsk_")) {
+            chatWithClaude(userText, skillRegistry)
         } else {
             "Disculpe, la API de Groq no se encuentra configurada en este momento. Por favor ingrese su clave de Groq para poder conversar."
         }
@@ -416,6 +390,8 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
 
         val userTurnsInHistory = conversationHistory.count { it["role"] == "user" }
         val pastConvsCount = FifoDataRepository.conversations.value.size
+        val firstName = FifoDataRepository.userProfile.value.fullName.split(" ").firstOrNull { it.isNotBlank() } ?: ""
+        val nameExample = if (firstName.isNotBlank()) "'Dígame $firstName'" else "'Dígame'"
 
         return """
         === CONTEXTO TEMPORAL Y DINÁMICA DE CONVERSACIÓN ===
@@ -423,7 +399,7 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
         - FECHA ACTUAL: $fullDate.
         - SALUDO ADECUADO POR HORARIO: "$correctGreeting".
         - REGLA ESTRICTA DE SALUDO: NUNCA saludes diciendo "Buenos días" si la hora actual es tarde o noche ($timeFormatted hrs).
-        - CONTINUIDAD CONVERSACIONAL: ${if (userTurnsInHistory <= 1 && pastConvsCount == 0) "Es el inicio del contacto con el usuario." else "Ya has hablado $userTurnsInHistory veces con el usuario en esta interacción continua (y tienen $pastConvsCount charlas previas). NO te presentes de nuevo ni repitas un saludo formal en cada turno. Responde de forma cercana, directa y natural (ej: 'Dígame Lucía', 'Aquí estoy', 'Por supuesto', o respondiendo directamente a la consulta)."}
+        - CONTINUIDAD CONVERSACIONAL: ${if (userTurnsInHistory <= 1 && pastConvsCount == 0) "Es el inicio del contacto con el usuario." else "Ya has hablado $userTurnsInHistory veces con el usuario en esta interacción continua (y tienen $pastConvsCount charlas previas). NO te presentes de nuevo ni repitas un saludo formal en cada turno. Responde de forma cercana, directa y natural (ej: $nameExample, 'Aquí estoy', 'Por supuesto', o respondiendo directamente a la consulta)."}
         """.trimIndent()
     }
 
@@ -433,8 +409,44 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
     private fun getEnrichedSystemPrompt(): String {
         val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 2)
         val temporalContext = buildTemporalAndSessionContext()
+        val profile = FifoDataRepository.userProfile.value
+        val gpsInfo = context?.let { com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(it) }
+
+        val userContext = buildString {
+            appendLine("=== DATOS DEL USUARIO ===")
+            if (profile.fullName.isNotBlank()) appendLine("- NOMBRE DEL USUARIO: ${profile.fullName}")
+            if (profile.emergencyContactName.isNotBlank()) appendLine("- CONTACTO DE APOYO: ${profile.emergencyContactName} (${profile.emergencyContactPhone})")
+            if (profile.preferredAddress.isNotBlank()) appendLine("- DOMICILIO REGISTRADO (CASA): ${profile.preferredAddress}")
+        }.trim()
+
+        val locationContext = buildString {
+            if (gpsInfo != null && gpsInfo.isGpsActive) {
+                appendLine("=== UBICACIÓN EN TIEMPO REAL (GPS ACTIVO) ===")
+                appendLine("- UBICACIÓN FÍSICA ACTUAL: ${gpsInfo.address} (Comuna: ${gpsInfo.city})")
+                appendLine("- COORDENADAS GPS: ${gpsInfo.latitude}, ${gpsInfo.longitude}")
+                appendLine("- REGLA DE ORO DE NAVEGACIÓN Y COMERCIOS: El usuario se encuentra FÍSICAMENTE en ${gpsInfo.city} (${gpsInfo.address}). Al buscar lugares cercanos ('oxxo', 'farmacia', 'minimarket') o dar indicaciones de cómo ir, debes buscar y guiar SIEMPRE desde ${gpsInfo.city}. NUNCA busques en la comuna del domicilio registrado a menos que pida explícitamente 'en mi casa'.")
+            } else if (profile.preferredAddress.isNotBlank()) {
+                appendLine("=== UBICACIÓN ESTIMADA (DOMICILIO REGISTRADO) ===")
+                appendLine("- DIRECCIÓN: ${profile.preferredAddress} (${profile.city})")
+            }
+        }.trim()
+
+        val navContext = if (gpsInfo != null) {
+            com.fifo.voicepipeline.location.FifoNavigationManager.buildSystemPromptContext(gpsInfo)
+        } else ""
+
         return buildString {
             appendLine(SYSTEM_PROMPT)
+            appendLine()
+            appendLine(userContext)
+            if (locationContext.isNotBlank()) {
+                appendLine()
+                appendLine(locationContext)
+            }
+            if (navContext.isNotBlank()) {
+                appendLine()
+                appendLine(navContext)
+            }
             appendLine()
             appendLine(temporalContext)
             if (compactContext.isNotBlank()) {
@@ -458,11 +470,13 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
 
         val messagesList = mutableListOf<Map<String, String>>()
         messagesList.add(mapOf("role" to "system", "content" to enrichedSystemPrompt))
-        messagesList.addAll(conversationHistory)
+        // Limitar turnos previos a los últimos 6 para no rebasar el límite de ITPM 7000
+        val compactHistory = conversationHistory.takeLast(6)
+        messagesList.addAll(compactHistory)
 
         val messagesJson = gson.toJson(messagesList)
         val toolsFragment = if (skillRegistry != null) {
-            """, "tools": ${skillRegistry.getOpenAiToolsJson()}, "tool_choice": "auto""""
+            """, "tools": ${skillRegistry.getCompactOpenAiToolsJson()}, "tool_choice": "auto""""
         } else {
             ""
         }
@@ -490,23 +504,33 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
 
             if (!response.isSuccessful) {
                 Log.e(TAG, "Groq error ($modelToUse) ${response.code}: $body")
-                // Si el modelo principal falla por rate-limit (429) o error temporal (5xx), intentar con el modelo de respaldo de Groq
+                // Si el modelo principal de Groq falla, intentar el modelo de respaldo de Groq primero
                 if (modelToUse == GROQ_PRIMARY_MODEL) {
-                    Log.w(TAG, "Groq: Activando fallback a $GROQ_FALLBACK_MODEL...")
+                    Log.w(TAG, "Groq: Error ${response.code} en $GROQ_PRIMARY_MODEL. Probando fallback a $GROQ_FALLBACK_MODEL...")
                     if (response.code == 429) {
-                        kotlinx.coroutines.delay(1200)
+                        kotlinx.coroutines.delay(800)
                     }
                     return chatWithGroq(userText, skillRegistry, modelToUse = GROQ_FALLBACK_MODEL)
                 }
-                // Si el modelo de respaldo de Groq también falla, intentar failover a Claude si hay clave disponible
+
+                // Si ambos modelos de Groq fallan y hay clave de Claude configurada
                 if (anthropicApiKey.isNotBlank() && !anthropicApiKey.startsWith("gsk_")) {
-                    Log.w(TAG, "Groq falló con código ${response.code}, intentando failover a Claude...")
-                    return chatWithClaude(userText, skillRegistry)
+                    Log.w(TAG, "Groq agotado. Intentando failover a Claude...")
+                    val claudeResult = try {
+                        chatWithClaude(userText, skillRegistry)
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Claude failover error: ${e.message}")
+                        ""
+                    }
+                    if (claudeResult.isNotBlank() && !claudeResult.contains("error 401") && !claudeResult.contains("invalid x-api-key")) {
+                        return claudeResult
+                    }
                 }
+
                 if (response.code == 429) {
-                    return "Disculpe, el servicio de voz está recibiendo muchas consultas en este instante. Por favor espere un momento e intente preguntarme de nuevo."
+                    return "Disculpe, el servicio está procesando muchas consultas en este instante. Por favor pregúnteme nuevamente en unos segundos."
                 }
-                return "Disculpe, hubo un inconveniente con la API de Groq (error ${response.code}). Por favor intente nuevamente en unos instantes."
+                return "Disculpe, hubo un inconveniente de conexión con el motor de voz (error ${response.code})."
             }
 
             val json = JsonParser.parseString(body).asJsonObject
@@ -568,11 +592,18 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
                         lastSpokenFallback = result.spokenFeedback
                     }
 
+                    val compactData = result.data?.filterKeys {
+                        it in listOf(
+                            "destination", "distance_meters", "walking_minutes",
+                            "driving_minutes", "cardinalDirection", "title",
+                            "summary", "heading", "screen_opened", "success",
+                            "is_plural", "nearby_places"
+                        )
+                    }
                     val toolPayload = mapOf(
                         "success" to result.success,
                         "spoken_feedback" to result.spokenFeedback,
-                        "data" to result.data,
-                        "additional_data" to result.additionalData
+                        "data" to compactData
                     )
                     toolResultMessages.add(
                         mapOf(
@@ -587,7 +618,9 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
                 // Follow-up a Groq con los resultados de las herramientas para que formule una respuesta inteligente, concisa y contextual
                 val followUpMessages = mutableListOf<Any>()
                 followUpMessages.add(mapOf("role" to "system", "content" to enrichedSystemPrompt))
-                followUpMessages.addAll(conversationHistory)
+                // Limitar turnos previos a los últimos 4 para ahorrar tokens y no superar el límite de 7000 ITPM
+                val compactFollowUpHistory = conversationHistory.takeLast(4)
+                followUpMessages.addAll(compactFollowUpHistory)
                 followUpMessages.add(currentAssistantMessage)
                 followUpMessages.addAll(toolResultMessages)
 

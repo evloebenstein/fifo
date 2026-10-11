@@ -8,6 +8,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import android.content.Context
+import androidx.compose.ui.platform.LocalContext
 import com.fifo.voicepipeline.pipeline.MicSource
 import com.fifo.voicepipeline.pipeline.PipelineState
 import com.fifo.voicepipeline.ui.components.*
@@ -55,7 +57,12 @@ fun MainScreen(
     isMicMuted: Boolean = false,
     onToggleMicMute: () -> Unit = {}
 ) {
-    var currentFlowScreen by remember { mutableStateOf(AppFlowScreen.MAIN_APP) }
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("fifo_prefs", Context.MODE_PRIVATE) }
+    val hasCompletedSetup = remember { prefs.getBoolean("has_completed_setup", false) }
+    var currentFlowScreen by remember {
+        mutableStateOf(if (hasCompletedSetup) AppFlowScreen.MAIN_APP else AppFlowScreen.ONBOARDING)
+    }
     var currentTab by remember { mutableStateOf(FifoTab.HOME) }
     val userProfileState by com.fifo.voicepipeline.data.FifoDataRepository.userProfile.collectAsState()
     var userName by remember { mutableStateOf(userProfileState.fullName) }
@@ -90,6 +97,7 @@ fun MainScreen(
                 LoginScreen(
                     onLoginSuccess = { name ->
                         userName = name
+                        prefs.edit().putBoolean("has_completed_setup", true).apply()
                         currentFlowScreen = AppFlowScreen.MAIN_APP
                     },
                     onBackToWelcome = { currentFlowScreen = AppFlowScreen.WELCOME }
@@ -100,6 +108,7 @@ fun MainScreen(
                 OnboardingScreen(
                     onComplete = { name, _, _ ->
                         userName = name
+                        prefs.edit().putBoolean("has_completed_setup", true).apply()
                         currentFlowScreen = AppFlowScreen.MAIN_APP
                     },
                     onBack = { currentFlowScreen = AppFlowScreen.WELCOME }

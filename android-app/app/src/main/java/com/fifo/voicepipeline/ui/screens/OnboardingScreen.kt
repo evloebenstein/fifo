@@ -27,6 +27,7 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
 import com.fifo.voicepipeline.service.FifoAccessibilityService
+import com.fifo.voicepipeline.ui.components.BackgroundMicGuideDialog
 import com.fifo.voicepipeline.ui.components.CallAssistantGuideDialog
 import com.fifo.voicepipeline.ui.components.FifoFace
 import com.fifo.voicepipeline.ui.theme.FifoColors
@@ -60,6 +61,7 @@ fun OnboardingScreen(
 ) {
     var currentPhase by remember { mutableStateOf(SetupPhase.CREATE_ACCOUNT) }
     var showCallGuideDialogInSetup by remember { mutableStateOf(false) }
+    var showMicGuideDialogInSetup by remember { mutableStateOf(false) }
 
     // Datos recopilados en el Setup
     var fullName by remember { mutableStateOf("Lucía González") }
@@ -815,7 +817,87 @@ fun OnboardingScreen(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            // Tarjeta 1: Permisos Básicos (Micrófono, Teléfono, Bluetooth, GPS)
+            // ── Tarjeta 1: Micrófono Continuo 24/7 (Permitir Siempre) ──
+            Surface(
+                color = Color(0xFFF0F9FF),
+                shape = RoundedCornerShape(22.dp),
+                border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFF38BDF8)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .background(Color(0xFF0284C7), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(Icons.Default.Mic, contentDescription = null, tint = Color.White, modifier = Modifier.size(20.dp))
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "1. Micrófono Continuo 24/7",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = FifoColors.NavyPrimary
+                            )
+                            Text(
+                                text = "CLAVE · Configurar en 'Permitir siempre'",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF0284C7)
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Para que Fifo pueda escucharte y responderte al decir «Fifo» en cualquier momento —incluso con la pantalla apagada, en el bolsillo o mientras usas otras apps (como WhatsApp o el navegador)—, tu celular debe tener el micrófono en «Permitir siempre».",
+                        fontSize = 12.sp,
+                        color = FifoColors.NavyPrimary,
+                        lineHeight = 17.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Surface(
+                        color = Color(0xFFFEF3C7),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "⚠️ En celulares Xiaomi / POCO: El sistema silencia el micrófono al salir de la app si no configuras «Permitir siempre» e «Inicio automático».",
+                            fontSize = 11.sp,
+                            color = Color(0xFF92400E),
+                            lineHeight = 15.sp,
+                            modifier = Modifier.padding(8.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Button(
+                        onClick = { showMicGuideDialogInSetup = true },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7)),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Configurar Micrófono 'Permitir siempre' →",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // ── Tarjeta 2: Otras funciones básicas (Llamadas, GPS, Bluetooth) ──
             Surface(
                 color = Color.White,
                 shape = RoundedCornerShape(20.dp),
@@ -824,13 +906,13 @@ fun OnboardingScreen(
             ) {
                 Column(modifier = Modifier.padding(18.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Default.Mic, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(24.dp))
+                        Icon(Icons.Default.PhoneAndroid, contentDescription = null, tint = Color(0xFF64748B), modifier = Modifier.size(24.dp))
                         Spacer(modifier = Modifier.width(10.dp))
-                        Text("1. Funciones básicas del teléfono", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = FifoColors.NavyPrimary)
+                        Text("2. Otras funciones básicas del teléfono", fontSize = 15.sp, fontWeight = FontWeight.Bold, color = FifoColors.NavyPrimary)
                     }
                     Spacer(modifier = Modifier.height(10.dp))
                     Text(
-                        text = "• Micrófono: Para escuchar cuando le hablas.\n• Llamadas y Contactos: Para saber quién llama y contestar.\n• Bluetooth: Para conectar con tu robot Fifo.\n• Ubicación: Para decirte dónde estás o ayudarte.",
+                        text = "• Llamadas y Contactos: Para saber quién llama y contestar por voz.\n• Bluetooth: Para conectar con tu robot Fifo.\n• Ubicación: Para decirte dónde estás o guiarte a locales.",
                         fontSize = 12.sp,
                         color = FifoColors.LightTextSecondary,
                         lineHeight = 18.sp
@@ -1069,6 +1151,12 @@ fun OnboardingScreen(
         if (showCallGuideDialogInSetup) {
             CallAssistantGuideDialog(
                 onDismiss = { showCallGuideDialogInSetup = false }
+            )
+        }
+
+        if (showMicGuideDialogInSetup) {
+            BackgroundMicGuideDialog(
+                onDismiss = { showMicGuideDialogInSetup = false }
             )
         }
     }

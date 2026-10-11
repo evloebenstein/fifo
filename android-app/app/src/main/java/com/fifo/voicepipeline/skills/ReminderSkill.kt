@@ -48,26 +48,54 @@ class ReminderSkill(private val context: Context) : FifoSkill {
         val timeStr = args["time_str"]?.toString()?.trim() ?: "en un momento"
         val category = args["category"]?.toString()?.trim() ?: "hobby"
 
-        Log.i(TAG, "Guardando recordatorio: '$title' para las $timeStr (categoría: $category)")
+        // 1. Verificar si el recordatorio menciona un contacto del grafo relacional
+        var enrichedTitle = title
+        val foundContact = FifoDataRepository.findContactByRoleOrName(title)
+        if (foundContact != null && !title.contains(foundContact.contactName, ignoreCase = true)) {
+            enrichedTitle = "$title (${foundContact.contactName})"
+        }
 
-        // 1. Guardar en el repositorio central de datos (se refleja en la app de inmediato)
+        // 2. Verificar si coincide con una rutina diaria conocida
+        val matchingRoutine = FifoDataRepository.dailyRoutines.value.firstOrNull { routine ->
+            val normRoutine = routine.routineName.lowercase()
+            val normTitle = title.lowercase()
+            normTitle.contains(normRoutine) || normRoutine.contains(normTitle) ||
+            (normTitle.contains("presion") && normRoutine.contains("presion")) ||
+            (normTitle.contains("orquidea") && normRoutine.contains("orquidea")) ||
+            (normTitle.contains("caminata") && normRoutine.contains("caminata")) ||
+            (normTitle.contains("paseo") && normRoutine.contains("caminata"))
+        }
+
+        // 3. Guardar en el repositorio central de datos (se refleja en la app de inmediato)
         val item = FifoDataRepository.addReminder(
-            title = title,
+            title = enrichedTitle,
             timeStr = timeStr,
             category = category
         )
 
+        // Si coincide con una rutina, marcar reminderAssociated = true
+        if (matchingRoutine != null && !matchingRoutine.reminderAssociated) {
+            FifoDataRepository.addOrUpdateDailyRoutine(matchingRoutine.copy(reminderAssociated = true))
+        }
+
+        val routineNote = if (matchingRoutine != null) " como parte de su rutina habitual" else ""
+
         val spokenText = when (category) {
-            "medication" -> "Listo, ya le programé el recordatorio para $title a las $timeStr. Yo le avisaré con cariño para que no se le pase."
-            "family" -> "Anotado. A las $timeStr le recordaré $title."
-            "sport" -> "¡Excelente! Te he dejado agendado tu recordatorio para $title a las $timeStr."
-            else -> "Perfecto, le dejé programado su recordatorio de $title para las $timeStr."
+            "medication" -> "Listo, ya le programé el recordatorio para $enrichedTitle a las $timeStr$routineNote. Yo le avisaré con cariño para que no se le pase."
+            "family" -> "Anotado. A las $timeStr le recordaré $enrichedTitle$routineNote."
+            "sport", "health" -> "¡Excelente! Le he dejado agendado su recordatorio para $enrichedTitle a las $timeStr$routineNote."
+            else -> "Perfecto, le dejé programado su recordatorio de $enrichedTitle para las $timeStr$routineNote."
         }
 
         return SkillResult(
             success = true,
             spokenFeedback = spokenText,
-            data = mapOf("reminder_id" to item.id, "title" to title, "time" to timeStr)
+            data = mapOf(
+                "reminder_id" to item.id,
+                "title" to enrichedTitle,
+                "time" to timeStr,
+                "routine_linked" to (matchingRoutine?.routineName ?: "none")
+            )
         )
     }
 }

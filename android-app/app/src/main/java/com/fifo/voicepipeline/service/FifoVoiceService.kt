@@ -85,6 +85,8 @@ class FifoVoiceService : Service() {
         } catch (e: Exception) {
             Log.e(TAG, "Error adquiriendo WakeLock: ${e.message}")
         }
+
+        com.fifo.voicepipeline.location.FifoOrientationHelper.init(applicationContext)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -95,6 +97,7 @@ class FifoVoiceService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.i(TAG, "Deteniendo FifoVoiceService")
+        com.fifo.voicepipeline.location.FifoOrientationHelper.stop()
         try {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()

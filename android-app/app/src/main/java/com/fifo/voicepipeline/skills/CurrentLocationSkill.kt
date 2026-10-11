@@ -41,9 +41,9 @@ class CurrentLocationSkill(private val context: Context) : FifoSkill {
         val loc = FifoLocationHelper.getCurrentLocation(context)
 
         val spokenFeedback = if (loc.isGpsActive) {
-            "Estamos en ${loc.address}, en ${loc.city}. ¿Necesita que le indique cómo llegar a algún lugar?"
+            "Estamos en ${loc.address}, en ${loc.city}."
         } else {
-            "Según el registro de su domicilio, estamos en ${loc.address}, en ${loc.city}. Si desea mayor precisión en la calle, recuerde activar el GPS del teléfono."
+            "Según el registro de su domicilio, estamos en ${loc.address}, en ${loc.city}."
         }
 
         return SkillResult(

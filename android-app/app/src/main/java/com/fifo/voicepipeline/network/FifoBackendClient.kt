@@ -43,8 +43,11 @@ object FifoBackendClient {
         val reminders: List<FifoReminderItem>,
         val pastConversations: List<PastConversationItem>,
         val conversationFragments: List<ConversationFragment>,
-        val deviceLocation: FifoDeviceLocation?
+        val deviceLocation: FifoDeviceLocation?,
+        val relationalContacts: List<RelationalContact>? = null,
+        val dailyRoutines: List<DailyRoutine>? = null
     )
+
 
     suspend fun checkHealth(): Boolean = withContext(Dispatchers.IO) {
         if (tryHealth(baseUrl)) return@withContext true
@@ -190,13 +193,46 @@ object FifoBackendClient {
                 val devLoc = devObj?.let {
                     FifoDeviceLocation(
                         isConnected = it.optBoolean("isConnected", false),
-                        lastConnectedTime = it.optString("lastConnectedTime", "Hoy"),
-                        lastKnownLatitude = it.optDouble("lastKnownLatitude", -33.4255),
-                        lastKnownLongitude = it.optDouble("lastKnownLongitude", -70.6143),
-                        lastKnownAddress = it.optString("lastKnownAddress", ""),
-                        lastKnownRoom = it.optString("lastKnownRoom", ""),
-                        signalStrengthRssi = it.optInt("signalStrengthRssi", -64),
+                        lastConnectedTime = it.optString("lastConnectedTime", "Desconectado"),
+                        lastKnownLatitude = it.optDouble("lastKnownLatitude", 0.0),
+                        lastKnownLongitude = it.optDouble("lastKnownLongitude", 0.0),
+                        lastKnownAddress = it.optString("lastKnownAddress", "Sin registro de ubicación"),
+                        lastKnownRoom = it.optString("lastKnownRoom", "Sin registrar"),
+                        signalStrengthRssi = it.optInt("signalStrengthRssi", 0),
                         isBeeping = it.optBoolean("isBeeping", false)
+                    )
+                }
+
+                val contactsArr = root.optJSONArray("relationalContacts") ?: JSONArray()
+                val relationalContacts = (0 until contactsArr.length()).map { idx ->
+                    val c = contactsArr.getJSONObject(idx)
+                    RelationalContact(
+                        id = c.optString("id"),
+                        contactName = c.optString("contactName"),
+                        phoneNumber = if (c.isNull("phoneNumber")) null else c.optString("phoneNumber"),
+                        relationshipRole = c.optString("relationshipRole"),
+                        closenessScore = c.optDouble("closenessScore", 0.5).toFloat(),
+                        trustTier = c.optInt("trustTier", 2),
+                        emotionalValence = c.optString("emotionalValence", "afectuoso"),
+                        contextualMemory = if (c.isNull("contextualMemory")) null else c.optString("contextualMemory"),
+                        mentionCount = c.optInt("mentionCount", 1),
+                        lastMentionedAt = c.optString("lastMentionedAt", "")
+                    )
+                }
+
+                val routinesArr = root.optJSONArray("dailyRoutines") ?: JSONArray()
+                val dailyRoutines = (0 until routinesArr.length()).map { idx ->
+                    val r = routinesArr.getJSONObject(idx)
+                    DailyRoutine(
+                        id = r.optString("id"),
+                        routineName = r.optString("routineName"),
+                        category = r.optString("category", "medication"),
+                        timeAnchor = r.optString("timeAnchor", "morning"),
+                        typicalTimeStr = if (r.isNull("typicalTimeStr")) null else r.optString("typicalTimeStr"),
+                        frequencyRule = r.optString("frequencyRule", "daily"),
+                        confidenceScore = r.optDouble("confidenceScore", 0.8).toFloat(),
+                        notes = if (r.isNull("notes")) null else r.optString("notes"),
+                        isActive = r.optBoolean("isActive", true)
                     )
                 }
 
@@ -210,7 +246,9 @@ object FifoBackendClient {
                     reminders = reminders,
                     pastConversations = pastConvs,
                     conversationFragments = fragments,
-                    deviceLocation = devLoc
+                    deviceLocation = devLoc,
+                    relationalContacts = relationalContacts,
+                    dailyRoutines = dailyRoutines
                 )
             }
         } catch (e: Exception) {
@@ -218,6 +256,39 @@ object FifoBackendClient {
             null
         }
     }
+
+    suspend fun analyzeAndConsolidateSession(
+        userId: String,
+        turns: List<Pair<String, String>>,
+        durationSeconds: Int = 180,
+        primaryTag: String = "Conversación"
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val jsonTurns = JSONArray()
+            turns.forEach { (speaker, text) ->
+                jsonTurns.put(JSONObject().apply {
+                    put("role", speaker)
+                    put("text", text)
+                })
+            }
+            val payload = JSONObject().apply {
+                put("turns", jsonTurns)
+                put("duration_seconds", durationSeconds)
+                put("primary_tag", primaryTag)
+            }
+            val req = Request.Builder()
+                .url("$baseUrl/users/$userId/conversations/analyze-and-consolidate")
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                resp.isSuccessful
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Error enviando sesión para consolidación profunda: ${e.message}")
+            false
+        }
+    }
+
 
     private fun parseSocialPosts(arr: JSONArray): List<UserSocialPost> {
         return (0 until arr.length()).map { idx ->
@@ -290,6 +361,30 @@ object FifoBackendClient {
             put("emoji", emoji)
             put("title", title)
             put("detail", detail)
+        })
+
+    suspend fun postRelationalContact(userId: String, contact: RelationalContact) =
+        postOrPatchJson("$baseUrl/users/$userId/contacts-relational", "POST", JSONObject().apply {
+            put("contact_name", contact.contactName)
+            contact.phoneNumber?.let { put("phone_number", it) }
+            put("relationship_role", contact.relationshipRole)
+            put("closeness_score", contact.closenessScore.toDouble())
+            put("trust_tier", contact.trustTier)
+            put("emotional_valence", contact.emotionalValence)
+            contact.contextualMemory?.let { put("contextual_memory", it) }
+            contact.alias?.let { put("alias", it) }
+        })
+
+    suspend fun postDailyRoutine(userId: String, routine: DailyRoutine) =
+        postOrPatchJson("$baseUrl/users/$userId/daily-routines", "POST", JSONObject().apply {
+            put("routine_name", routine.routineName)
+            put("time_period", routine.timeAnchor)
+            routine.typicalTimeStr?.let { put("preferred_time", it) }
+            put("frequency", routine.frequencyRule)
+            put("confidence_score", routine.confidenceScore.toDouble())
+            put("action_category", routine.category)
+            routine.notes?.let { put("description", it) }
+            put("reminder_associated", routine.reminderAssociated)
         })
 
     suspend fun patchReminderComplete(reminderId: String) =

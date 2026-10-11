@@ -231,10 +231,10 @@ CREATE TABLE IF NOT EXISTS device_locations (
     user_id VARCHAR(64) NOT NULL,
     is_connected TINYINT(1) NOT NULL DEFAULT 0,
     last_connected_time VARCHAR(80) NOT NULL DEFAULT 'Desconectado',
-    last_known_latitude DOUBLE NOT NULL DEFAULT -33.4255,
-    last_known_longitude DOUBLE NOT NULL DEFAULT -70.6143,
-    last_known_address VARCHAR(255) NOT NULL DEFAULT 'Av. Providencia 1234, Santiago',
-    last_known_room VARCHAR(120) NOT NULL DEFAULT 'Cerca del Living / Mesa de noche',
+    last_known_latitude DOUBLE NOT NULL DEFAULT 0.0,
+    last_known_longitude DOUBLE NOT NULL DEFAULT 0.0,
+    last_known_address VARCHAR(255) NOT NULL DEFAULT 'Sin registro de ubicación',
+    last_known_room VARCHAR(120) NOT NULL DEFAULT 'Sin registrar',
     signal_strength_rssi INT NOT NULL DEFAULT -64,
     is_beeping TINYINT(1) NOT NULL DEFAULT 0,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -281,6 +281,76 @@ CREATE TABLE IF NOT EXISTS activity_participants (
     PRIMARY KEY (activity_id, user_id),
     CONSTRAINT fk_act_part_activity FOREIGN KEY (activity_id) REFERENCES community_activities(id) ON DELETE CASCADE,
     CONSTRAINT fk_act_part_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_es_0900_ai_ci;
+
+-- -----------------------------------------------------------------------------
+-- 2.11. Tabla: user_contacts_relational (Grafo Social & Mapeo de Cercanía)
+-- Modela la red relacional del usuario con roles, grado de cercanía (0.0 a 1.0),
+-- nivel de confianza, valencia emocional y notas episódicas de contexto.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_contacts_relational (
+    id VARCHAR(64) NOT NULL PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL,
+    contact_name VARCHAR(120) NOT NULL COMMENT 'Nombre del contacto (ej: Carmen González, Dr. Pérez)',
+    phone_number VARCHAR(40) NULL DEFAULT NULL COMMENT 'Número telefónico',
+    relationship_role VARCHAR(100) NOT NULL COMMENT 'Rol relacional (ej: Hija mayor, Médico cardiólogo, Vecina de confianza)',
+    closeness_score FLOAT NOT NULL DEFAULT 0.5 COMMENT 'Puntaje de cercanía 0.0 (conocido lejano) a 1.0 (máxima intimidad y apoyo)',
+    trust_tier TINYINT UNSIGNED NOT NULL DEFAULT 2 COMMENT '1 = Emergencia vital/Tutor, 2 = Familia directa/Médico, 3 = Amigos cercanos, 4 = Servicios/Ocasional',
+    emotional_valence VARCHAR(60) NOT NULL DEFAULT 'afectuoso' COMMENT 'afectuoso, protector, preocupacion, neutral',
+    contextual_memory TEXT NULL DEFAULT NULL COMMENT 'Notas de contexto aprendidas de charlas pasadas (ej: Llama los domingos, vive en Viña)',
+    mention_count INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Frecuencia acumulada de menciones en conversaciones',
+    last_mentioned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_contacts_user_closeness (user_id, closeness_score DESC),
+    INDEX idx_contacts_user_role (user_id, relationship_role),
+    CONSTRAINT fk_contacts_rel_user
+        FOREIGN KEY (user_id) REFERENCES users(id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_es_0900_ai_ci;
+
+-- -----------------------------------------------------------------------------
+-- 2.12. Tabla: user_daily_routines (Patrones y Hábitos de Vida Diaria)
+-- Registra rutinas circadianas (mañana, mediodía, tarde, noche) detectadas
+-- a partir de diálogos continuos y actividades.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS user_daily_routines (
+    id VARCHAR(64) NOT NULL PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL,
+    routine_name VARCHAR(160) NOT NULL COMMENT 'Nombre del hábito (ej: Toma de pastilla de presión en la mañana)',
+    category VARCHAR(60) NOT NULL DEFAULT 'medication' COMMENT 'medication, exercise, meal, social, rest, hobby',
+    time_anchor VARCHAR(40) NOT NULL DEFAULT 'morning' COMMENT 'morning, noon, afternoon, evening, night',
+    typical_time_str VARCHAR(40) NULL DEFAULT NULL COMMENT 'Hora habitual estimada (ej: 08:30)',
+    frequency_rule VARCHAR(60) NOT NULL DEFAULT 'daily' COMMENT 'daily, weekdays, weekly, after_meals',
+    confidence_score FLOAT NOT NULL DEFAULT 0.8 COMMENT 'Confianza estadística del patrón (0.0 a 1.0)',
+    last_observed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT NULL DEFAULT NULL COMMENT 'Detalles del contexto (ej: Suele tomarla con un té)',
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_routines_user_anchor (user_id, time_anchor),
+    CONSTRAINT fk_routines_user
+        FOREIGN KEY (user_id) REFERENCES users(id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_es_0900_ai_ci;
+
+-- -----------------------------------------------------------------------------
+-- 2.13. Tabla: routine_anomalies (Desviaciones o Rupturas de Patrón)
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS routine_anomalies (
+    id VARCHAR(64) NOT NULL PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL,
+    routine_id VARCHAR(64) NULL DEFAULT NULL,
+    anomaly_description TEXT NOT NULL COMMENT 'Descripción de la anomalía observada',
+    detected_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    severity VARCHAR(40) NOT NULL DEFAULT 'low' COMMENT 'low, medium, high',
+    is_acknowledged TINYINT(1) NOT NULL DEFAULT 0,
+    CONSTRAINT fk_anomalies_user
+        FOREIGN KEY (user_id) REFERENCES users(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_anomalies_routine
+        FOREIGN KEY (routine_id) REFERENCES user_daily_routines(id)
+        ON DELETE SET NULL ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_es_0900_ai_ci;
 
 -- -----------------------------------------------------------------------------

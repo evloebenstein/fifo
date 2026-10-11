@@ -26,7 +26,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
     companion object {
         private const val TAG = "FifoDatabaseHelper"
         private const val DATABASE_NAME = "fifo_local.db"
-        private const val DATABASE_VERSION = 2
+        private const val DATABASE_VERSION = 3
         private val gson = Gson()
 
         @Volatile
@@ -206,7 +206,43 @@ class FifoDatabaseHelper private constructor(context: Context) :
             )
         """.trimIndent())
 
-        // Sembrar datos iniciales (Lucía González)
+        // 11. user_contacts_relational (grafo social & cercanía)
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS user_contacts_relational (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                contact_name TEXT NOT NULL,
+                phone_number TEXT,
+                relationship_role TEXT NOT NULL,
+                closeness_score REAL NOT NULL DEFAULT 0.5,
+                trust_tier INTEGER NOT NULL DEFAULT 2,
+                emotional_valence TEXT NOT NULL DEFAULT 'afectuoso',
+                contextual_memory TEXT,
+                mention_count INTEGER NOT NULL DEFAULT 1,
+                last_mentioned_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """.trimIndent())
+
+        // 12. user_daily_routines (hábitos y rutinas circadianas)
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS user_daily_routines (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                routine_name TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'medication',
+                time_anchor TEXT NOT NULL DEFAULT 'morning',
+                typical_time_str TEXT,
+                frequency_rule TEXT NOT NULL DEFAULT 'daily',
+                confidence_score REAL NOT NULL DEFAULT 0.8,
+                notes TEXT,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                last_observed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """.trimIndent())
+
+        // Sembrar datos iniciales
         seedInitialData(db)
     }
 
@@ -228,6 +264,40 @@ class FifoDatabaseHelper private constructor(context: Context) :
                 )
             """.trimIndent())
         }
+        if (oldVersion < 3) {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS user_contacts_relational (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    contact_name TEXT NOT NULL,
+                    phone_number TEXT,
+                    relationship_role TEXT NOT NULL,
+                    closeness_score REAL NOT NULL DEFAULT 0.5,
+                    trust_tier INTEGER NOT NULL DEFAULT 2,
+                    emotional_valence TEXT NOT NULL DEFAULT 'afectuoso',
+                    contextual_memory TEXT,
+                    mention_count INTEGER NOT NULL DEFAULT 1,
+                    last_mentioned_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS user_daily_routines (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    routine_name TEXT NOT NULL,
+                    category TEXT NOT NULL DEFAULT 'medication',
+                    time_anchor TEXT NOT NULL DEFAULT 'morning',
+                    typical_time_str TEXT,
+                    frequency_rule TEXT NOT NULL DEFAULT 'daily',
+                    confidence_score REAL NOT NULL DEFAULT 0.8,
+                    notes TEXT,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    last_observed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+                )
+            """.trimIndent())
+        }
     }
 
     override fun onOpen(db: SQLiteDatabase) {
@@ -246,7 +316,40 @@ class FifoDatabaseHelper private constructor(context: Context) :
                 recorded_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """.trimIndent())
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS user_contacts_relational (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                contact_name TEXT NOT NULL,
+                phone_number TEXT,
+                relationship_role TEXT NOT NULL,
+                closeness_score REAL NOT NULL DEFAULT 0.5,
+                trust_tier INTEGER NOT NULL DEFAULT 2,
+                emotional_valence TEXT NOT NULL DEFAULT 'afectuoso',
+                contextual_memory TEXT,
+                mention_count INTEGER NOT NULL DEFAULT 1,
+                last_mentioned_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """.trimIndent())
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS user_daily_routines (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                routine_name TEXT NOT NULL,
+                category TEXT NOT NULL DEFAULT 'medication',
+                time_anchor TEXT NOT NULL DEFAULT 'morning',
+                typical_time_str TEXT,
+                frequency_rule TEXT NOT NULL DEFAULT 'daily',
+                confidence_score REAL NOT NULL DEFAULT 0.8,
+                notes TEXT,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                last_observed_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """.trimIndent())
     }
+
 
     private fun seedInitialData(db: SQLiteDatabase) {
         val userId = "usr_lucia_01"
@@ -311,6 +414,18 @@ class FifoDatabaseHelper private constructor(context: Context) :
 
         // Dispositivo
         db.execSQL("INSERT OR IGNORE INTO device_locations (device_id, user_id, is_connected, last_connected_time, last_known_latitude, last_known_longitude, last_known_address, last_known_room) VALUES ('FIFO-S3-ESP32', '$userId', 0, 'Desconectado', -33.4255, -70.6143, 'Av. Providencia 1234, Santiago', 'Cerca del Living / Mesa de noche')")
+
+        // 11. Grafo Social y Contactos Relacionales Iniciales
+        db.execSQL("INSERT OR IGNORE INTO user_contacts_relational (id, user_id, contact_name, phone_number, relationship_role, closeness_score, trust_tier, emotional_valence, contextual_memory, mention_count) VALUES ('ctc_rel_01', '$userId', 'Carmen González', '+56987654321', 'Hija mayor (contacto prioritario de apoyo)', 0.98, 1, 'afectuoso', 'Llama los domingos por la tarde y suele visitarla cada dos semanas. La acompaña a controles médicos.', 14)")
+        db.execSQL("INSERT OR IGNORE INTO user_contacts_relational (id, user_id, contact_name, phone_number, relationship_role, closeness_score, trust_tier, emotional_valence, contextual_memory, mention_count) VALUES ('ctc_rel_02', '$userId', 'Dr. Álvaro Muñoz', '+56922334455', 'Médico geriatra de cabecera', 0.85, 2, 'protector', 'Controla la presión arterial y receta Enalapril. Atiende en el centro médico cercano.', 6)")
+        db.execSQL("INSERT OR IGNORE INTO user_contacts_relational (id, user_id, contact_name, phone_number, relationship_role, closeness_score, trust_tier, emotional_valence, contextual_memory, mention_count) VALUES ('ctc_rel_03', '$userId', 'Rosa Martínez', '+56933445566', 'Vecina de confianza y amiga', 0.78, 3, 'afectuoso', 'Vecina del departamento del frente. Toman té y comparten esquejes de plantas y recetas caseras.', 8)")
+        db.execSQL("INSERT OR IGNORE INTO user_contacts_relational (id, user_id, contact_name, phone_number, relationship_role, closeness_score, trust_tier, emotional_valence, contextual_memory, mention_count) VALUES ('ctc_rel_04', '$userId', 'Tomás', '+56944556677', 'Nieto universitario', 0.92, 2, 'afectuoso', 'Estudia ingeniería y la visita los fines de semana. Le gusta que su abuela le prepare queque de limón.', 5)")
+
+        // 12. Rutinas y Hábitos de Vida Diaria Iniciales
+        db.execSQL("INSERT OR IGNORE INTO user_daily_routines (id, user_id, routine_name, category, time_anchor, typical_time_str, frequency_rule, confidence_score, notes) VALUES ('rtn_01', '$userId', 'Toma de medicamento de la presión (Enalapril)', 'medication', 'morning', '08:30', 'daily', 0.95, 'Tomar junto con el desayuno y un vaso de agua.')")
+        db.execSQL("INSERT OR IGNORE INTO user_daily_routines (id, user_id, routine_name, category, time_anchor, typical_time_str, frequency_rule, confidence_score, notes) VALUES ('rtn_02', '$userId', 'Cuidado y riego de orquídeas en el balcón', 'hobby', 'morning', '10:00', 'weekly', 0.85, 'Riego por inmersión los días miércoles mientras escucha música clásica.')")
+        db.execSQL("INSERT OR IGNORE INTO user_daily_routines (id, user_id, routine_name, category, time_anchor, typical_time_str, frequency_rule, confidence_score, notes) VALUES ('rtn_03', '$userId', 'Caminata suave por la plaza', 'exercise', 'afternoon', '16:30', 'weekdays', 0.80, 'Paseo de 20 a 30 minutos cuando baja el sol.')")
+        db.execSQL("INSERT OR IGNORE INTO user_daily_routines (id, user_id, routine_name, category, time_anchor, typical_time_str, frequency_rule, confidence_score, notes) VALUES ('rtn_04', '$userId', 'Llamada familiar de los domingos', 'social', 'evening', '18:00', 'weekly', 0.90, 'Conversación habitual con su hija Carmen.')")
     }
 
     private fun insertSeedStory(db: SQLiteDatabase, userId: String, id: String, title: String, subtitle: String, desc: String, tags: List<String>, icon: String, source: String) {
@@ -326,6 +441,94 @@ class FifoDatabaseHelper private constructor(context: Context) :
         }
         db.insertWithOnConflict("taste_stories", null, cv, SQLiteDatabase.CONFLICT_IGNORE)
     }
+
+    // ══════════════════════════════════════════════════════════
+    //  LECTURAS Y ESCRITURAS DE CONTACTOS RELACIONALES Y RUTINAS
+    // ══════════════════════════════════════════════════════════
+
+    fun getRelationalContacts(userId: String = "usr_lucia_01"): List<RelationalContact> {
+        val list = mutableListOf<RelationalContact>()
+        readableDatabase.rawQuery(
+            "SELECT id, contact_name, phone_number, relationship_role, closeness_score, trust_tier, emotional_valence, contextual_memory, mention_count, last_mentioned_at FROM user_contacts_relational WHERE user_id = ? ORDER BY closeness_score DESC, mention_count DESC",
+            arrayOf(userId)
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                list.add(
+                    RelationalContact(
+                        id = cursor.getString(0) ?: "",
+                        contactName = cursor.getString(1) ?: "",
+                        phoneNumber = cursor.getString(2),
+                        relationshipRole = cursor.getString(3) ?: "",
+                        closenessScore = cursor.getFloat(4),
+                        trustTier = cursor.getInt(5),
+                        emotionalValence = cursor.getString(6) ?: "afectuoso",
+                        contextualMemory = cursor.getString(7),
+                        mentionCount = cursor.getInt(8),
+                        lastMentionedAt = cursor.getString(9) ?: ""
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun addOrUpdateRelationalContact(userId: String = "usr_lucia_01", contact: RelationalContact) {
+        val cv = ContentValues().apply {
+            put("id", contact.id.ifBlank { "ctc_rel_${UUID.randomUUID().toString().take(8)}" })
+            put("user_id", userId)
+            put("contact_name", contact.contactName)
+            put("phone_number", contact.phoneNumber)
+            put("relationship_role", contact.relationshipRole)
+            put("closeness_score", contact.closenessScore)
+            put("trust_tier", contact.trustTier)
+            put("emotional_valence", contact.emotionalValence)
+            put("contextual_memory", contact.contextualMemory)
+            put("mention_count", contact.mentionCount)
+        }
+        writableDatabase.insertWithOnConflict("user_contacts_relational", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    fun getDailyRoutines(userId: String = "usr_lucia_01"): List<DailyRoutine> {
+        val list = mutableListOf<DailyRoutine>()
+        readableDatabase.rawQuery(
+            "SELECT id, routine_name, category, time_anchor, typical_time_str, frequency_rule, confidence_score, notes, is_active FROM user_daily_routines WHERE user_id = ? AND is_active = 1 ORDER BY typical_time_str ASC, confidence_score DESC",
+            arrayOf(userId)
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                list.add(
+                    DailyRoutine(
+                        id = cursor.getString(0) ?: "",
+                        routineName = cursor.getString(1) ?: "",
+                        category = cursor.getString(2) ?: "medication",
+                        timeAnchor = cursor.getString(3) ?: "morning",
+                        typicalTimeStr = cursor.getString(4),
+                        frequencyRule = cursor.getString(5) ?: "daily",
+                        confidenceScore = cursor.getFloat(6),
+                        notes = cursor.getString(7),
+                        isActive = cursor.getInt(8) == 1
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun addOrUpdateDailyRoutine(userId: String = "usr_lucia_01", routine: DailyRoutine) {
+        val cv = ContentValues().apply {
+            put("id", routine.id.ifBlank { "rtn_${UUID.randomUUID().toString().take(8)}" })
+            put("user_id", userId)
+            put("routine_name", routine.routineName)
+            put("category", routine.category)
+            put("time_anchor", routine.timeAnchor)
+            put("typical_time_str", routine.typicalTimeStr)
+            put("frequency_rule", routine.frequencyRule)
+            put("confidence_score", routine.confidenceScore)
+            put("notes", routine.notes)
+            put("is_active", if (routine.isActive) 1 else 0)
+        }
+        writableDatabase.insertWithOnConflict("user_daily_routines", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
 
     // ══════════════════════════════════════════════════════════
     //  LECTURAS Y ESCRITURAS DE USUARIO
@@ -597,8 +800,8 @@ class FifoDatabaseHelper private constructor(context: Context) :
                     lastConnectedTime = cur.getString(1) ?: "Desconectado",
                     lastKnownLatitude = cur.getDouble(2),
                     lastKnownLongitude = cur.getDouble(3),
-                    lastKnownAddress = cur.getString(4) ?: "Av. Providencia 1234, Santiago",
-                    lastKnownRoom = cur.getString(5) ?: "Cerca del Living / Mesa de noche",
+                    lastKnownAddress = cur.getString(4) ?: "Sin registro de ubicación",
+                    lastKnownRoom = cur.getString(5) ?: "Sin registrar",
                     signalStrengthRssi = cur.getInt(6),
                     isBeeping = cur.getInt(7) == 1
                 )
@@ -794,6 +997,16 @@ class FifoDatabaseHelper private constructor(context: Context) :
                 updateDeviceLocation("FIFO-S3-ESP32", it, userId)
             }
 
+            // 10. Contactos relacionales
+            bundle.relationalContacts?.forEach { ctc ->
+                addOrUpdateRelationalContact(userId, ctc)
+            }
+
+            // 11. Rutinas diarias
+            bundle.dailyRoutines?.forEach { rtn ->
+                addOrUpdateDailyRoutine(userId, rtn)
+            }
+
             db.setTransactionSuccessful()
             Log.i(TAG, "Bundle remoto sincronizado exitosamente en SQLite local para $userId")
         } catch (e: Exception) {
@@ -801,5 +1014,6 @@ class FifoDatabaseHelper private constructor(context: Context) :
         } finally {
             db.endTransaction()
         }
+
     }
 }

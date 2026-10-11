@@ -49,6 +49,10 @@ object FifoDataRepository {
             if (localConvs.isNotEmpty()) _conversations.value = localConvs
             val localFrags = helper.getConversationFragments()
             if (localFrags.isNotEmpty()) _conversationFragments.value = localFrags
+            val localRelContacts = helper.getRelationalContacts()
+            if (localRelContacts.isNotEmpty()) _relationalContacts.value = localRelContacts
+            val localRoutines = helper.getDailyRoutines()
+            if (localRoutines.isNotEmpty()) _dailyRoutines.value = localRoutines
             _deviceLocation.value = helper.getDeviceLocation()
             android.util.Log.i("FifoDataRepository", "Base de datos relacional SQLite cargada con éxito en el dispositivo")
 
@@ -81,6 +85,8 @@ object FifoDataRepository {
                     if (bundle.reminders.isNotEmpty()) _reminders.value = bundle.reminders
                     if (bundle.pastConversations.isNotEmpty()) _conversations.value = bundle.pastConversations
                     if (bundle.conversationFragments.isNotEmpty()) _conversationFragments.value = bundle.conversationFragments
+                    bundle.relationalContacts?.let { if (it.isNotEmpty()) _relationalContacts.value = it }
+                    bundle.dailyRoutines?.let { if (it.isNotEmpty()) _dailyRoutines.value = it }
                     bundle.deviceLocation?.let { _deviceLocation.value = it }
                     android.util.Log.i("FifoDataRepository", "Sincronización remota completada con Docker/MySQL")
                 }
@@ -311,6 +317,120 @@ object FifoDataRepository {
     )
     val conversations: StateFlow<List<PastConversationItem>> = _conversations.asStateFlow()
 
+    // ── 8. Grafo Relacional de Contactos Cercanos ───────────────
+    private val _relationalContacts = MutableStateFlow(
+        listOf(
+            RelationalContact(
+                id = "c_carmen",
+                contactName = "Carmen González",
+                phoneNumber = "+56987654321",
+                relationshipRole = "Hija mayor",
+                closenessScore = 0.98f,
+                trustTier = 1,
+                emotionalValence = "afectuoso_protector",
+                lastMentionedAt = "Hoy",
+                mentionCount = 14,
+                contextualMemory = "Hija mayor de Lucía. Hablan por teléfono casi todas las tardes a las 17:30. Es el contacto principal de emergencia y apoyo.",
+                alias = "hija"
+            ),
+            RelationalContact(
+                id = "c_dr_munoz",
+                contactName = "Dr. Roberto Muñoz",
+                phoneNumber = "+56912345678",
+                relationshipRole = "Cardiólogo de cabecera",
+                closenessScore = 0.85f,
+                trustTier = 2,
+                emotionalValence = "respeto_salud",
+                lastMentionedAt = "Ayer",
+                mentionCount = 6,
+                contextualMemory = "Médico cardiólogo en el Hospital Salvador. Controla la presión arterial y receta Enalapril 10mg cada noche.",
+                alias = "doctor"
+            ),
+            RelationalContact(
+                id = "c_rosa",
+                contactName = "Rosa Martínez",
+                phoneNumber = "+56923456789",
+                relationshipRole = "Amiga íntima y vecina",
+                closenessScore = 0.82f,
+                trustTier = 3,
+                emotionalValence = "afectuoso_companerismo",
+                lastMentionedAt = "Hace 3 días",
+                mentionCount = 8,
+                contextualMemory = "Vecina de toda la vida y amiga de tejido. Se juntan en las tardes a tomar té y compartir esquejes de plantas.",
+                alias = "amiga"
+            ),
+            RelationalContact(
+                id = "c_tomas",
+                contactName = "Tomás",
+                phoneNumber = "+56934567890",
+                relationshipRole = "Nieto estudiante",
+                closenessScore = 0.90f,
+                trustTier = 1,
+                emotionalValence = "gran_afecto",
+                lastMentionedAt = "Hace 2 días",
+                mentionCount = 9,
+                contextualMemory = "Nieto favorito de Lucía, estudiante de universidad. La visita los domingos y Lucía le enseña a escuchar piano.",
+                alias = "nieto"
+            )
+        )
+    )
+    val relationalContacts: StateFlow<List<RelationalContact>> = _relationalContacts.asStateFlow()
+
+    // ── 9. Rutinas Diarias y Patrones de Actividad ───────────────
+    private val _dailyRoutines = MutableStateFlow(
+        listOf(
+            DailyRoutine(
+                id = "r_medication_night",
+                routineName = "Pastilla de la presión (Enalapril)",
+                timeAnchor = "night",
+                typicalTimeStr = "20:00",
+                frequencyRule = "daily",
+                confidenceScore = 0.99f,
+                category = "medication",
+                notes = "Toma de medicamento antihipertensivo Enalapril 10mg con un vaso de agua antes de cenar.",
+                isActive = true,
+                reminderAssociated = true
+            ),
+            DailyRoutine(
+                id = "r_orchids_morning",
+                routineName = "Cuidado de orquídeas en el balcón",
+                timeAnchor = "morning",
+                typicalTimeStr = "09:30",
+                frequencyRule = "miercoles",
+                confidenceScore = 0.88f,
+                category = "hobby",
+                notes = "Riego por inmersión de sus 4 maceteros de orquídeas y limpieza de hojas con paño suave escuchando radio.",
+                isActive = true,
+                reminderAssociated = false
+            ),
+            DailyRoutine(
+                id = "r_morning_walk",
+                routineName = "Caminata matutina por la plaza",
+                timeAnchor = "morning",
+                typicalTimeStr = "11:00",
+                frequencyRule = "daily",
+                confidenceScore = 0.92f,
+                category = "exercise",
+                notes = "Paseo a paso suave de 15 a 20 minutos por la plaza con sombra para respirar aire fresco.",
+                isActive = true,
+                reminderAssociated = true
+            ),
+            DailyRoutine(
+                id = "r_daughter_call",
+                routineName = "Llamada diaria con Carmen",
+                timeAnchor = "evening",
+                typicalTimeStr = "17:30",
+                frequencyRule = "daily",
+                confidenceScore = 0.95f,
+                category = "social",
+                notes = "Llamada telefónica habitual con su hija mayor Carmen para saber cómo estuvo su jornada.",
+                isActive = true,
+                reminderAssociated = true
+            )
+        )
+    )
+    val dailyRoutines: StateFlow<List<DailyRoutine>> = _dailyRoutines.asStateFlow()
+
     // ══════════════════════════════════════════════════════════
     //  MUTACIONES (Llamadas por los Skills de Fifo o por la UI)
     // ══════════════════════════════════════════════════════════
@@ -534,6 +654,97 @@ object FifoDataRepository {
     }
 
     // ══════════════════════════════════════════════════════════════
+    //  GESTIÓN DEL GRAFO RELACIONAL Y PATRONES DE RUTINA
+    // ══════════════════════════════════════════════════════════════
+
+    /**
+     * Agrega o actualiza un contacto en el grafo relacional de vínculos cercanos.
+     */
+    fun addOrUpdateRelationalContact(contact: RelationalContact) {
+        val current = _relationalContacts.value.toMutableList()
+        val idx = current.indexOfFirst {
+            it.id == contact.id ||
+            (it.contactName.equals(contact.contactName, ignoreCase = true) && it.phoneNumber == contact.phoneNumber)
+        }
+        if (idx >= 0) {
+            current[idx] = contact
+        } else {
+            current.add(contact)
+        }
+        _relationalContacts.value = current.sortedByDescending { it.closenessScore }
+        dbHelper?.addOrUpdateRelationalContact(_userProfile.value.id, contact)
+        repositoryScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.postRelationalContact(_userProfile.value.id, contact)
+        }
+    }
+
+    /**
+     * Resuelve un contacto por su rol relacional, apodo o nombre (ej: "hija", "doctor", "Rosa", "Tomás").
+     * Ordena las coincidencias por nivel de cercanía (closeness_score) descendente.
+     */
+    fun findContactByRoleOrName(query: String): RelationalContact? {
+        val q = query.lowercase().trim()
+        val normalizedQ = java.text.Normalizer.normalize(q, java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+
+        val list = _relationalContacts.value
+
+        // 1. Coincidencia exacta de apodo, rol o nombre completo
+        list.firstOrNull { c ->
+            val cName = java.text.Normalizer.normalize(c.contactName.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+            val cRole = java.text.Normalizer.normalize(c.relationshipRole.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+            val cAlias = c.alias?.let { java.text.Normalizer.normalize(it.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "") } ?: ""
+            normalizedQ == cName || normalizedQ == cRole || normalizedQ == cAlias
+        }?.let { return it }
+
+        // 2. Coincidencia parcial o semántica ordenada por mayor cercanía emocional y confianza
+        return list.sortedByDescending { it.closenessScore }.firstOrNull { c ->
+            val cName = java.text.Normalizer.normalize(c.contactName.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+            val cRole = java.text.Normalizer.normalize(c.relationshipRole.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+            val cAlias = c.alias?.let { java.text.Normalizer.normalize(it.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "") } ?: ""
+
+            cName.contains(normalizedQ) || normalizedQ.contains(cName) ||
+            cRole.contains(normalizedQ) || normalizedQ.contains(cRole) ||
+            (cAlias.isNotBlank() && (cAlias.contains(normalizedQ) || normalizedQ.contains(cAlias))) ||
+            (normalizedQ.contains("hija") && cRole.contains("hija")) ||
+            (normalizedQ.contains("hijo") && cRole.contains("hijo")) ||
+            (normalizedQ.contains("doctor") && (cRole.contains("doctor") || cRole.contains("cardio") || cRole.contains("medico"))) ||
+            (normalizedQ.contains("medico") && (cRole.contains("doctor") || cRole.contains("cardio") || cRole.contains("medico"))) ||
+            (normalizedQ.contains("nieto") && cRole.contains("nieto")) ||
+            (normalizedQ.contains("nieta") && cRole.contains("nieta")) ||
+            (normalizedQ.contains("amiga") && cRole.contains("amiga")) ||
+            (normalizedQ.contains("vecina") && cRole.contains("vecina"))
+        }
+    }
+
+    /**
+     * Agrega o actualiza un patrón o rutina diaria del usuario.
+     */
+    fun addOrUpdateDailyRoutine(routine: DailyRoutine) {
+        val current = _dailyRoutines.value.toMutableList()
+        val idx = current.indexOfFirst { it.id == routine.id || it.routineName.equals(routine.routineName, ignoreCase = true) }
+        if (idx >= 0) {
+            current[idx] = routine
+        } else {
+            current.add(routine)
+        }
+        _dailyRoutines.value = current
+        dbHelper?.addOrUpdateDailyRoutine(_userProfile.value.id, routine)
+        repositoryScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.postDailyRoutine(_userProfile.value.id, routine)
+        }
+    }
+
+    /**
+     * Obtiene las rutinas activas para un período del día (morning, noon, afternoon, evening, night).
+     */
+    fun getRoutinesForCurrentTime(timePeriod: String? = null): List<DailyRoutine> {
+        val currentList = _dailyRoutines.value
+        if (timePeriod.isNullOrBlank()) return currentList
+        return currentList.filter { it.timeAnchor.equals(timePeriod, ignoreCase = true) }
+    }
+
+    // ══════════════════════════════════════════════════════════════
     //  MEMORIA DE DOBLE CAPA: Fragmentos Livianos (on-device)
     //  + Búsqueda de Contexto Profundo (server-side)
     // ══════════════════════════════════════════════════════════════
@@ -623,32 +834,49 @@ object FifoDataRepository {
      */
     fun buildCompactContextWindow(maxFragments: Int = 5): String {
         val fragments = _conversationFragments.value.take(maxFragments)
-        if (fragments.isEmpty()) return ""
-
         val profile = _userProfile.value
         val tastes = _tastes.value
+        val topContacts = _relationalContacts.value.sortedByDescending { it.closenessScore }.take(4)
+        val routines = _dailyRoutines.value.take(4)
 
         return buildString {
-            appendLine("=== CONTEXTO PREVIO DEL USUARIO (fragmentos compactos) ===")
+            appendLine("=== CONTEXTO DEL USUARIO Y GRAFO RELACIONAL ===")
             appendLine("Nombre: ${profile.fullName} | Edad: ${profile.estimatedAge} | Ciudad: ${profile.city}")
+            if (profile.bioAi.isNotBlank()) appendLine("Perfil AI: ${profile.bioAi}")
             appendLine("Gustos conocidos: ${tastes.joinToString(", ")}")
+
+            if (topContacts.isNotEmpty()) {
+                appendLine("--- CONTACTOS Y VÍNCULOS CERCANOS (GRAFO RELACIONAL) ---")
+                topContacts.forEach { c ->
+                    appendLine("- ${c.contactName} [${c.relationshipRole}] (Cercanía: ${(c.closenessScore * 100).toInt()}%, Tel: ${c.phoneNumber}): ${c.contextualMemory}")
+                }
+            }
+
+            if (routines.isNotEmpty()) {
+                appendLine("--- RUTINAS Y PATRONES DE ACTIVIDAD DIARIA ---")
+                routines.forEach { r ->
+                    appendLine("- [${r.timeAnchor.uppercase()} ${r.typicalTimeStr ?: ""}] ${r.routineName}: ${r.notes ?: ""}")
+                }
+            }
 
             val recentMemories = _memories.value.take(3)
             if (recentMemories.isNotEmpty()) {
-                appendLine("Recuerdos y locales clave aprendidos:")
+                appendLine("--- Recuerdos y locales clave aprendidos ---")
                 recentMemories.forEach { mem ->
                     appendLine("- ${mem.title}: ${mem.detail}")
                 }
             }
             appendLine()
 
-            fragments.forEachIndexed { i, frag ->
-                appendLine("--- Charla reciente ${i + 1} (${frag.primaryTag}) ---")
-                appendLine("Temas: ${frag.keyTopics.joinToString(", ")}")
-                appendLine("Personas/Lugares: ${frag.namedEntities.joinToString(", ")}")
-                appendLine("Ánimo: ${frag.detectedMood}")
-                appendLine("Resumen: ${frag.compactSummary}")
-                appendLine()
+            if (fragments.isNotEmpty()) {
+                fragments.forEachIndexed { i, frag ->
+                    appendLine("--- Charla reciente ${i + 1} (${frag.primaryTag}) ---")
+                    appendLine("Temas: ${frag.keyTopics.joinToString(", ")}")
+                    appendLine("Personas/Lugares: ${frag.namedEntities.joinToString(", ")}")
+                    appendLine("Ánimo: ${frag.detectedMood}")
+                    appendLine("Resumen: ${frag.compactSummary}")
+                    appendLine()
+                }
             }
 
             appendLine("=== Si necesitas más detalle sobre un tema pasado, usa la herramienta recall_past_context ===")
@@ -703,7 +931,26 @@ object FifoDataRepository {
         val excerpts = mutableListOf<String>()
         val foundEntities = mutableSetOf<String>()
 
-        // A. Búsqueda en Recuerdos Persistentes (memories)
+        // A. Búsqueda en Grafo Relacional de Contactos
+        for (c in _relationalContacts.value) {
+            val contactText = "${c.contactName} ${c.relationshipRole} ${c.alias ?: ""} ${c.contextualMemory}".lowercase()
+            if (queryTokens.any { contactText.contains(it) } || queryLower.contains(c.contactName.lowercase()) || (c.alias != null && queryLower.contains(c.alias.lowercase()))) {
+                excerpts.add("Contacto cercano: ${c.contactName} (${c.relationshipRole}, cercanía ${(c.closenessScore * 100).toInt()}%). Memoria: ${c.contextualMemory}")
+                foundEntities.add(c.contactName)
+                foundEntities.add(c.relationshipRole)
+            }
+        }
+
+        // B. Búsqueda en Rutinas y Hábitos Diarios
+        for (r in _dailyRoutines.value) {
+            val routineText = "${r.routineName} ${r.notes ?: ""} ${r.timeAnchor} ${r.typicalTimeStr ?: ""} ${r.category}".lowercase()
+            if (queryTokens.any { routineText.contains(it) } || queryLower.contains(r.routineName.lowercase())) {
+                excerpts.add("Patrón de rutina diaria: ${r.routineName} a las ${r.typicalTimeStr ?: ""} (${r.timeAnchor}). Detalle: ${r.notes ?: ""}")
+                foundEntities.add(r.routineName)
+            }
+        }
+
+        // C. Búsqueda en Recuerdos Persistentes (memories)
         for (mem in allMemories) {
             val memText = "${mem.title} ${mem.detail}".lowercase()
             val matchesToken = queryTokens.any { memText.contains(it) }
@@ -713,7 +960,7 @@ object FifoDataRepository {
             }
         }
 
-        // B. Búsqueda en Fragmentos de Conversaciones Pasadas (conversationFragments)
+        // D. Búsqueda en Fragmentos de Conversaciones Pasadas (conversationFragments)
         val scoredFragments = allFragments.mapIndexed { index, frag ->
             val fragText = "${frag.primaryTag} ${frag.compactSummary} ${frag.keyTopics.joinToString(" ")} ${frag.namedEntities.joinToString(" ")}".lowercase()
             var score = 0
@@ -733,7 +980,7 @@ object FifoDataRepository {
             foundEntities.addAll(frag.keyTopics)
         }
 
-        // C. Búsqueda en Charlas Pasadas (past_conversations)
+        // E. Búsqueda en Charlas Pasadas (past_conversations)
         for (conv in allConversations) {
             val convText = "${conv.title} ${conv.summary} ${conv.tag}".lowercase()
             if (queryTokens.any { convText.contains(it) } || (queryLower.length >= 4 && convText.contains(queryLower))) {
@@ -789,18 +1036,7 @@ object FifoDataRepository {
     //  9. Rastreo de Ubicación del Dispositivo Fifo (ESP32)
     // ══════════════════════════════════════════════════════════════
 
-    private val _deviceLocation = MutableStateFlow(
-        FifoDeviceLocation(
-            isConnected = false,
-            lastConnectedTime = "Hoy a las 18:30",
-            lastKnownLatitude = -33.4255,
-            lastKnownLongitude = -70.6143,
-            lastKnownAddress = "Av. Providencia 1234, Providencia, Santiago",
-            lastKnownRoom = "Cerca del Living / Mesa de noche",
-            signalStrengthRssi = -64,
-            isBeeping = false
-        )
-    )
+    private val _deviceLocation = MutableStateFlow(FifoDeviceLocation())
     val deviceLocation: StateFlow<FifoDeviceLocation> = _deviceLocation.asStateFlow()
 
     /**
@@ -815,9 +1051,10 @@ object FifoDataRepository {
         rssi: Int? = null
     ) {
         val current = _deviceLocation.value
+        val nowTime = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
         val updatedLoc = current.copy(
             isConnected = connected,
-            lastConnectedTime = if (connected) "Conectado ahora" else "Hoy a las 18:30",
+            lastConnectedTime = if (connected) "Conectado ahora" else "Hoy a las $nowTime",
             lastKnownLatitude = latitude ?: current.lastKnownLatitude,
             lastKnownLongitude = longitude ?: current.lastKnownLongitude,
             lastKnownAddress = address ?: current.lastKnownAddress,

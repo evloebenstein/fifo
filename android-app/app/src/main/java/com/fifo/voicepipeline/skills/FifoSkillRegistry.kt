@@ -23,6 +23,12 @@ class FifoSkillRegistry(private val context: Context) {
     private val skills = mutableMapOf<String, FifoSkill>()
     private val gson = Gson()
 
+    /** Último lugar o local consultado (para continuidad conversacional en navegación) */
+    var lastQueriedPlace: String = ""
+
+    /** Último tema de conversación activa en el dispositivo */
+    var lastTopic: String = ""
+
     init {
         registerSkill(ReminderSkill(context))
         registerSkill(CalendarSkill(context))
@@ -130,9 +136,63 @@ class FifoSkillRegistry(private val context: Context) {
     }
 
     /**
+     * Genera la lista de herramientas en formato ultra-compacto para Groq,
+     * reduciendo los tokens de herramientas en más del 65% para nunca rebasar el límite de 8,000 TPM.
+     */
+    fun getCompactOpenAiToolsJson(): String {
+        val toolsList = skills.values.map { skill ->
+            val schemaObj = try {
+                val parsed = JsonParser.parseString(skill.parameterSchemaJson)
+                if (parsed.isJsonObject) {
+                    val root = parsed.asJsonObject
+                    if (root.has("properties") && root.get("properties").isJsonObject) {
+                        val props = root.getAsJsonObject("properties")
+                        val compactProps = com.google.gson.JsonObject()
+                        for (propKey in props.keySet()) {
+                            val propElem = props.get(propKey)
+                            if (propElem.isJsonObject) {
+                                val propObj = propElem.asJsonObject
+                                val compactProp = com.google.gson.JsonObject()
+                                if (propObj.has("type")) {
+                                    compactProp.add("type", propObj.get("type"))
+                                }
+                                if (propKey == "open_screen_map") {
+                                    compactProp.addProperty("description", "default false, only true if user explicitly asked to see screen map")
+                                }
+                                compactProps.add(propKey, compactProp)
+                            }
+                        }
+                        root.add("properties", compactProps)
+                    }
+                    root
+                } else parsed
+            } catch (e: Exception) {
+                JsonParser.parseString("{}")
+            }
+            val shortDesc = skill.description.split(".").firstOrNull()?.trim()?.ifBlank { skill.description } ?: skill.description
+            mapOf(
+                "type" to "function",
+                "function" to mapOf(
+                    "name" to skill.name,
+                    "description" to shortDesc.take(85),
+                    "parameters" to schemaObj
+                )
+            )
+        }
+        return gson.toJson(toolsList)
+    }
+
+    /**
      * Ejecuta una herramienta por nombre con los argumentos recibidos.
      */
     suspend fun executeSkill(name: String, args: Map<String, Any?>): SkillResult {
+        if (name == "search_nearby_places") {
+            val q = (args["query_hint"] as? String) ?: (args["place_type"] as? String) ?: ""
+            if (q.isNotBlank()) lastQueriedPlace = q
+        } else if (name == "open_navigation_directions") {
+            val d = (args["destination"] as? String) ?: ""
+            if (d.isNotBlank()) lastQueriedPlace = d
+        }
         val skill = skills[name]
         return if (skill != null) {
             try {
@@ -161,21 +221,47 @@ class FifoSkillRegistry(private val context: Context) {
     suspend fun tryExecuteVoiceIntent(transcript: String): SkillResult? {
         val text = transcript.lowercase().trim()
 
-        // 0. MODO ESCUCHA CONTINUA ("Fifo sigue escuchando")
+        // 0. GESTIÓN DE LLAMADAS TELEFÓNICAS (Contestar / Colgar / Saber quién llama)
+        val isCallAnswerIntent = text.contains("contesta") || text.contains("contestar") ||
+                text.contains("atiende") || text.contains("atender") ||
+                text.contains("acepta la llamada") || text.contains("aceptar la llamada") ||
+                text.contains("sí contesta") || text.contains("si contesta") ||
+                text.contains("toma la llamada") || text.contains("tomar la llamada") ||
+                text.contains("responde la llamada") || text.contains("responder llamada") ||
+                (text.contains("responde") && (text.contains("llamada") || text.contains("fifo")))
+
+        if (isCallAnswerIntent) {
+            return executeSkill("manage_phone_call", mapOf("action" to "answer"))
+        }
+
+        val isCallHangupIntent = text.contains("cuelga") || text.contains("colgar") ||
+                text.contains("rechaza") || text.contains("rechazar") ||
+                text.contains("detén la llamada") || text.contains("deten la llamada") ||
+                text.contains("no contestes") || text.contains("no contestar") ||
+                text.contains("corta la llamada") || text.contains("cortar la llamada") || text.contains("corta llamada") ||
+                text.contains("termina la llamada") || text.contains("terminar la llamada") ||
+                text.contains("finaliza la llamada") || text.contains("finalizar la llamada") ||
+                text.contains("cancela la llamada") ||
+                (text.contains("corta") && (text.contains("llamada") || text.contains("fifo") || text.length <= 8))
+
+        if (isCallHangupIntent) {
+            return executeSkill("manage_phone_call", mapOf("action" to "hangup"))
+        }
+
+        if (text.contains("quién llama") || text.contains("quien llama") ||
+            text.contains("quién está llamando") || text.contains("quien esta llamando") ||
+            text.contains("quién me llama") || text.contains("quien me llama")) {
+            return executeSkill("manage_phone_call", mapOf("action" to "status"))
+        }
+
+        // 0.1 MODO ESCUCHA CONTINUA ("Fifo sigue escuchando")
         if (text.contains("sigue escuchando") || text.contains("quédate escuchando") || text.contains("quedate escuchando") || text.contains("modo continuo") || text.contains("modo conversación") || text.contains("no te duermas") || text.contains("sigue atento")) {
             com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(true)
+            val firstName = com.fifo.voicepipeline.data.FifoDataRepository.userProfile.value.fullName.split(" ").firstOrNull { it.isNotBlank() } ?: ""
+            val nameClause = if (firstName.isNotBlank()) " $firstName" else ""
             return SkillResult(
                 success = true,
-                spokenFeedback = "Entendido Lucía, me quedo escuchándole con atención. Puede hablarme cuando guste sin decir 'Fifo'. Cuando desee que descanse, solo dígame 'Fifo, descansa'."
-            )
-        }
-        // 0. Agradecimiento cortés (no duerme a Fifo, mantiene conversación fluida)
-        if (text == "gracias" || text == "muchas gracias" || text == "gracias fifo" || text == "muchas gracias fifo" ||
-            text == "te lo agradezco" || text == "te agradezco") {
-            return SkillResult(
-                success = true,
-                spokenFeedback = "¡Con mucho gusto, Lucía! ¿Hay algo más en lo que le pueda colaborar?",
-                data = mapOf("keep_listening" to true)
+                spokenFeedback = "Entendido$nameClause, me quedo escuchándole con atención. Puede hablarme cuando guste sin decir 'Fifo'. Cuando desee que descanse, solo dígame 'Fifo, descansa'."
             )
         }
 
@@ -194,60 +280,12 @@ class FifoSkillRegistry(private val context: Context) {
             )
         }
 
-        // 0.0 Si el usuario está corrigiendo, negando o haciendo una aclaración conversacional ("no me refiero a...", "dije que no...", etc.),
-        // NUNCA disparar una skill rápida fija; delegar al LLM para que comprenda el contexto y el historial.
-        val isCorrectionOrNegation = text.startsWith("no ") || text.startsWith("no,") ||
-                text.contains(" no ") || text.contains("tampoco") || text.contains("dije que") ||
-                text.contains("no me refier") || text.contains("no era") || text.contains("no quiero") ||
-                text.contains("pero no") || text.contains("en vez de") || text.contains("en lugar de")
-        if (isCorrectionOrNegation) {
-            return null
+        // 0.1 LOCALIZADOR DEL DISPOSITIVO FÍSICO FIFO (Beep sonoro)
+        if (text.contains("te perdí") || text.contains("te perdi") || text.contains("dónde estás fifo") || text.contains("donde estas fifo") || text.contains("dónde está fifo") || text.contains("donde esta fifo") || (text.contains("suena") && text.contains("fifo"))) {
+            return executeSkill("find_fifo_device", emptyMap())
         }
 
-        // 0.0.1 Si la consulta hace referencia a vivencias, lugares o charlas pasadas ("a donde fui ayer", "ese local", "no me acuerdo"),
-        // NUNCA asumir un destino fijo en mapas; delegar al LLM para que use 'recall_past_context' y razone con su memoria profunda.
-        val isPastMemoryQuery = text.contains("ayer") || text.contains("semana pasada") ||
-                text.contains("antier") || text.contains("fui a") || text.contains("donde fui") ||
-                text.contains("dónde fui") || text.contains("ese local") || text.contains("ese lugar") ||
-                text.contains("no me acuerdo") || text.contains("no recuerdo") ||
-                text.contains("te acuerdas") || text.contains("te acordai") || text.contains("recuerdas cuando") ||
-                text.contains("hablamos de") || text.contains("te conté") || text.contains("te conte")
-        if (isPastMemoryQuery) {
-            return null
-        }
-
-        // 0.1 GESTIÓN DE LLAMADAS TELEFÓNICAS TIPO ALEXA (Contestar / Colgar / Saber quién llama)
-        val isCallAnswerIntent = text.contains("contesta") || text.contains("contestar") || text.contains("contéstame") ||
-                text.contains("atiende") || text.contains("atender") || text.contains("atiéndeme") ||
-                text.contains("acepta la llamada") || text.contains("aceptar la llamada") || text.contains("acepta") ||
-                text.contains("aceptar") || text.contains("sí contesta") || text.contains("si contesta") ||
-                text.contains("responder la llamada") || text.contains("responde la llamada") ||
-                text.contains("responde") || text.contains("responder") ||
-                text.contains("toma la llamada") || text.contains("tomar la llamada")
-
-        if (isCallAnswerIntent) {
-            return executeSkill("manage_phone_call", mapOf("action" to "answer"))
-        }
-
-        val isCallHangupIntent = text.contains("cuelga") || text.contains("colgar") ||
-                text.contains("rechaza") || text.contains("rechazar") || text.contains("recházale") ||
-                text.contains("deten la llamada") || text.contains("detén la llamada") || text.contains("detener llamada") ||
-                text.contains("no contestes") || text.contains("no contestar") ||
-                text.contains("corta la llamada") || text.contains("cortar la llamada") || text.contains("corta llamada") ||
-                text.contains("termina la llamada") || text.contains("terminar la llamada") ||
-                text.contains("finaliza la llamada") || text.contains("finalizar la llamada") ||
-                text.contains("finaliza") || text.contains("cancela la llamada") ||
-                (text.contains("corta") && (text.contains("llamada") || text.contains("fifo") || text.length <= 8))
-
-        if (isCallHangupIntent) {
-            return executeSkill("manage_phone_call", mapOf("action" to "hangup"))
-        }
-
-        if (text.contains("quién llama") || text.contains("quien llama") || text.contains("quién está llamando") || text.contains("quien esta llamando") || text.contains("quién me llama") || text.contains("quien me llama")) {
-            return executeSkill("manage_phone_call", mapOf("action" to "status"))
-        }
-
-        // 0.2 CONTROL DE HARDWARE DEL TELÉFONO (Linterna, Volumen, Batería, Hora)
+        // 0.2 CONTROL DE HARDWARE DEL TELÉFONO (Linterna, Volumen, Batería)
         if (text.contains("linterna") || (text.contains("luz") && (text.contains("prende") || text.contains("enciende") || text.contains("apaga")))) {
             val turnOn = !text.contains("apaga") && !text.contains("desactiva")
             return executeSkill("control_device_hardware", mapOf("feature" to "flashlight", "state" to if (turnOn) "on" else "off"))
@@ -267,251 +305,192 @@ class FifoSkillRegistry(private val context: Context) {
             return executeSkill("control_device_hardware", mapOf("feature" to "battery"))
         }
 
-        if (text.contains("qué hora") || text.contains("que hora") || text.contains("dime la hora") || text.contains("qué día es") || text.contains("que dia es")) {
-            return executeSkill("control_device_hardware", mapOf("feature" to "time"))
-        }
+        // 0.3 CONFIRMACIÓN NATURAL DE DESTINO PENDIENTE
+        // Ej: Fifo preguntó "¿Desea que le guíe?" y el usuario dice "Sí", "Bueno", "Dale", "Guíame", "Por favor", etc.
+        val pending = com.fifo.voicepipeline.location.FifoNavigationManager.pendingDestination
+        if (pending != null) {
+            val cleanAffirmative = text.replace(Regex("[¿?.,!¡]"), "").trim()
+            val isYes = cleanAffirmative in listOf(
+                "si", "sí", "bueno", "dale", "vamos", "guiame", "guíame", "claro",
+                "por favor", "porfa", "adelante", "ok", "okay", "obvio", "hazlo",
+                "inicia", "comienza", "si por favor", "sí por favor", "si porfa",
+                "sí porfa", "si guiame", "sí guíame", "dale vamos", "dale fifo",
+                "bueno fifo", "si fifo", "sí fifo", "sipo", "sip", "claro que si", "claro que sí",
+                "por favor fifo", "vamos fifo"
+            ) || cleanAffirmative.startsWith("si ") || cleanAffirmative.startsWith("sí ") ||
+                 cleanAffirmative.startsWith("dale ") || cleanAffirmative.startsWith("guiame") ||
+                 cleanAffirmative.startsWith("guíame") || cleanAffirmative.startsWith("vamos")
 
-        // 0.3 LOCALIZADOR Y GUÍA HABLADA SIN MIRAR EL CELULAR
-        if (text.contains("te perdí") || text.contains("te perdi") || text.contains("dónde estás") || text.contains("donde estas") || text.contains("dónde está fifo") || text.contains("donde esta fifo") || (text.contains("suena") && text.contains("fifo"))) {
-            return executeSkill("find_fifo_device", emptyMap())
-        }
+            if (isYes) {
+                val active = com.fifo.voicepipeline.location.FifoNavigationManager.confirmPendingDestination()
+                if (active != null) {
+                    val currentLoc = com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(context)
+                    val report = com.fifo.voicepipeline.location.FifoNavigationManager.getGuidanceReport(currentLoc)
+                    val street = report?.streetName ?: active.road.ifBlank { active.fullAddress }
+                    val distMeters = report?.distanceMeters ?: 0
+                    val distText = if (distMeters < 1200) "$distMeters metros" else "${String.format(java.util.Locale("es", "ES"), "%.1f", distMeters / 1000.0)} km"
+                    val blocks = if ((report?.blocks ?: 1) <= 1) "1 cuadra" else "${report?.blocks ?: 1} cuadras"
+                    val turn = report?.relativeInstruction ?: "camine hacia el frente"
+                    val targetName = active.name
 
-        if (text.contains("dónde estamos") || text.contains("donde estamos") || text.contains("dónde estoy") || text.contains("donde estoy") || text.contains("en qué calle") || text.contains("en que calle") || text.contains("cuál es mi ubicación")) {
-            return executeSkill("get_current_location", emptyMap())
-        }
-
-        // 0.3.1 BÚSQUEDA EN INTERNET / NOTICIAS / CLIMA
-        val isExplicitSearch = text.startsWith("busca en internet") || text.startsWith("busca en la web") ||
-                text.startsWith("averigua en internet") || text.startsWith("averigua en la web") ||
-                text.contains("busca noticias") || text.contains("noticias de hoy") ||
-                text.contains("últimas noticias") || text.contains("ultimas noticias") ||
-                text.contains("qué dice internet") || text.contains("que dice internet") ||
-                text.contains("averigua en google") || text.contains("busca en google")
-
-        if (isExplicitSearch) {
-            val cleanQuery = text.replace(
-                Regex("(?i)\\b(fifo|por favor|busca en internet|busca en la web|averigua en internet|averigua en la web|averigua en google|busca en google|qué dice internet sobre|que dice internet sobre|qué dice internet|que dice internet|busca noticias de|busca noticias|noticias de hoy sobre|noticias de hoy|últimas noticias sobre|ultimas noticias sobre|últimas noticias|ultimas noticias)\\b"),
-                ""
-            ).trim()
-            val queryToUse = if (cleanQuery.isNotBlank()) cleanQuery else text
-            val searchType = if (text.contains("noticia")) "news" else if (text.contains("clima") || text.contains("temperatura")) "weather" else "general"
-            return executeSkill("web_search", mapOf("query" to queryToUse, "search_type" to searchType))
-        }
-
-        if ((text.contains("cómo está el clima") || text.contains("como esta el clima") || text.contains("qué temperatura hay") || text.contains("que temperatura hay") || text.contains("va a llover")) && !text.contains("no ")) {
-            return executeSkill("web_search", mapOf("query" to "clima hoy", "search_type" to "weather"))
-        }
-
-        val isNavIntent = text.contains("cómo llego") || text.contains("como llego") ||
-                text.contains("cómo llegar") || text.contains("como llegar") ||
-                text.contains("cómo voy") || text.contains("como voy") ||
-                text.contains("cómo ir") || text.contains("como ir") ||
-                text.contains("instrucciones para") || text.contains("tener instrucciones") ||
-                text.contains("dame instrucciones") || text.contains("indicaciones para") ||
-                text.contains("indicaciones hacia") || text.contains("guíame a") || text.contains("guiame a") ||
-                text.contains("dirección hacia") || text.contains("direccion hacia") ||
-                text.contains("hacia dónde voy") || text.contains("hacia donde voy") ||
-                text.contains("ruta hacia") || text.contains("ruta para")
-
-        if (isNavIntent) {
-            val target = text.replace(
-                Regex("(?i)\\b(fifo|por favor|cómo tener instrucciones para ir a|como tener instrucciones para ir a|cómo tener instrucciones para llegar a|como tener instrucciones para llegar a|cómo tener instrucciones|como tener instrucciones|dame instrucciones para ir a|dame instrucciones para llegar a|dame instrucciones para|dame instrucciones|instrucciones para ir a|instrucciones para ir|instrucciones para llegar a|instrucciones para llegar|instrucciones para|indicaciones para ir a|indicaciones para llegar a|indicaciones para|indicaciones hacia|cómo llego a|como llego a|cómo llego|como llego|cómo llegar a|como llegar a|cómo llegar|como llegar|cómo voy a|como voy a|cómo ir a|como ir a|cómo voy|como voy|cómo ir|como ir|guíame a|guiame a|dirección hacia|direccion hacia|hacia dónde voy para|hacia donde voy para|hacia dónde voy|hacia donde voy|ruta hacia|ruta para)\\b"),
-                ""
-            ).trim()
-            val openScreen = text.contains("abre maps") || text.contains("abre waze") ||
-                text.contains("pantalla") || text.contains("en el celular") || text.contains("en mi celular") ||
-                text.contains("muestrame") || text.contains("muéstrame")
-            return executeSkill("open_navigation_directions", mapOf("destination" to target, "open_screen_map" to openScreen))
-        }
-
-        // 1. RECORDATORIOS / ALARMAS DE MEDICINA
-        if (text.contains("recuérdame") || text.contains("recuerdame") || text.contains("recordar") || text.contains("pon una alarma") || text.contains("alarma para")) {
-            val title = if (text.contains("pastilla") || text.contains("presión") || text.contains("medicina") || text.contains("remedio")) {
-                "Tomar medicamento recetado"
-            } else if (text.contains("agua")) {
-                "Tomar un vaso de agua fresca"
-            } else if (text.contains("caminar") || text.contains("paseo")) {
-                "Salir a caminar a la plaza"
-            } else {
-                transcript.replace(Regex("(?i)\\b(recuérdame|recuerdame|por favor|fifo|recordar|alarma para)\\b"), "").trim()
-                    .ifBlank { "Compromiso diario" }
-            }
-
-            // Extraer hora si dice "a las X"
-            val hourRegex = Regex("(?i)a las\\s+(\\d{1,2}(?::\\d{2})?|ocho|nueve|diez|once|doce|una|dos|tres|cuatro|cinco|seis|siete)")
-            val match = hourRegex.find(text)
-            val timeStr = match?.groupValues?.get(1)?.let { rawHour ->
-                when (rawHour.lowercase()) {
-                    "ocho" -> "20:00"
-                    "nueve" -> "21:00"
-                    "diez" -> "22:00"
-                    "once" -> "11:00"
-                    "doce" -> "12:00"
-                    "una" -> "13:00"
-                    "dos" -> "14:00"
-                    "tres" -> "15:00"
-                    "cuatro" -> "16:00"
-                    "cinco" -> "17:00"
-                    "seis" -> "18:00"
-                    "siete" -> "19:00"
-                    else -> if (rawHour.contains(":")) rawHour else "$rawHour:00"
+                    val phrasings = listOf(
+                        "¡Perfecto, en marcha! Para orientarte: $turn. Avanza $distText (unas $blocks) por $street hacia $targetName. Te acompaño en el camino, avísame mientras caminas.",
+                        "¡Excelente, vamos! ${turn.replaceFirstChar { it.uppercase() }}. Son aproximadamente $distText por $street hacia $targetName. Camina tranquilo, voy atento a tus pasos.",
+                        "¡Listo, te voy guiando! ${turn.replaceFirstChar { it.uppercase() }} y continúa unas $blocks por $street hacia $targetName. Pregúntame lo que necesites mientras avanzas."
+                    )
+                    return SkillResult(
+                        success = true,
+                        spokenFeedback = phrasings.random(),
+                        data = mapOf(
+                            "destination" to active.name,
+                            "started_navigation" to true,
+                            "keep_listening" to true
+                        )
+                    )
                 }
-            } ?: "en el momento indicado"
-
-            return executeSkill(
-                "set_reminder",
-                mapOf("title" to title, "time_str" to timeStr, "category" to "medication")
-            )
-        }
-
-        // 2. BUSCAR EN MAPAS (Supermercados, Oxxo, Minimarkets, Farmacias, consultorios, parques)
-        val wantsNearbyScreen = text.contains("abre maps") || text.contains("abre waze") ||
-                text.contains("pantalla") || text.contains("en el celular") || text.contains("en mi celular") ||
-                text.contains("muestrame") || text.contains("muéstrame") || text.contains("abre el mapa") || text.contains("en el mapa")
-
-        val hasSearchIntent = text.contains("dónde") || text.contains("donde") || text.contains("busca") ||
-                text.contains("cerca") || text.contains("cuál") || text.contains("cual") || text.contains("hay") ||
-                text.contains("queda") || text.contains("ir a un") || text.contains("ir al") || text.contains("llegar a")
-
-        // 2.0 SUPERMERCADOS (Lider, Jumbo, Unimarc, Santa Isabel, etc.)
-        if ((text.contains("supermercado") || text.contains("super") || text.contains("súper")) && hasSearchIntent) {
-            val brand = when {
-                text.contains("lider") -> "lider"
-                text.contains("jumbo") -> "jumbo"
-                text.contains("unimarc") -> "unimarc"
-                text.contains("santa isabel") -> "santa isabel"
-                text.contains("alvi") -> "alvi"
-                else -> ""
             }
-            return executeSkill(
-                "search_nearby_places",
-                mapOf("place_type" to "supermercado", "query_hint" to brand, "open_screen_map" to wantsNearbyScreen)
-            )
         }
 
-        if ((text.contains("lider") || text.contains("jumbo") || text.contains("unimarc") || text.contains("santa isabel")) && hasSearchIntent) {
-            val brand = when {
-                text.contains("lider") -> "lider"
-                text.contains("jumbo") -> "jumbo"
-                text.contains("unimarc") -> "unimarc"
-                else -> "santa isabel"
+        // 0.4 ACOMPAÑAMIENTO ACTIVO EN TIEMPO REAL (Estilo Waze Peatonal con Giroscopio / Brújula)
+        // Ejemplo: "¿y ahora dónde voy?", "¿por dónde sigo?", "¿hacia dónde?", "¿ahora qué hago?", "¿cuánto falta?"
+        if (com.fifo.voicepipeline.location.FifoNavigationManager.isNavigating) {
+            // Cancelación explícita de ruta
+            if (text.contains("cancela la ruta") || text.contains("cancela el viaje") ||
+                text.contains("deja de guiarme") || text.contains("ya no voy") ||
+                text.contains("detén la guía") || text.contains("deten la guia")) {
+                val destName = com.fifo.voicepipeline.location.FifoNavigationManager.activeRoute?.name ?: "el destino"
+                com.fifo.voicepipeline.location.FifoNavigationManager.stopNavigation()
+                return SkillResult(
+                    success = true,
+                    spokenFeedback = "Entendido, detuve las indicaciones hacia $destName. Avísame si deseas ir a otro lugar.",
+                    data = mapOf("cancelled_navigation" to true)
+                )
             }
-            return executeSkill(
-                "search_nearby_places",
-                mapOf("place_type" to "supermercado", "query_hint" to brand, "open_screen_map" to wantsNearbyScreen)
-            )
-        }
 
-        if ((text.contains("oxxo") || text.contains("oxo") || text.contains("ok market")) && hasSearchIntent) {
-            return executeSkill(
-                "search_nearby_places",
-                mapOf("place_type" to "oxxo", "query_hint" to "OXXO", "open_screen_map" to wantsNearbyScreen)
-            )
-        }
+            val isNavQuery = text.contains("dónde voy") || text.contains("donde voy") ||
+                    text.contains("a dónde") || text.contains("a donde") ||
+                    text.contains("y ahora") || text.contains("por dónde") ||
+                    text.contains("por donde") || text.contains("hacia dónde") ||
+                    text.contains("hacia donde") || text.contains("para dónde") ||
+                    text.contains("para donde") || text.contains("cuánto falta") ||
+                    text.contains("cuanto falta") || text.contains("qué hago") ||
+                    text.contains("que hago") || text.contains("adónde voy") ||
+                    text.contains("adonde voy") || text.contains("hacia dónde era") ||
+                    text.contains("hacia donde era") || text.contains("hacia dónde camino") ||
+                    text.contains("hacia donde camino") || text.contains("cómo voy") ||
+                    text.contains("como voy") || text == "ahora" || text == "¿y ahora?" ||
+                    text.contains("dónde sigo") || text.contains("donde sigo") ||
+                    text.contains("me desvié") || text.contains("me desvie") ||
+                    text.contains("voy bien") || text.contains("estoy perdido") ||
+                    text.contains("hacia qué lado") || text.contains("hacia que lado")
 
-        // 2.0.1 RESTAURANTES Y LUGARES DE COMIDA (Almuerzo, restaurante, picada, comida, pizza, etc.)
-        val isFoodSearch = text.contains("restaurante") || text.contains("restaurant") ||
-                text.contains("comida") || text.contains("comer") || text.contains("almorzar") ||
-                text.contains("almuerzo") || text.contains("cenar") || text.contains("cena") ||
-                text.contains("pizz") || text.contains("sandwich") || text.contains("sándwich") ||
-                text.contains("hamburguesa") || text.contains("sushi") || text.contains("picada")
-        if (isFoodSearch && (hasSearchIntent || text.contains("local") || text.contains("donde") || text.contains("dónde"))) {
-            val foodHint = when {
-                text.contains("pizza") || text.contains("pizz") -> "pizzeria"
-                text.contains("sandwich") || text.contains("sándwich") -> "sandwich"
-                text.contains("sushi") -> "sushi"
-                text.contains("hamburguesa") -> "hamburguesas"
-                else -> ""
+            if (isNavQuery) {
+                val currentLoc = com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(context)
+                val report = com.fifo.voicepipeline.location.FifoNavigationManager.getGuidanceReport(currentLoc)
+                if (report != null) {
+                    val distText = if (report.distanceMeters < 1200) "${report.distanceMeters} metros" else "${String.format(java.util.Locale("es", "ES"), "%.1f", report.distanceMeters / 1000.0)} km"
+                    val blocks = if (report.blocks == 1) "1 cuadra" else "${report.blocks} cuadras"
+
+                    val spoken = if (report.isArrived) {
+                        "¡Ya llegamos! ${report.destinationName} se encuentra justo a tu lado."
+                    } else if (text.contains("me desvié") || text.contains("me desvie") || text.contains("voy bien")) {
+                        if (report.isOffCourse) {
+                            "Sí, noto que doblaste en otra dirección. Para retomar el ${report.destinationName}: ${report.relativeInstruction} y avanza hacia el ${report.cardinalDirection}. Te quedan $distText."
+                        } else {
+                            "Vas muy bien, en dirección directa hacia ${report.destinationName}. ${report.relativeInstruction.replaceFirstChar { it.uppercase() }}; te faltan solo $distText ($blocks)."
+                        }
+                    } else {
+                        val turn = report.relativeInstruction
+                        val street = report.streetName
+                        val destName = report.destinationName
+                        val responses = listOf(
+                            "Para ir a $destName: ${turn}. Avanza unas $blocks ($distText) por $street. Voy contigo.",
+                            "Seguimos en camino hacia $destName. ${turn.replaceFirstChar { it.uppercase() }}; te quedan unos $distText por $street.",
+                            "Vamos bien: ${turn.replaceFirstChar { it.uppercase() }} y continúa por $street. Faltan aproximadamente $distText para llegar a $destName."
+                        )
+                        responses.random()
+                    }
+
+                    return SkillResult(
+                        success = true,
+                        spokenFeedback = spoken,
+                        data = mapOf(
+                            "destination" to report.destinationName,
+                            "relative_turn" to report.relativeInstruction,
+                            "distance_meters" to report.distanceMeters,
+                            "blocks" to report.blocks,
+                            "is_arrived" to report.isArrived,
+                            "keep_listening" to true
+                        )
+                    )
+                }
             }
-            return executeSkill(
-                "search_nearby_places",
-                mapOf("place_type" to "restaurante", "query_hint" to foodHint, "open_screen_map" to wantsNearbyScreen)
-            )
         }
 
-        if ((text.contains("local") || text.contains("locales") || text.contains("tienda") || text.contains("tiendas") || text.contains("negocio") || text.contains("negocios") || text.contains("comercio") || text.contains("comercios")) && hasSearchIntent) {
-            return executeSkill(
-                "search_nearby_places",
-                mapOf("place_type" to "comercio", "query_hint" to "", "open_screen_map" to wantsNearbyScreen)
-            )
-        }
-        if (text.contains("farmacia") && (text.contains("dónde") || text.contains("donde") || text.contains("busca") || text.contains("cerca"))) {
-            return executeSkill(
-                "search_nearby_places",
-                mapOf("place_type" to "farmacia", "query_hint" to "", "open_screen_map" to wantsNearbyScreen)
-            )
-        }
-        if ((text.contains("consultorio") || text.contains("cesfam") || text.contains("hospital")) && (text.contains("busca") || text.contains("cerca") || text.contains("dónde"))) {
-            return executeSkill(
-                "search_nearby_places",
-                mapOf("place_type" to "centro_salud", "query_hint" to "", "open_screen_map" to wantsNearbyScreen)
-            )
-        }
-        if (text.contains("parque") && (text.contains("busca") || text.contains("cerca") || text.contains("dónde"))) {
-            return executeSkill(
-                "search_nearby_places",
-                mapOf("place_type" to "parque", "query_hint" to "", "open_screen_map" to wantsNearbyScreen)
-            )
-        }
-
-        // 2.1 CONSULTA DE CONTACTOS DEL TELÉFONO
-        if (text.contains("contacto") && (text.contains("ver") || text.contains("tienes") || text.contains("puedes") || text.contains("lista") || text.contains("mis contactos"))) {
-            return executeSkill("read_phone_contacts", mapOf("action" to "list"))
-        }
-
-        // 3. CALENDARIO DE CITAS
-        if (text.contains("calendario") || text.contains("agenda") || (text.contains("cita") && text.contains("médic"))) {
-            val title = if (text.contains("médic") || text.contains("doctor")) "Control médico con el especialista" else "Cita personal"
-            return executeSkill(
-                "add_calendar_event",
-                mapOf("title" to title, "date_str" to "pronto", "time_str" to "10:00")
-            )
-        }
-
-        // 4. LLAMAR A CONTACTO / FAMILIAR
-        if (text.contains("llama a") || text.contains("llamar a") || text.contains("marca a") || text.contains("marcar a")) {
-            val contact = if (text.contains("carmen") || text.contains("hija")) "hija Carmen"
-            else if (text.contains("ambulancia") || text.contains("samu")) "SAMU 131"
-            else if (text.contains("bombero")) "Bomberos 132"
-            else "familiar de apoyo"
-
-            return executeSkill("call_contact", mapOf("contact_name_or_role" to contact))
-        }
-
-        // 5. CUMPLEAÑOS Y FECHA DE NACIMIENTO
-        if (text.contains("cumpleaños") || text.contains("cumplo el") || text.contains("nací el") || text.contains("naci el")) {
-            val yearMatch = Regex("\\b(19\\d{2})\\b").find(text)
-            val year = yearMatch?.groupValues?.get(1)?.toIntOrNull()
-
-            val rawDate = transcript.replace(Regex("(?i)\\b(mi cumpleaños es el|cumplo el|nací el|naci el|fifo)\\b"), "").trim()
-            val cleanDate = if (rawDate.length in 5..30) rawDate else "14 de Mayo, 1958"
-
-            return executeSkill(
-                "update_profile_and_tastes",
-                mapOf(
-                    "action" to "update_demographics",
-                    "birth_date" to cleanDate,
-                    "birth_year" to (year ?: 1958)
+        // 0.5 CONCIENCIA ESPACIAL Y AMBIENTAL ("Siente el espacio a tu alrededor")
+        // Ej: "¿Fifo, dónde estoy?", "¿en qué calle estoy?", "¿qué tengo cerca?", "¿dónde me encuentro?"
+        val isSpatialQuery = text.contains("dónde estoy") || text.contains("donde estoy") ||
+                text.contains("en qué calle") || text.contains("en que calle") ||
+                text.contains("dónde me encuentro") || text.contains("donde me encuentro") ||
+                text.contains("dónde estamos") || text.contains("donde estamos") ||
+                text.contains("qué hay alrededor") || text.contains("que hay alrededor") ||
+                text.contains("qué tengo cerca") || text.contains("que tengo cerca") ||
+                text.contains("alrededor mío") || text.contains("alrededor mio") ||
+                text.contains("sientes dónde estoy") || text.contains("sientes donde estoy")
+        if (isSpatialQuery) {
+            val currentLoc = com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(context)
+            val spatialDesc = com.fifo.voicepipeline.location.FifoNavigationManager.getSpatialAwarenessDescription(context, currentLoc)
+            return SkillResult(
+                success = true,
+                spokenFeedback = spatialDesc,
+                data = mapOf(
+                    "address" to currentLoc.address,
+                    "city" to currentLoc.city,
+                    "spatial_awareness" to true,
+                    "keep_listening" to true
                 )
             )
         }
 
-        // 6. GUSTOS E INTERESES
-        if (text.contains("me encanta") || text.contains("me gusta mucho") || text.contains("anota que me gusta") || text.contains("agrega a mis gustos")) {
-            val taste = transcript
-                .replace(Regex("(?i)\\b(me encanta|me gusta mucho|anota que me gusta|agrega a mis gustos|fifo|por favor)\\b"), "")
-                .trim()
-                .trimStart(',', '.', ':', ' ')
-                .replaceFirstChar { it.uppercase() }
+        // 0.6 BÚSQUEDA DIRECTA DE LOCALES Y COMERCIOS CERCANOS (OXXO, Farmacia, Supermercado, etc.)
+        // Evita latencia de red, errores de rate-limit 429 de Groq y alucinaciones de nombres de comuna
+        val isNearbySearch = (text.contains("cercano") || text.contains("cercana") ||
+                text.contains("más cerca") || text.contains("mas cerca") ||
+                text.contains("dónde queda") || text.contains("donde queda") ||
+                text.contains("dónde hay") || text.contains("donde hay") ||
+                text.contains("cuál es el") || text.contains("cual es el") ||
+                text.contains("qué mercado") || text.contains("que mercado") ||
+                text.contains("qué local") || text.contains("que local") ||
+                text.contains("qué locales") || text.contains("que locales") ||
+                text.contains("qué supermercado") || text.contains("que supermercado") ||
+                text.contains("hay algún") || text.contains("hay algun") ||
+                text.contains("un oxxo") || text.contains("el oxxo")) &&
+                (text.contains("oxxo") || text.contains("farmacia") || text.contains("supermercado") ||
+                 text.contains("super") || text.contains("mercado") || text.contains("minimarket") ||
+                 text.contains("panaderia") || text.contains("panadería") || text.contains("lider") ||
+                 text.contains("jumbo") || text.contains("unimarc") || text.contains("banco") ||
+                 text.contains("almacen") || text.contains("almacén") || text.contains("tienda") ||
+                 text.contains("local") || text.contains("locales"))
 
-            if (taste.length in 3..40) {
-                return executeSkill(
-                    "update_profile_and_tastes",
-                    mapOf("action" to "add_taste", "taste_name" to taste)
-                )
+        if (isNearbySearch) {
+            val placeTarget = when {
+                text.contains("oxxo") -> "oxxo"
+                text.contains("farmacia") -> "farmacia"
+                text.contains("supermercado") || text.contains("super") -> "supermercado"
+                text.contains("panaderia") || text.contains("panadería") -> "panaderia"
+                text.contains("mercado") -> "mercado"
+                text.contains("minimarket") -> "minimarket"
+                text.contains("lider") -> "lider"
+                text.contains("jumbo") -> "jumbo"
+                text.contains("unimarc") -> "unimarc"
+                text.contains("banco") -> "banco"
+                else -> "comercio"
             }
+            return executeSkill("open_navigation_directions", mapOf("destination" to placeTarget, "real_time" to false))
         }
 
+        // TODAS LAS DEMÁS CONSULTAS (Ubicación, guía en tiempo real, navegación, memoria, locales,
+        // búsquedas, preguntas, seguimientos y conversación) DEBEN IR AL LLM CON CONTEXTO COMPLETO:
         return null
     }
 }

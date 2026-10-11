@@ -77,6 +77,10 @@ class MainActivity : ComponentActivity() {
         // ── Inicializar Base de Datos Relacional Local SQLite ─────────
         com.fifo.voicepipeline.data.FifoDataRepository.initialize(applicationContext)
 
+        // ── Inicializar Sensor de Orientación / Brújula para Navegación en Tiempo Real ──
+        com.fifo.voicepipeline.location.FifoOrientationHelper.init(applicationContext)
+        com.fifo.voicepipeline.location.FifoNavigationManager.init(applicationContext)
+
         // ── Iniciar Foreground Service para ejecución continua 24/7 de forma segura ──
         try {
             FifoVoiceService.start(applicationContext)
@@ -89,15 +93,13 @@ class MainActivity : ComponentActivity() {
 
         // ── Obtener API keys desde SharedPreferences o BuildConfig ────
         val prefs = getSharedPreferences("fifo_prefs", MODE_PRIVATE)
-        // Eliminar clave de Anthropic / Claude obsoleta si existía
-        prefs.edit().remove("anthropic_api_key").apply()
-
         val savedGroqKey = prefs.getString("groq_api_key", "") ?: ""
         val groqKey = savedGroqKey.ifEmpty {
             BuildConfig.GROQ_API_KEY.ifEmpty { DEFAULT_GROQ_KEY }
         }
 
-        val anthropicKey = "" // Desactivado: El cerebro es 100% Groq (Qwen 27B / GPT-OSS 120B)
+        val savedAnthropicKey = prefs.getString("anthropic_api_key", "") ?: ""
+        val anthropicKey = savedAnthropicKey.ifEmpty { BuildConfig.ANTHROPIC_API_KEY }
 
         val savedSttKey = prefs.getString("stt_api_key", "") ?: ""
         val openAiKey = savedSttKey.ifEmpty { BuildConfig.OPENAI_API_KEY }
@@ -275,6 +277,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        com.fifo.voicepipeline.location.FifoOrientationHelper.stop()
         if (isFinishing) {
             pipeline.stop()
             FifoVoiceService.stop(applicationContext)

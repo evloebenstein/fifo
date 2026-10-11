@@ -67,13 +67,17 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
             )
         }
 
-        // Si pide un comercio o lugar de interés cercano (ej: OXXO, farmacia, supermercado)
+        // Si pide un comercio o lugar de interés cercano (ej: OXXO, farmacia, supermercado, mercado)
         val destLower = destInput.lowercase().trim()
         val isStoreQuery = destLower.contains("oxxo") ||
                 destLower.contains("farmacia") ||
                 destLower.contains("minimarket") ||
                 destLower.contains("supermercado") ||
                 destLower.contains("super") ||
+                destLower.contains("mercado") ||
+                destLower.contains("almacen") ||
+                destLower.contains("tienda") ||
+                destLower.contains("local") ||
                 destLower.contains("lider") ||
                 destLower.contains("jumbo") ||
                 destLower.contains("unimarc") ||
@@ -81,13 +85,32 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
 
         if (isStoreQuery) {
             val currentLoc = FifoLocationHelper.getCurrentLocation(context)
-            val matches = FifoLocationHelper.searchNearbyPlaces(context, destInput, currentLoc)
+            val rawMatches = FifoLocationHelper.searchNearbyPlaces(context, destInput, currentLoc)
+            val matches = rawMatches.filterNot {
+                it.name.equals(currentLoc.city, ignoreCase = true) ||
+                it.name.equals("Vitacura", ignoreCase = true) ||
+                it.name.equals("Santiago", ignoreCase = true)
+            }
             val closest = matches.firstOrNull()
             if (closest != null) {
                 val targetName = closest.name.ifBlank { destInput }
+                val desc = when {
+                    targetName.lowercase().contains("farmacia") -> "la farmacia $targetName"
+                    targetName.lowercase().contains("panaderia") -> "la panadería $targetName"
+                    targetName.lowercase().contains("oxxo") -> "el minimarket OXXO"
+                    targetName.lowercase().contains("jumbo") -> "el supermercado Jumbo"
+                    targetName.lowercase().contains("lider") -> "el supermercado Líder"
+                    targetName.lowercase().contains("unimarc") -> "el supermercado Unimarc"
+                    targetName.lowercase().contains("santa isabel") -> "el supermercado Santa Isabel"
+                    targetName.lowercase().contains("supermercado") -> "el $targetName"
+                    targetName.lowercase().contains("minimarket") -> "el $targetName"
+                    targetName.lowercase().contains("mercado") -> "el $targetName"
+                    else -> "el local $targetName"
+                }
+
                 if (openScreen) {
                     val distText = if (closest.distanceMeters < 1200) "${closest.distanceMeters} metros (${closest.walkingMinutes} min a pie)" else "${String.format(java.util.Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)} km"
-                    val spoken = "El $targetName más cercano está en ${closest.fullAddressText}, a unos $distText ${closest.cardinalDirection}. Te abrí la ruta en la pantalla."
+                    val spoken = "El lugar más próximo es $desc en ${closest.fullAddressText}, a unos $distText ${closest.cardinalDirection}. Te abrí la ruta en la pantalla."
                     val (navSuccess, appUsed) = FifoLocationHelper.startNavigation(context, "${closest.latitude},${closest.longitude}", appChoice)
                     return SkillResult(
                         success = navSuccess,
@@ -105,11 +128,37 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
                     )
                 } else {
                     // Guía 100% verbal concisa y sin discursos redundantes
-                    val spoken = if (closest.distanceMeters < 1200) {
-                        "El $targetName más cercano está en ${closest.fullAddressText}, a ${closest.distanceMeters} metros (${closest.walkingMinutes} min caminando ${closest.cardinalDirection}). ¿Quieres que te guíe hacia allá?"
+                    val isRealTime = args["real_time"] == true || destInput.contains("tiempo real", ignoreCase = true)
+                    val street = closest.road.ifBlank { closest.fullAddressText }
+                    if (isRealTime) {
+                        com.fifo.voicepipeline.location.FifoNavigationManager.startNavigation(
+                            name = closest.name,
+                            latitude = closest.latitude,
+                            longitude = closest.longitude,
+                            fullAddress = closest.fullAddressText,
+                            road = street
+                        )
+                    } else {
+                        com.fifo.voicepipeline.location.FifoNavigationManager.setPendingDestination(closest)
+                    }
+                    val spoken = if (isRealTime) {
+                        "Para ir a $desc: camine ${closest.distanceMeters} metros ${closest.cardinalDirection} hacia $street. Voy acompañándote paso a paso en el camino, avísame mientras avanzas."
+                    } else if (closest.distanceMeters < 1200) {
+                        val blocks = (closest.distanceMeters / 100).coerceAtLeast(1)
+                        val blocksText = if (blocks == 1) "1 cuadra" else "$blocks cuadras"
+                        val phrasings = listOf(
+                            "El más cercano es $desc en ${closest.fullAddressText}, a unos ${closest.distanceMeters} metros (${closest.walkingMinutes} min a pie). ¿Te gustaría que te guíe hacia allá?",
+                            "Encontré $desc en ${closest.fullAddressText}. Te queda a unos ${closest.distanceMeters} metros, unas $blocksText caminando. ¿Quieres que te acompañe en el camino?",
+                            "Justo cerca tienes $desc en ${closest.road.ifBlank { closest.fullAddressText }}, a ${closest.distanceMeters} metros hacia ${closest.cardinalDirection}. ¿Deseas que te guíe paso a paso?"
+                        )
+                        phrasings.random()
                     } else {
                         val km = String.format(java.util.Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)
-                        "El $targetName más cercano está en ${closest.fullAddressText}, a unos $km kilómetros ${closest.cardinalDirection} (${closest.drivingMinutes} min en auto). ¿Quieres que te indique la ruta?"
+                        val phrasings = listOf(
+                            "El local más próximo es $desc en ${closest.fullAddressText}, a unos $km kilómetros (${closest.drivingMinutes} min en auto). ¿Deseas que te indique la ruta?",
+                            "Tienes $desc en ${closest.fullAddressText}, a unos $km kilómetros hacia ${closest.cardinalDirection}. ¿Te gustaría que te guíe?"
+                        )
+                        phrasings.random()
                     }
                     return SkillResult(
                         success = true,
@@ -121,7 +170,8 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
                             "distance_meters" to closest.distanceMeters,
                             "walking_minutes" to closest.walkingMinutes,
                             "driving_minutes" to closest.drivingMinutes,
-                            "screen_opened" to false
+                            "screen_opened" to false,
+                            "keep_listening" to true
                         )
                     )
                 }
@@ -140,6 +190,13 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
 
         // 1. Obtener guía hablada con cálculo de distancia, minutos a pie y orientación
         val routeGuidance = FifoLocationHelper.getSpokenRouteGuidance(context, resolvedDestination)
+        com.fifo.voicepipeline.location.FifoNavigationManager.startNavigation(
+            name = resolvedDestination,
+            latitude = routeGuidance.destinationLat,
+            longitude = routeGuidance.destinationLon,
+            fullAddress = resolvedDestination,
+            road = resolvedDestination
+        )
 
         // 2. Si el usuario pidió explícitamente abrir el mapa visual en pantalla
         if (openScreen) {

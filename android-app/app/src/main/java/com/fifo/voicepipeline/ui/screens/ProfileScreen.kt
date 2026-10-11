@@ -611,6 +611,58 @@ fun ProfileScreen(
                 )
             }
 
+            Spacer(modifier = Modifier.height(12.dp))
+
+            var showMicGuideInProfile by remember { mutableStateOf(false) }
+
+            Surface(
+                shape = RoundedCornerShape(18.dp),
+                color = Color(0xFFF0F9FF),
+                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBAE6FD)),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable { showMicGuideInProfile = true }
+            ) {
+                Row(
+                    modifier = Modifier.padding(18.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Mic,
+                        contentDescription = null,
+                        tint = Color(0xFF0284C7),
+                        modifier = Modifier.size(28.dp)
+                    )
+                    Spacer(modifier = Modifier.width(14.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Micrófono Continuo 24/7 (Permitir siempre)",
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = FifoColors.NavyPrimary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Configuración para que Fifo responda al decir 'Fifo' con la pantalla apagada o en otras apps.",
+                            fontSize = 12.sp,
+                            color = Color(0xFF0369A1),
+                            lineHeight = 16.sp
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Default.ChevronRight,
+                        contentDescription = null,
+                        tint = Color(0xFF0284C7)
+                    )
+                }
+            }
+
+            if (showMicGuideInProfile) {
+                com.fifo.voicepipeline.ui.components.BackgroundMicGuideDialog(
+                    onDismiss = { showMicGuideInProfile = false }
+                )
+            }
+
             Spacer(modifier = Modifier.height(20.dp))
 
             // 4. Opciones técnicas avanzadas (colapsables para no abrumar a personas mayores)

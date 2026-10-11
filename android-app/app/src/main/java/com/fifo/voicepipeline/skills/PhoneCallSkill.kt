@@ -113,15 +113,20 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
                         resolvedContactName = "Carabineros 133"
                         "133"
                     }
-                    lower.contains("carmen") || lower.contains("hija") || lower.contains("familia") -> {
-                        resolvedContactName = profile.emergencyContactName
-                        profile.emergencyContactPhone
-                    }
                     else -> ""
                 }
 
+                // Si no es un servicio de emergencia nacional, consultar el Grafo Relacional de Fifo
                 if (phoneNumber.isBlank()) {
-                    // Buscar en contactos del teléfono
+                    val relContact = FifoDataRepository.findContactByRoleOrName(contactInput)
+                    if (relContact != null && !relContact.phoneNumber.isNullOrBlank()) {
+                        resolvedContactName = "${relContact.contactName} (${relContact.relationshipRole})"
+                        phoneNumber = relContact.phoneNumber
+                    }
+                }
+
+                // Si no se encontró en el grafo relacional, buscar en la libreta del sistema telefónico
+                if (phoneNumber.isBlank()) {
                     try {
                         val uri = android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI
                         val projection = arrayOf(

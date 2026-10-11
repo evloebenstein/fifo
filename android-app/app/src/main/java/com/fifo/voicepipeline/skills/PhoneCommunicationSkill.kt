@@ -43,7 +43,8 @@ class PhoneCommunicationSkill(private val context: Context) : FifoSkill {
             lower.contains("samu") || lower.contains("ambulancia") || lower.contains("131") -> "131"
             lower.contains("bombero") || lower.contains("132") -> "132"
             lower.contains("carabinero") || lower.contains("policia") || lower.contains("133") -> "133"
-            lower.contains("carmen") || lower.contains("hija") || lower.contains("emergencia") -> profile.emergencyContactPhone
+            (profile.emergencyContactName.isNotBlank() && lower.contains(profile.emergencyContactName.lowercase().trim())) ||
+            lower.contains("emergencia") || lower.contains("familiar") || lower.contains("hija") || lower.contains("hijo") || lower.contains("contacto") -> profile.emergencyContactPhone
             else -> profile.emergencyContactPhone
         }
 

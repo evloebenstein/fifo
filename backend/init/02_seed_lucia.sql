@@ -612,3 +612,62 @@ INSERT INTO activity_participants (activity_id, user_id, status) VALUES
     ('act_5', 'usr_mateo_03', 'joined'),
     ('act_5', 'usr_diego_05', 'joined')
 ON DUPLICATE KEY UPDATE status = VALUES(status);
+
+-- -----------------------------------------------------------------------------
+-- 13. GRAFO SOCIAL Y CONTACTOS RELACIONALES (Tabla: user_contacts_relational)
+-- -----------------------------------------------------------------------------
+INSERT INTO user_contacts_relational (
+    id, user_id, contact_name, phone_number, relationship_role, closeness_score,
+    trust_tier, emotional_valence, contextual_memory, mention_count
+) VALUES
+    (
+        'ctc_rel_01', 'usr_lucia_01', 'Carmen González', '+56987654321',
+        'Hija mayor (contacto prioritario de apoyo)', 0.98, 1, 'afectuoso',
+        'Llama los domingos por la tarde y suele visitarla cada dos semanas. La acompaña a controles médicos.', 14
+    ),
+    (
+        'ctc_rel_02', 'usr_lucia_01', 'Dr. Álvaro Muñoz', '+56922334455',
+        'Médico geriatra de cabecera', 0.85, 2, 'protector',
+        'Controla la presión arterial y receta Enalapril. Atiende en el centro médico cercano.', 6
+    ),
+    (
+        'ctc_rel_03', 'usr_lucia_01', 'Rosa Martínez', '+56933445566',
+        'Vecina de confianza y amiga', 0.78, 3, 'afectuoso',
+        'Vecina del departamento del frente. Toman té y comparten esquejes de plantas y recetas caseras.', 8
+    ),
+    (
+        'ctc_rel_04', 'usr_lucia_01', 'Tomás', '+56944556677',
+        'Nieto universitario', 0.92, 2, 'afectuoso',
+        'Estudia ingeniería y la visita los fines de semana. Le gusta que su abuela le prepare queque de limón.', 5
+    )
+ON DUPLICATE KEY UPDATE closeness_score = VALUES(closeness_score);
+
+-- -----------------------------------------------------------------------------
+-- 14. RUTINAS Y PATRONES DE VIDA DIARIA (Tabla: user_daily_routines)
+-- -----------------------------------------------------------------------------
+INSERT INTO user_daily_routines (
+    id, user_id, routine_name, category, time_anchor, typical_time_str,
+    frequency_rule, confidence_score, notes
+) VALUES
+    (
+        'rtn_01', 'usr_lucia_01', 'Toma de medicamento de la presión (Enalapril)',
+        'medication', 'morning', '08:30', 'daily', 0.95,
+        'Tomar junto con el desayuno y un vaso de agua.'
+    ),
+    (
+        'rtn_02', 'usr_lucia_01', 'Cuidado y riego de orquídeas en el balcón',
+        'hobby', 'morning', '10:00', 'weekly', 0.85,
+        'Riego por inmersión los días miércoles mientras escucha música clásica.'
+    ),
+    (
+        'rtn_03', 'usr_lucia_01', 'Caminata suave por la plaza',
+        'exercise', 'afternoon', '16:30', 'weekdays', 0.80,
+        'Paseo de 20 a 30 minutos cuando baja el sol.'
+    ),
+    (
+        'rtn_04', 'usr_lucia_01', 'Llamada familiar de los domingos',
+        'social', 'evening', '18:00', 'weekly', 0.90,
+        'Conversación habitual con su hija Carmen.'
+    )
+ON DUPLICATE KEY UPDATE confidence_score = VALUES(confidence_score);
+
