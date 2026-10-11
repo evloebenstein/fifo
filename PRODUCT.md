@@ -113,6 +113,13 @@ Para la especificación completa del esquema de base de datos, mapeo de componen
   - Consulta de batería (*"Fifo, ¿cuánta batería le queda al celular?"*).
   - Ajuste de volumen y consulta de hora en lenguaje natural.
 
+## Conversational Voice Interaction & Barge-In Policy
 
-
-
+- **Activación Estricta por Wake Word ("Fifo")**:
+  - Salvo que Fifo formule una pregunta directa al usuario (`expectFollowUpQuestion`), que esté activo el modo de escucha continua, o que se use el botón push-to-talk, Fifo requiere estrictamente la palabra clave *"Fifo"* para procesar y responder.
+  - Esto evita que Fifo responda a conversaciones ajenas en la habitación, ruido ambiente o llamadas telefónicas en curso donde el usuario habla con un tercero.
+- **Barge-In Inteligente Basado en Contenido (Cero Cortes Accidentales)**:
+  - Fifo no corta su locución ante ruidos ambientales fuertes (RMS), murmullos ni personas hablando en segundo plano.
+  - La voz de Fifo solo se detiene si:
+    1. El usuario dice una orden explícita de silencio (*"Fifo silencio"*, *"Fifo cállate"*, *"Fifo para"*, *"silencio"*, etc.).
+    2. El usuario interrumpe con una nueva pregunta o instrucción directa que comience con *"Fifo ..."*.
