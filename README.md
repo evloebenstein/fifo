@@ -1,10 +1,10 @@
-# 🤖 FIFO Voice Pipeline (100% BLE + ESP32-S3 + Android + Groq LPU)
+#  FIFO Voice Pipeline (100% BLE + ESP32-S3 + Android + Groq LPU)
 
 Asistente robótico interactivo de compañía para adultos mayores con **conexión 100% Bluetooth Low Energy (BLE)**, rostro expresivo en pantalla OLED 1.3", cerebro de IA ultra-rápido en **Groq LPU** (con soporte de Function Calling nativo), ejecución continua 24/7 en segundo plano y activación estricta por palabra clave (**"FIFO"**).
 
 ---
 
-## 🌟 Características Principales
+##  Características Principales
 
 - **Cerebro de IA en Groq LPU (Ultra-rápido y Gratuito):**
   - **Motor Principal (LLM):** Inferencia en chips LPU de Groq con modelos de razonamiento de código abierto de última generación (`openai/gpt-oss-120b` y `llama-3.3-70b-versatile`). Respuestas fluidas y empáticas generadas en **~200-350 ms**, sin costo de API para el usuario.
@@ -40,7 +40,7 @@ Asistente robótico interactivo de compañía para adultos mayores con **conexi�
 
 ---
 
-## 📐 Diagrama de Arquitectura
+##  Diagrama de Arquitectura
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -85,14 +85,14 @@ Asistente robótico interactivo de compañía para adultos mayores con **conexi�
 │   └────────────────────┬─────────────────────┘              │
 │                        ▼                                    │
 │   ┌──────────────────────────────────────────┐              │
-│   │ 🔊 Parlante del Celular (Android TTS)    │              │
+│   │  Parlante del Celular (Android TTS)    │              │
 │   └──────────────────────────────────────────┘              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🔌 Conexiones de Hardware (ESP32-S3-N16R8)
+##  Conexiones de Hardware (ESP32-S3-N16R8)
 
 ### 1. Micrófono Analógico UCC
 
@@ -113,7 +113,7 @@ Asistente robótico interactivo de compañía para adultos mayores con **conexi�
 
 ---
 
-## 🚀 Puesta en Marcha
+##  Puesta en Marcha
 
 ### 1. Grabar Firmware en ESP32-S3
 
@@ -158,7 +158,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ---
 
-## 🛡️ Claves de API y Modelos Soportados
+##  Claves de API y Modelos Soportados
 
 | Componente | Proveedor Recomendado | Modelo por Defecto | Tipo de Costo |
 | :--- | :--- | :--- | :--- |
@@ -170,7 +170,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ---
 
-## 📚 Documentación Adicional
+##  Documentación Adicional
 
 - **[PRODUCT.md](PRODUCT.md):** Visión del producto, arquitectura invisible de telefonía tipo Alexa, principios de accesibilidad y políticas de privacidad para personas mayores.
 - **[FIFO_DATABASE_MAP.md](FIFO_DATABASE_MAP.md):** Mapa exhaustivo de la base de datos central, catálogo de Skills (Function Calling) y flujo de mutaciones automáticas por voz.
