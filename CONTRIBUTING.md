@@ -1,4 +1,4 @@
-# Guía de Contribución a Fifo 🤖💙
+# Guía de Contribución a Fifo 
 
 ¡Gracias por tu interés en colaborar con **Fifo**! Este proyecto tiene como misión brindar compañía empática, autonomía y asistencia integral a personas mayores mediante interacción por voz fluida, inteligencia artificial y hardware accesible.
 
@@ -71,7 +71,7 @@ El APK resultante se genera en `android-app/app/build/outputs/apk/debug/app-debu
 ### Claves de API y Variables de Entorno
 Fifo utiliza servicios de IA (Groq LPU para inferencia ultra-rápida, Anthropic Claude para razonamiento y OpenAI Whisper para STT).
 
-> ⚠️ **IMPORTANTE: NUNCA subas claves de API al repositorio.**
+>  **IMPORTANTE: NUNCA subas claves de API al repositorio.**
 > Las claves se configuran localmente en la app a través del menú de Ajustes o en archivos locales no rastreados por git.
 
 ---
