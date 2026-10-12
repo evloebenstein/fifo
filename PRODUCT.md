@@ -133,3 +133,16 @@ Para la especificación completa del esquema de base de datos, mapeo de componen
   - La voz de Fifo solo se detiene si:
     1. El usuario dice una orden explícita de silencio (*"Fifo silencio"*, *"Fifo cállate"*, *"Fifo para"*, *"silencio"*, etc.).
     2. El usuario interrumpe con una nueva pregunta o instrucción directa que comience con *"Fifo ..."*.
+
+## Multi-Profile Ecosystem, Google Sign-In & Zero-Friction Onboarding
+
+- **Inicio de Sesión con Google ("Un Toque")**:
+  - Diseñado específicamente para que adultos mayores o familiares ingresen sin recordar contraseñas alfanuméricas complejas.
+  - Botón accesible de alto contraste con icono oficial de Google y tipografía grande (18 sp, área táctil de 56 dp) presente en la pantalla de bienvenida (`WelcomeScreen`), inicio de sesión (`LoginScreen`) y configuración inicial (`OnboardingScreen`).
+  - Creación y aprovisionamiento automático en la base de datos relacional MySQL (`fifo_db`) con biografía inicial generada por IA, gustos iniciales y memoria de bienvenida.
+- **Creación Dinámica de Perfiles en Base de Datos**:
+  - Capacidad de crear múltiples cuentas y perfiles en la base de datos MySQL mediante el endpoint `POST /users` o el asistente guiado por voz/formulario de Onboarding.
+  - Cada perfil cuenta con su propio historial de conversaciones, memorias afectivas, lista de gustos detallados y recordatorios independientes.
+- **Selector y Conmutación de Perfiles en Vivo**:
+  - `LoginScreen` incluye un carrusel táctil horizontal que consulta en tiempo real los perfiles existentes en la base de datos (`GET /users`).
+  - Permite cambiar de perfil con un solo toque (`switchUserProfile`), sincronizando instantáneamente la memoria local de SQLite y el contexto del cerebro de Fifo con los datos del nuevo usuario.

@@ -15,6 +15,7 @@ import com.fifo.voicepipeline.pipeline.PipelineState
 import com.fifo.voicepipeline.ui.components.*
 import com.fifo.voicepipeline.ui.screens.*
 import com.fifo.voicepipeline.ui.theme.FifoColors
+import kotlinx.coroutines.launch
 
 enum class AppFlowScreen {
     WELCOME,
@@ -83,13 +84,20 @@ fun MainScreen(
         }
     }
 
+    val coroutineScope = rememberCoroutineScope()
+
     Box(modifier = Modifier.fillMaxSize()) {
         // ── Flujo de Pantallas Principales ───
         when (currentFlowScreen) {
             AppFlowScreen.WELCOME -> {
                 WelcomeScreen(
                     onNavigateToOnboarding = { currentFlowScreen = AppFlowScreen.ONBOARDING },
-                    onNavigateToLogin = { currentFlowScreen = AppFlowScreen.LOGIN }
+                    onNavigateToLogin = { currentFlowScreen = AppFlowScreen.LOGIN },
+                    onGoogleLoginSuccess = { name ->
+                        userName = name
+                        prefs.edit().putBoolean("has_completed_setup", true).apply()
+                        currentFlowScreen = AppFlowScreen.MAIN_APP
+                    }
                 )
             }
 
@@ -106,12 +114,30 @@ fun MainScreen(
 
             AppFlowScreen.ONBOARDING -> {
                 OnboardingScreen(
-                    onComplete = { name, _, _ ->
+                    onComplete = { name, age, interests, birthDate, birthYear, gender, city, email ->
+                        coroutineScope.launch {
+                            com.fifo.voicepipeline.data.FifoDataRepository.createProfileAndStart(
+                                context = context,
+                                fullName = name,
+                                birthDate = birthDate,
+                                birthYear = birthYear.toIntOrNull(),
+                                estimatedAge = age.toIntOrNull(),
+                                gender = gender,
+                                city = city,
+                                initialTastes = interests,
+                                email = email
+                            )
+                        }
                         userName = name
                         prefs.edit().putBoolean("has_completed_setup", true).apply()
                         currentFlowScreen = AppFlowScreen.MAIN_APP
                     },
-                    onBack = { currentFlowScreen = AppFlowScreen.WELCOME }
+                    onBack = { currentFlowScreen = AppFlowScreen.WELCOME },
+                    onGoogleSuccess = { name ->
+                        userName = name
+                        prefs.edit().putBoolean("has_completed_setup", true).apply()
+                        currentFlowScreen = AppFlowScreen.MAIN_APP
+                    }
                 )
             }
 

@@ -97,4 +97,7 @@ dependencies {
 
     // ── Coroutines ──────────────────────────────────
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
+
+    // ── Google Play Services Auth ───────────────────
+    implementation("com.google.android.gms:play-services-auth:21.0.0")
 }

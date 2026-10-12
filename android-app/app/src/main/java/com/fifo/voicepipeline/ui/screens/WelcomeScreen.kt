@@ -17,11 +17,18 @@ import androidx.compose.ui.unit.sp
 import com.fifo.voicepipeline.ui.components.FifoFace
 import com.fifo.voicepipeline.ui.theme.FifoColors
 
+import androidx.compose.runtime.*
+import com.fifo.voicepipeline.ui.components.GoogleSignInButton
+import com.fifo.voicepipeline.ui.components.GoogleSignInDialog
+
 @Composable
 fun WelcomeScreen(
     onNavigateToOnboarding: () -> Unit,
-    onNavigateToLogin: () -> Unit
+    onNavigateToLogin: () -> Unit,
+    onGoogleLoginSuccess: (String) -> Unit = {}
 ) {
+    var showGoogleDialog by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -88,6 +95,14 @@ fun WelcomeScreen(
             modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            // Botón de Google Sign-In accesible sin contraseña
+            GoogleSignInButton(
+                onClick = { showGoogleDialog = true },
+                text = "Continuar con Google"
+            )
+
+            Spacer(modifier = Modifier.height(12.dp))
+
             Button(
                 onClick = onNavigateToOnboarding,
                 shape = RoundedCornerShape(28.dp),
@@ -105,7 +120,7 @@ fun WelcomeScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Conocer a Fifo",
+                        text = "Conocer a Fifo (Nuevo perfil)",
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold
                     )
@@ -118,7 +133,7 @@ fun WelcomeScreen(
                 }
             }
 
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
 
             Button(
                 onClick = onNavigateToLogin,
@@ -132,13 +147,13 @@ fun WelcomeScreen(
                     .height(54.dp)
             ) {
                 Text(
-                    text = "Iniciar Sesión",
+                    text = "Iniciar Sesión / Elegir Perfil",
                     fontSize = 16.sp,
                     fontWeight = FontWeight.Medium
                 )
             }
 
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(16.dp))
 
             Text(
                 text = "Tu espacio para ser tú.",
@@ -146,5 +161,15 @@ fun WelcomeScreen(
                 color = Color(0xFF64748B)
             )
         }
+    }
+
+    if (showGoogleDialog) {
+        GoogleSignInDialog(
+            onDismiss = { showGoogleDialog = false },
+            onSignInSuccess = { name ->
+                showGoogleDialog = false
+                onGoogleLoginSuccess(name)
+            }
+        )
     }
 }

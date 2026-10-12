@@ -32,29 +32,32 @@ object FifoDataRepository {
         val helper = com.fifo.voicepipeline.data.local.FifoDatabaseHelper.getInstance(app)
         dbHelper = helper
 
+        val prefs = app.getSharedPreferences("fifo_prefs", android.content.Context.MODE_PRIVATE)
+        val activeUserId = prefs.getString("active_user_id", "usr_lucia_01") ?: "usr_lucia_01"
+
         try {
             // Cargar estado inicial inmediatamente desde SQLite (100% offline, cero latencia)
-            _userProfile.value = helper.getUserProfile()
-            val localTastes = helper.getTastes()
+            _userProfile.value = helper.getUserProfile(activeUserId)
+            val localTastes = helper.getTastes(activeUserId)
             if (localTastes.isNotEmpty()) _tastes.value = localTastes
-            val localStories = helper.getTasteStories()
+            val localStories = helper.getTasteStories(activeUserId)
             if (localStories.isNotEmpty()) _tasteStories.value = localStories
             val localPosts = helper.getSocialPosts()
             if (localPosts.isNotEmpty()) _socialPosts.value = localPosts
-            val localMemories = helper.getMemories()
+            val localMemories = helper.getMemories(activeUserId)
             if (localMemories.isNotEmpty()) _memories.value = localMemories
-            val localReminders = helper.getReminders()
+            val localReminders = helper.getReminders(activeUserId)
             if (localReminders.isNotEmpty()) _reminders.value = localReminders
-            val localConvs = helper.getPastConversations()
+            val localConvs = helper.getPastConversations(activeUserId)
             if (localConvs.isNotEmpty()) _conversations.value = localConvs
-            val localFrags = helper.getConversationFragments()
+            val localFrags = helper.getConversationFragments(activeUserId)
             if (localFrags.isNotEmpty()) _conversationFragments.value = localFrags
-            val localRelContacts = helper.getRelationalContacts()
+            val localRelContacts = helper.getRelationalContacts(activeUserId)
             if (localRelContacts.isNotEmpty()) _relationalContacts.value = localRelContacts
-            val localRoutines = helper.getDailyRoutines()
+            val localRoutines = helper.getDailyRoutines(activeUserId)
             if (localRoutines.isNotEmpty()) _dailyRoutines.value = localRoutines
             _deviceLocation.value = helper.getDeviceLocation()
-            android.util.Log.i("FifoDataRepository", "Base de datos relacional SQLite cargada con éxito en el dispositivo")
+            android.util.Log.i("FifoDataRepository", "Base de datos relacional SQLite cargada con éxito en el dispositivo para $activeUserId")
 
             // Sincronizar libreta de contactos del teléfono celular en segundo plano si hay permiso
             if (androidx.core.content.ContextCompat.checkSelfPermission(
@@ -68,7 +71,7 @@ object FifoDataRepository {
             }
 
             // Sincronizar en segundo plano con el backend Docker / MySQL (database/api)
-            syncFromBackend(_userProfile.value.id)
+            syncFromBackend(activeUserId)
         } catch (e: Exception) {
             android.util.Log.e("FifoDataRepository", "Error inicializando base de datos SQLite: ${e.message}")
         }
@@ -105,6 +108,196 @@ object FifoDataRepository {
                 _isBackendConnected.value = false
                 android.util.Log.d("FifoDataRepository", "Backend Docker/MySQL no disponible; operando 100% en SQLite local")
             }
+        }
+    }
+
+    fun getActiveUserId(context: android.content.Context): String {
+        val prefs = context.applicationContext.getSharedPreferences("fifo_prefs", android.content.Context.MODE_PRIVATE)
+        return prefs.getString("active_user_id", _userProfile.value.id) ?: _userProfile.value.id
+    }
+
+    /**
+     * Cambia el perfil de usuario activo en el teléfono, actualiza SharedPreferences,
+     * recarga SQLite local y sincroniza en segundo plano con MySQL.
+     */
+    fun switchUserProfile(context: android.content.Context, newUserId: String) {
+        val helper = dbHelper ?: return
+        val prefs = context.applicationContext.getSharedPreferences("fifo_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putString("active_user_id", newUserId).apply()
+
+        val p = helper.getUserProfile(newUserId)
+        if (p.fullName.isNotBlank()) {
+            _userProfile.value = p
+        } else {
+            _userProfile.value = _userProfile.value.copy(id = newUserId)
+        }
+
+        val localTastes = helper.getTastes(newUserId)
+        if (localTastes.isNotEmpty()) _tastes.value = localTastes
+
+        val localStories = helper.getTasteStories(newUserId)
+        if (localStories.isNotEmpty()) _tasteStories.value = localStories
+
+        val localMemories = helper.getMemories(newUserId)
+        if (localMemories.isNotEmpty()) _memories.value = localMemories
+
+        val localReminders = helper.getReminders(newUserId)
+        if (localReminders.isNotEmpty()) _reminders.value = localReminders
+
+        val localConvs = helper.getPastConversations(newUserId)
+        if (localConvs.isNotEmpty()) _conversations.value = localConvs
+
+        val localFrags = helper.getConversationFragments(newUserId)
+        if (localFrags.isNotEmpty()) _conversationFragments.value = localFrags
+
+        val localRelContacts = helper.getRelationalContacts(newUserId)
+        if (localRelContacts.isNotEmpty()) _relationalContacts.value = localRelContacts
+
+        val localRoutines = helper.getDailyRoutines(newUserId)
+        if (localRoutines.isNotEmpty()) _dailyRoutines.value = localRoutines
+
+        syncFromBackend(newUserId)
+    }
+
+    /**
+     * Autenticación / Registro transparente con cuenta de Google.
+     */
+    suspend fun loginWithGoogle(
+        context: android.content.Context,
+        googleId: String,
+        email: String,
+        fullName: String,
+        avatarUrl: String? = null,
+        estimatedAge: Int? = null,
+        city: String? = null
+    ): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            val result = com.fifo.voicepipeline.network.FifoBackendClient.authenticateGoogleUser(
+                googleId = googleId,
+                email = email,
+                fullName = fullName,
+                avatarUrl = avatarUrl,
+                estimatedAge = estimatedAge,
+                city = city
+            )
+            val effectiveUserId = result?.userId ?: ("usr_g_" + googleId.takeLast(6))
+            val prefs = context.applicationContext.getSharedPreferences("fifo_prefs", android.content.Context.MODE_PRIVATE)
+            prefs.edit().putString("active_user_id", effectiveUserId).putBoolean("has_completed_setup", true).apply()
+
+            if (result == null && dbHelper != null) {
+                val ageVal = estimatedAge ?: 70
+                val yearVal = 2026 - ageVal
+                val cv = android.content.ContentValues().apply {
+                    put("id", effectiveUserId)
+                    put("full_name", fullName)
+                    put("email", email)
+                    put("birth_date", "Año $yearVal")
+                    put("birth_year", yearVal)
+                    put("estimated_age", ageVal)
+                    put("gender_identity", "No especificado")
+                    put("city", city ?: "Santiago, Chile")
+                }
+                dbHelper?.writableDatabase?.insertWithOnConflict("users", null, cv, android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE)
+                val cvProf = android.content.ContentValues().apply {
+                    put("user_id", effectiveUserId)
+                    put("bio_ai", "¡Hola! Soy $fullName. Me alegra unirme a Fifo con Google.")
+                    put("interest_tags", com.google.gson.Gson().toJson(listOf("Música", "Paseos", "Charlas")))
+                }
+                dbHelper?.writableDatabase?.insertWithOnConflict("user_profiles", null, cvProf, android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE)
+            }
+
+            switchUserProfile(context, effectiveUserId)
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("FifoDataRepository", "Error en loginWithGoogle: ${e.message}")
+            false
+        }
+    }
+
+    /**
+     * Crea un perfil de usuario en el onboarding y lo persiste inmediatamente en MySQL y SQLite.
+     */
+    suspend fun createProfileAndStart(
+        context: android.content.Context,
+        fullName: String,
+        birthDate: String? = null,
+        birthYear: Int? = null,
+        estimatedAge: Int? = null,
+        gender: String = "Mujer",
+        city: String = "Santiago, Chile",
+        initialTastes: List<String> = emptyList(),
+        email: String? = null
+    ): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            val result = com.fifo.voicepipeline.network.FifoBackendClient.createUserProfile(
+                fullName = fullName,
+                email = email,
+                birthDate = birthDate,
+                birthYear = birthYear,
+                estimatedAge = estimatedAge,
+                genderIdentity = gender,
+                city = city,
+                initialTastes = initialTastes
+            )
+            val newUserId = result?.userId ?: run {
+                val clean = fullName.filter { it.isLetterOrDigit() }.lowercase().take(8).ifBlank { "user" }
+                "usr_${clean}_" + System.currentTimeMillis().toString().takeLast(4)
+            }
+
+            val prefs = context.applicationContext.getSharedPreferences("fifo_prefs", android.content.Context.MODE_PRIVATE)
+            prefs.edit().putString("active_user_id", newUserId).putBoolean("has_completed_setup", true).apply()
+
+            if (result == null && dbHelper != null) {
+                val ageVal = estimatedAge ?: (if (birthYear != null) 2026 - birthYear else 68)
+                val yearVal = birthYear ?: (2026 - ageVal)
+                val dateVal = birthDate ?: "Año $yearVal"
+                val cv = android.content.ContentValues().apply {
+                    put("id", newUserId)
+                    put("full_name", fullName)
+                    put("email", email ?: "${newUserId}@fifo.app")
+                    put("birth_date", dateVal)
+                    put("birth_year", yearVal)
+                    put("estimated_age", ageVal)
+                    put("gender_identity", gender)
+                    put("city", city)
+                }
+                dbHelper?.writableDatabase?.insertWithOnConflict("users", null, cv, android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE)
+                val cvProf = android.content.ContentValues().apply {
+                    put("user_id", newUserId)
+                    put("bio_ai", "Amante de ${initialTastes.take(3).joinToString(", ")}. Disfruta conversar con calma sobre sus pasatiempos favoritos.")
+                    put("interest_tags", com.google.gson.Gson().toJson(initialTastes))
+                }
+                dbHelper?.writableDatabase?.insertWithOnConflict("user_profiles", null, cvProf, android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE)
+                initialTastes.forEach { t -> dbHelper?.addTaste(newUserId, t) }
+            }
+
+            switchUserProfile(context, newUserId)
+            newUserId
+        } catch (e: Exception) {
+            android.util.Log.e("FifoDataRepository", "Error en createProfileAndStart: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * Inicia sesión buscando el usuario por id, nombre o email.
+     */
+    suspend fun loginWithIdentifier(
+        context: android.content.Context,
+        identifier: String
+    ): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            val result = com.fifo.voicepipeline.network.FifoBackendClient.loginUser(identifier)
+            if (result != null) {
+                val prefs = context.applicationContext.getSharedPreferences("fifo_prefs", android.content.Context.MODE_PRIVATE)
+                prefs.edit().putString("active_user_id", result.userId).putBoolean("has_completed_setup", true).apply()
+                switchUserProfile(context, result.userId)
+                return@withContext true
+            }
+            false
+        } catch (e: Exception) {
+            android.util.Log.e("FifoDataRepository", "Error en loginWithIdentifier: ${e.message}")
+            false
         }
     }
 

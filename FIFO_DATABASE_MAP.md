@@ -14,6 +14,9 @@
 6. [Reglas de Privacidad y Manejo de Información Sensible](#6-reglas-de-privacidad-y-manejo-de-información-sensible)
 7. [Arquitectura de Memoria de Doble Capa: Servidor Completo vs. Celular Compacto](#7-arquitectura-de-memoria-de-doble-capa-servidor-completo-vs-celular-compacto)
 8. [Modo Celular, Rastreo del Robot y Navegación GPS (Maps y Waze)](#8-modo-celular-rastreo-del-robot-y-navegación-gps-maps-y-waze)
+9. [Skills del Dispositivo Móvil](#9-skills-del-dispositivo-móvil-y-control-de-hardware)
+10. [Resumen de Herramientas (Skills) Disponibles](#10-resumen-de-herramientas-skills-disponibles-para-el-cerebro-ia)
+11. [Autenticación con Google, Creación Dinámica de Perfiles y Multi-usuario](#11-autenticación-con-google-creación-dinámica-de-perfiles-y-multi-usuario)
 
 ---
 
@@ -92,6 +95,7 @@ Contiene la identidad principal de la persona y sus datos demográficos básicos
 | Campo | Tipo | Requerido | Descripción | Ejemplo |
 | :--- | :--- | :---: | :--- | :--- |
 | `id` | `String` (UUID) | Sí | Identificador único del usuario | `"usr_lucia_01"` |
+| `google_id` | `String?` | No | ID único federado de Google Auth | `"google_sub_108291827361"` |
 | `full_name` | `String` | Sí | Nombre completo del usuario | `"Lucía González"` |
 | `email` | `String` | Sí | Correo de la cuenta | `"lucia.gonzalez@correo.cl"` |
 | `birth_date` | `String` | Sí | Fecha de cumpleaños completa | `"14 de Mayo, 1958"` |
@@ -106,6 +110,7 @@ Contiene la identidad principal de la persona y sus datos demográficos básicos
 ```json
 {
   "id": "usr_lucia_01",
+  "google_id": "google_sub_108291827361",
   "full_name": "Lucía González",
   "email": "lucia.gonzalez@correo.cl",
   "birth_date": "14 de Mayo, 1958",
@@ -864,6 +869,57 @@ A continuación se resume el catálogo unificado de tools registradas en `FifoSk
 9. `manage_phone_call`: Anuncia llamadas, contesta en altavoz manos libres o cuelga.
 10. `control_device_hardware`: Linterna, volumen, batería y hora del celular.
 
+---
 
+## 11. Autenticación con Google, Creación Dinámica de Perfiles y Multi-usuario
 
+Para que la base de datos MySQL (`fifo_db`) funcione como un ecosistema real multicuenta y no dependa únicamente del usuario predeterminado de prueba (`usr_lucia_01`), se implementó la arquitectura de perfiles dinámicos y federación Google:
 
+### 11.1 Flujo de Autenticación con Google (`POST /auth/google`)
+
+- **Objetivo:** Permitir que adultos mayores o sus familiares inicien sesión con un solo toque, sin recordar claves alfanuméricas complejas.
+- **Payload:**
+  ```json
+  {
+    "google_id": "google_sub_108291827361",
+    "email": "carlos.mendoza@gmail.com",
+    "full_name": "Carlos Mendoza",
+    "avatar_url": "https://lh3.googleusercontent.com/..."
+  }
+  ```
+- **Lógica de aprovisionamiento en Backend:**
+  1. Si `google_id` o `email` ya existen en `users`, recupera el usuario existente (`action: "login"`).
+  2. Si es un usuario nuevo (`action: "created"`):
+     - Inserta en `users` con un ID único (`usr_g_carlos_a8d94b`).
+     - Aprovisiona automáticamente su fila en `user_profiles` con una biografía inicial generada por IA.
+     - Aprovisiona sus primeros gustos por defecto en la tabla `tastes` (`"Música clásica"`, `"Paseos al aire libre"`, `"Conversar con amigos"`).
+     - Crea su primer recuerdo importante en `important_memories` con alta prioridad para que Fifo conozca su nombre desde el primer instante.
+     - Genera una publicación de bienvenida en `community_posts` para la red Fifo Amigos.
+
+### 11.2 Creación Manual de Perfiles (`POST /users`)
+
+Permite registrar nuevos usuarios desde el flujo guiado de bienvenida u Onboarding:
+- **Payload:**
+  ```json
+  {
+    "full_name": "Rosa Martínez",
+    "email": "rosa.martinez@correo.cl",
+    "birth_date": "10 de Agosto, 1949",
+    "birth_year": 1949,
+    "estimated_age": 75,
+    "gender_identity": "Mujer",
+    "city": "Viña del Mar",
+    "initial_tastes": ["Tejer lana", "Boleros", "Flores de jardín"]
+  }
+  ```
+- Retorna el objeto `users` creado y aprovisiona perfil IA, gustos iniciales y memoria local/remota.
+
+### 11.3 Conmutación Dinámica de Perfiles en Android
+
+- **Persistencia Activa:** `FifoDataRepository` almacena `active_user_id` en `SharedPreferences`.
+- **Selector de Perfiles:** La pantalla `LoginScreen` consulta en vivo `GET /users` y muestra un carrusel táctil de perfiles reales almacenados en la base de datos (con su nombre, edad, ciudad y tags de intereses).
+- **Conmutación Instantánea:** Al tocar un perfil o iniciar con Google, `FifoDataRepository.switchUserProfile(newUserId)`:
+  1. Actualiza el `userId` en memoria y persistencia local.
+  2. Limpia la base de datos SQLite local para ese dispositivo.
+  3. Ejecuta `FifoBackendClient.syncAll(newUserId)` descargando el perfil, gustos, recordatorios, comunidad y memorias del nuevo usuario.
+  4. Recalcula el `FifoBrainContext` con los datos específicos de esa persona.

@@ -30,6 +30,8 @@ import com.fifo.voicepipeline.service.FifoAccessibilityService
 import com.fifo.voicepipeline.ui.components.BackgroundMicGuideDialog
 import com.fifo.voicepipeline.ui.components.CallAssistantGuideDialog
 import com.fifo.voicepipeline.ui.components.FifoFace
+import com.fifo.voicepipeline.ui.components.GoogleSignInButton
+import com.fifo.voicepipeline.ui.components.GoogleSignInDialog
 import com.fifo.voicepipeline.ui.theme.FifoColors
 
 /**
@@ -56,12 +58,23 @@ private enum class SetupPhase {
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun OnboardingScreen(
-    onComplete: (name: String, age: String, interests: List<String>) -> Unit,
-    onBack: () -> Unit
+    onComplete: (
+        name: String,
+        age: String,
+        interests: List<String>,
+        birthDate: String,
+        birthYear: String,
+        gender: String,
+        city: String,
+        email: String
+    ) -> Unit,
+    onBack: () -> Unit,
+    onGoogleSuccess: (String) -> Unit = {}
 ) {
     var currentPhase by remember { mutableStateOf(SetupPhase.CREATE_ACCOUNT) }
     var showCallGuideDialogInSetup by remember { mutableStateOf(false) }
     var showMicGuideDialogInSetup by remember { mutableStateOf(false) }
+    var showGoogleDialogInSetup by remember { mutableStateOf(false) }
 
     // Datos recopilados en el Setup
     var fullName by remember { mutableStateOf("Lucía González") }
@@ -214,7 +227,31 @@ fun OnboardingScreen(
                 color = FifoColors.LightTextSecondary
             )
 
-            Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
+
+            GoogleSignInButton(
+                onClick = { showGoogleDialogInSetup = true },
+                text = "Registrarme rápido con Google"
+            )
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
+                Text(
+                    text = "O COMPLETA EL FORMULARIO",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = FifoColors.LightTextMuted,
+                    modifier = Modifier.padding(horizontal = 8.dp)
+                )
+                HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
 
             Text("Nombre completo", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
             Spacer(modifier = Modifier.height(6.dp))
@@ -1124,7 +1161,16 @@ fun OnboardingScreen(
 
                     Button(
                         onClick = {
-                            onComplete(fullName.ifBlank { "Lucía González" }, ageCalculated, selectedInterests.toList())
+                            onComplete(
+                                fullName.ifBlank { "Lucía González" },
+                                ageCalculated,
+                                selectedInterests.toList(),
+                                "$birthDayMonth ($birthYear)",
+                                birthYear,
+                                gender,
+                                city,
+                                email
+                            )
                         },
                         shape = RoundedCornerShape(22.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = FifoColors.NavyPrimary),
@@ -1157,6 +1203,16 @@ fun OnboardingScreen(
         if (showMicGuideDialogInSetup) {
             BackgroundMicGuideDialog(
                 onDismiss = { showMicGuideDialogInSetup = false }
+            )
+        }
+
+        if (showGoogleDialogInSetup) {
+            GoogleSignInDialog(
+                onDismiss = { showGoogleDialogInSetup = false },
+                onSignInSuccess = { gName ->
+                    showGoogleDialogInSetup = false
+                    onGoogleSuccess(gName)
+                }
             )
         }
     }

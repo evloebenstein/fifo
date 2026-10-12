@@ -84,6 +84,27 @@ def ensure_schema_migrations():
                 INDEX idx_conv_user (user_id, conversation_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_es_0900_ai_ci;
         """)
+
+        # Migración: columna google_id en tabla users para autenticación con Google
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.COLUMNS
+            WHERE TABLE_SCHEMA = %s AND TABLE_NAME = 'users' AND COLUMN_NAME = 'google_id'
+        """, (DB_NAME,))
+        has_google_id = cursor.fetchone()[0] > 0
+        if not has_google_id:
+            cursor.execute("ALTER TABLE users ADD COLUMN google_id VARCHAR(128) NULL DEFAULT NULL")
+            try:
+                cursor.execute("ALTER TABLE users ADD UNIQUE INDEX uq_users_google_id (google_id)")
+            except Exception:
+                pass
+            print("[SchemaMigration] Columna 'google_id' añadida a users con éxito.")
+
+        # Permitir email nullable para registro simplificado
+        try:
+            cursor.execute("ALTER TABLE users MODIFY COLUMN email VARCHAR(180) NULL DEFAULT NULL")
+        except Exception:
+            pass
+
         cursor.close()
         conn.close()
     except Exception as e:
@@ -172,6 +193,38 @@ def parse_json_col(val: Any, default: Any = None):
 # -----------------------------------------------------------------------------
 # Modelos Pydantic para Peticiones de Skills y App Android
 # -----------------------------------------------------------------------------
+class GoogleAuthRequest(BaseModel):
+    google_id: str
+    email: str
+    full_name: str
+    avatar_url: Optional[str] = None
+    id_token: Optional[str] = None
+    estimated_age: Optional[int] = 68
+    gender_identity: Optional[str] = "No especificado"
+    city: Optional[str] = "Santiago, Chile"
+
+
+class UserCreateRequest(BaseModel):
+    full_name: str
+    email: Optional[str] = None
+    birth_date: Optional[str] = None
+    birth_year: Optional[int] = None
+    estimated_age: Optional[int] = None
+    gender_identity: Optional[str] = "Mujer"
+    city: Optional[str] = "Santiago, Chile"
+    avatar_url: Optional[str] = None
+    initial_tastes: Optional[List[str]] = None
+    emergency_contact_name: Optional[str] = None
+    emergency_contact_phone: Optional[str] = None
+    preferred_address: Optional[str] = None
+    short_quote: Optional[str] = None
+
+
+class UserLoginRequest(BaseModel):
+    identifier: str
+    password: Optional[str] = None
+
+
 class DemographicsUpdateRequest(BaseModel):
     full_name: Optional[str] = None
     birth_date: Optional[str] = None
@@ -348,7 +401,7 @@ def list_all_users():
     conn = get_db_connection()
     cursor = conn.cursor(dictionary=True)
     cursor.execute("""
-        SELECT u.*, p.bio_ai, p.emergency_contact_name, p.emergency_contact_phone, p.preferred_address
+        SELECT u.*, p.bio_ai, p.emergency_contact_name, p.emergency_contact_phone, p.preferred_address, p.interest_tags
         FROM users u
         LEFT JOIN user_profiles p ON p.user_id = u.id
         ORDER BY u.id ASC
@@ -357,9 +410,270 @@ def list_all_users():
     for u in users:
         cursor.execute("SELECT name FROM tastes WHERE user_id = %s AND is_active = 1", (u["id"],))
         u["tastes"] = [r["name"] for r in cursor.fetchall()]
+        u["interest_tags"] = parse_json_col(u.get("interest_tags"), [])
     cursor.close()
     conn.close()
     return {"users": users}
+
+
+@app.post("/auth/google")
+def authenticate_google_user(req: GoogleAuthRequest):
+    """Autentica o vincula una cuenta de Google y devuelve el usuario activo."""
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        clean_email = req.email.strip().lower()
+        clean_google_id = req.google_id.strip()
+
+        # Buscar si ya existe por google_id o por email
+        cursor.execute("""
+            SELECT u.*, p.bio_ai, p.emergency_contact_name, p.emergency_contact_phone, p.preferred_address
+            FROM users u
+            LEFT JOIN user_profiles p ON p.user_id = u.id
+            WHERE u.google_id = %s OR LOWER(u.email) = %s
+            LIMIT 1
+        """, (clean_google_id, clean_email))
+        existing = cursor.fetchone()
+
+        if existing:
+            user_id = existing["id"]
+            updates = []
+            params = []
+            if not existing.get("google_id"):
+                updates.append("google_id = %s")
+                params.append(clean_google_id)
+            if req.avatar_url and req.avatar_url != existing.get("avatar_url"):
+                updates.append("avatar_url = %s")
+                params.append(req.avatar_url)
+            if updates:
+                params.append(user_id)
+                cursor.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = %s", tuple(params))
+
+            cursor.close()
+            conn.close()
+            return {
+                "status": "ok",
+                "action": "login",
+                "user_id": user_id,
+                "user": existing,
+                "message": f"Sesión iniciada con Google para {existing['full_name']}"
+            }
+
+        # Crear nuevo usuario a partir de Google
+        clean_name = req.full_name.strip() or "Usuario de Google"
+        raw_slug = re.sub(r'[^a-zA-Z0-9]', '', clean_name.lower().split()[0])[:8] or "user"
+        user_id = f"usr_g_{raw_slug}_{uuid.uuid4().hex[:6]}"
+
+        age = req.estimated_age if (req.estimated_age and 18 <= req.estimated_age <= 120) else 68
+        birth_year = 2026 - age
+        birth_date = f"Año {birth_year}"
+        gender = req.gender_identity or "No especificado"
+        city = req.city or "Santiago, Chile"
+        avatar_bg = 4293514751
+
+        short_quote = "Conociendo a Fifo a través de Google."
+        cursor.execute("""
+            INSERT INTO users (id, google_id, full_name, email, birth_date, birth_year, estimated_age, gender_identity, city, avatar_url, avatar_bg_hex, short_quote)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (user_id, clean_google_id, clean_name, clean_email, birth_date, birth_year, age, gender, city, req.avatar_url, avatar_bg, short_quote))
+
+        bio_ai = f"¡Hola! Soy {clean_name}. Me alegra mucho unirme a Fifo mediante Google para compartir anécdotas, recordar momentos y descubrir nuevas amistades."
+        default_tags = ["Música clásica", "Paseos al aire libre", "Conversaciones con Fifo", "Recuerdos familiares"]
+        cursor.execute("""
+            INSERT INTO user_profiles (user_id, bio_ai, interest_tags, emergency_contact_name, emergency_contact_phone, preferred_address, continuous_listening_enabled)
+            VALUES (%s, %s, %s, NULL, NULL, NULL, 0)
+        """, (user_id, bio_ai, json.dumps(default_tags)))
+
+        initial_tastes = [
+            ("Música clásica", "musica"),
+            ("Paseos al aire libre", "naturaleza"),
+            ("Conversaciones con Fifo", "bienestar")
+        ]
+        for tname, tcat in initial_tastes:
+            cursor.execute("""
+                INSERT INTO tastes (id, user_id, name, category, is_active)
+                VALUES (%s, %s, %s, %s, 1)
+            """, (f"tst_{uuid.uuid4().hex[:8]}", user_id, tname, tcat))
+
+        cursor.execute("""
+            INSERT INTO memories (id, user_id, emoji, title, detail, learned_date_label)
+            VALUES (%s, %s, '👋', 'Bienvenida con Google', %s, 'Hoy')
+        """, (
+            f"mem_{uuid.uuid4().hex[:8]}",
+            user_id,
+            f"Iniciaste sesión con tu cuenta de Google ({clean_email}). ¡Fifo está feliz de acompañarte cada día!"
+        ))
+
+        cursor.execute("""
+            INSERT INTO device_locations (device_id, user_id, is_connected, last_known_room)
+            VALUES (%s, %s, 0, 'Sala de estar')
+        """, (f"dev_{user_id}", user_id))
+
+        cursor.close()
+        conn.close()
+        return {
+            "status": "ok",
+            "action": "created",
+            "user_id": user_id,
+            "user": {
+                "id": user_id,
+                "full_name": clean_name,
+                "email": clean_email,
+                "estimated_age": age,
+                "city": city,
+                "bio_ai": bio_ai
+            },
+            "message": f"Nuevo perfil creado para {clean_name} con Google"
+        }
+    except Exception as e:
+        cursor.close()
+        conn.close()
+        raise HTTPException(status_code=500, detail=f"Error autenticando con Google: {str(e)}")
+
+
+@app.post("/users")
+def create_user_profile(req: UserCreateRequest):
+    """Crea un nuevo perfil de usuario en la base de datos MySQL (onboarding o registro manual)."""
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        clean_name = req.full_name.strip()
+        if not clean_name:
+            raise HTTPException(status_code=400, detail="El nombre completo es obligatorio")
+
+        raw_slug = re.sub(r'[^a-zA-Z0-9]', '', clean_name.lower().split()[0])[:8] or "user"
+        user_id = f"usr_{raw_slug}_{uuid.uuid4().hex[:6]}"
+
+        age = req.estimated_age
+        byear = req.birth_year
+        if byear and not age:
+            age = max(18, min(120, 2026 - byear))
+        elif age and not byear:
+            byear = 2026 - age
+        else:
+            age = age or 68
+            byear = byear or 1958
+
+        bdate = req.birth_date or f"Año {byear}"
+        gender = req.gender_identity or "Mujer"
+        city = req.city or "Santiago, Chile"
+
+        if req.email and req.email.strip():
+            clean_email = req.email.strip().lower()
+            cursor.execute("SELECT id FROM users WHERE LOWER(email) = %s", (clean_email,))
+            if cursor.fetchone():
+                clean_email = f"{raw_slug}_{uuid.uuid4().hex[:4]}@fifo.app"
+        else:
+            clean_email = f"{raw_slug}_{uuid.uuid4().hex[:6]}@fifo.app"
+
+        short_quote = req.short_quote or "Me alegra compartir mi día a día con Fifo."
+        avatar_bg = 4293514751
+
+        cursor.execute("""
+            INSERT INTO users (id, full_name, email, birth_date, birth_year, estimated_age, gender_identity, city, avatar_url, avatar_bg_hex, short_quote)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        """, (user_id, clean_name, clean_email, bdate, byear, age, gender, city, req.avatar_url, avatar_bg, short_quote))
+
+        tastes_list = req.initial_tastes or ["Música clásica", "Paseos en el parque", "Cocina tradicional"]
+        tastes_snippet = ", ".join(tastes_list[:3])
+        bio_ai = f"Amante de {tastes_snippet}. Disfruta conversar con calma sobre sus pasatiempos favoritos y compartir anécdotas de su vida diaria con Fifo."
+
+        cursor.execute("""
+            INSERT INTO user_profiles (user_id, bio_ai, interest_tags, emergency_contact_name, emergency_contact_phone, preferred_address, continuous_listening_enabled)
+            VALUES (%s, %s, %s, %s, %s, %s, 0)
+        """, (user_id, bio_ai, json.dumps(tastes_list), req.emergency_contact_name, req.emergency_contact_phone, req.preferred_address))
+
+        for tname in tastes_list:
+            tname_clean = tname.strip()
+            if not tname_clean:
+                continue
+            cursor.execute("""
+                INSERT INTO tastes (id, user_id, name, category, is_active)
+                VALUES (%s, %s, %s, 'general', 1)
+                ON DUPLICATE KEY UPDATE is_active = 1
+            """, (f"tst_{uuid.uuid4().hex[:8]}", user_id, tname_clean))
+
+        cursor.execute("""
+            INSERT INTO memories (id, user_id, emoji, title, detail, learned_date_label)
+            VALUES (%s, %s, '🌱', 'Inicio de tu camino con Fifo', %s, 'Hoy')
+        """, (
+            f"mem_{uuid.uuid4().hex[:8]}",
+            user_id,
+            f"¡Hola {clean_name}! Hoy creamos tu espacio en Fifo. Comenzaremos recordando tus gustos por {tastes_snippet}."
+        ))
+
+        cursor.execute("""
+            INSERT INTO device_locations (device_id, user_id, is_connected, last_known_room)
+            VALUES (%s, %s, 0, 'Sala de estar')
+        """, (f"dev_{user_id}", user_id))
+
+        cursor.close()
+        conn.close()
+
+        return {
+            "status": "ok",
+            "action": "created",
+            "user_id": user_id,
+            "user": {
+                "id": user_id,
+                "full_name": clean_name,
+                "email": clean_email,
+                "birth_date": bdate,
+                "birth_year": byear,
+                "estimated_age": age,
+                "gender_identity": gender,
+                "city": city,
+                "bio_ai": bio_ai,
+                "tastes": tastes_list
+            },
+            "message": f"Perfil creado exitosamente para {clean_name}"
+        }
+    except HTTPException:
+        cursor.close()
+        conn.close()
+        raise
+    except Exception as e:
+        cursor.close()
+        conn.close()
+        raise HTTPException(status_code=500, detail=f"Error creando perfil de usuario: {str(e)}")
+
+
+@app.post("/auth/login")
+def login_user(req: UserLoginRequest):
+    """Inicia sesión con un usuario existente buscando por id, nombre o email."""
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    try:
+        ident = req.identifier.strip()
+        cursor.execute("""
+            SELECT u.*, p.bio_ai, p.emergency_contact_name, p.emergency_contact_phone, p.preferred_address
+            FROM users u
+            LEFT JOIN user_profiles p ON p.user_id = u.id
+            WHERE u.id = %s OR LOWER(u.email) = LOWER(%s) OR LOWER(u.full_name) = LOWER(%s) OR u.full_name LIKE %s
+            LIMIT 1
+        """, (ident, ident, ident, f"%{ident}%"))
+        user = cursor.fetchone()
+        if not user:
+            cursor.close()
+            conn.close()
+            raise HTTPException(status_code=404, detail=f"No se encontró ningún usuario con '{ident}'")
+
+        cursor.close()
+        conn.close()
+        return {
+            "status": "ok",
+            "user_id": user["id"],
+            "user": user,
+            "message": f"Sesión iniciada como {user['full_name']}"
+        }
+    except HTTPException:
+        cursor.close()
+        conn.close()
+        raise
+    except Exception as e:
+        cursor.close()
+        conn.close()
+        raise HTTPException(status_code=500, detail=f"Error al iniciar sesión: {str(e)}")
 
 
 # -----------------------------------------------------------------------------

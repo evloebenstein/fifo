@@ -14,6 +14,7 @@ USE fifo_db;
 -- -----------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS users (
     id VARCHAR(64) NOT NULL PRIMARY KEY COMMENT 'Identificador único del usuario (ej: usr_lucia_01)',
+    google_id VARCHAR(128) NULL DEFAULT NULL UNIQUE COMMENT 'ID único de cuenta Google para autenticación federada',
     full_name VARCHAR(150) NOT NULL COMMENT 'Nombre completo del usuario',
     email VARCHAR(180) NOT NULL UNIQUE COMMENT 'Correo electrónico de la cuenta',
     birth_date VARCHAR(80) NOT NULL COMMENT 'Fecha de cumpleaños legible (ej: 14 de Mayo, 1958)',
@@ -26,7 +27,8 @@ CREATE TABLE IF NOT EXISTS users (
     short_quote VARCHAR(255) NULL DEFAULT NULL COMMENT 'Frase corta de presentación para Fifo Amigos',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_users_city (city)
+    INDEX idx_users_city (city),
+    INDEX idx_users_google_id (google_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_es_0900_ai_ci;
 
 -- -----------------------------------------------------------------------------

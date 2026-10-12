@@ -45,6 +45,10 @@ Asistente robótico interactivo de compañía para adultos mayores con **conexi�
   - **Gestión Integral de Recordatorios:** Programar (`set`), marcar como completado (`complete`), descartar (`delete`) y listar pendientes (`list`).
   - **Historias de Gustos en Detalle (`add_taste_story`):** Registro por voz de pasatiempos con fragmento corto/subtítulo para la memoria viva y descripción profunda para el perfil.
   - **Recuerdos Importantes Instantáneos (`add_memory`):** Guarda notas y afectos en la sección de recuerdos sin tocar la pantalla.
+- **Inicio de Sesión con Google & Creación Dinámica de Perfiles en Base de Datos:**
+  - **Google Sign-In "Un Toque":** Acceso sin fricciones para personas de la tercera edad sin necesidad de recordar contraseñas complejas. Creación instantánea de cuenta en MySQL con biografía y gustos iniciales aprovisionados por IA.
+  - **Selector y Conmutación de Perfiles en Vivo:** Permite alternar entre diferentes usuarios registrados en la base de datos desde la pantalla de login con un toque, sincronizando automáticamente su memoria viva, gustos e historial.
+  - **Creación Flexible de Cuentas:** Registro asistido por voz y formulario guiado (`POST /users`), integrando inmediatamente a la persona a la red Fifo Amigos.
 - **Interfaz Móvil Accesible (Jetpack Compose):**
   - Diseñada especialmente para adultos mayores con alto contraste, tipografía grande, retroalimentación táctil, botón de silencio con protección visual, localizador GPS/sonoro para encontrar el robot extraviado y comunidad *Fifo Amigos*.
 
