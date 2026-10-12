@@ -158,14 +158,33 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
     }
 
     private fun handleTimeAndDate(): SkillResult {
-        val now = Date()
-        val timeFormat = SimpleDateFormat("h 'y' m 'minutos de la' a", Locale("es", "ES"))
+        val calendar = Calendar.getInstance()
+        val hour24 = calendar.get(Calendar.HOUR_OF_DAY)
+        val hour12 = calendar.get(Calendar.HOUR).let { if (it == 0) 12 else it }
+        val minute = calendar.get(Calendar.MINUTE)
+
+        val period = when (hour24) {
+            in 0..5 -> "de la madrugada"
+            in 6..11 -> "de la mañana"
+            in 12..19 -> "de la tarde"
+            else -> "de la noche"
+        }
+
+        val minuteClause = when (minute) {
+            0 -> "en punto"
+            15 -> "y cuarto"
+            30 -> "y media"
+            else -> "y $minute minutos"
+        }
+
         val dateFormat = SimpleDateFormat("EEEE d 'de' MMMM", Locale("es", "ES"))
+        val dateStr = dateFormat.format(calendar.time)
 
-        val timeStr = timeFormat.format(now).replace("AM", "mañana").replace("PM", "tarde").replace("p. m.", "tarde").replace("a. m.", "mañana")
-        val dateStr = dateFormat.format(now)
-
-        val spoken = "Son las $timeStr. Hoy es $dateStr."
-        return SkillResult(success = true, spokenFeedback = spoken, data = mapOf("time" to timeStr, "date" to dateStr))
+        val spoken = "Son las $hour12 $minuteClause $period. Hoy es $dateStr."
+        return SkillResult(
+            success = true,
+            spokenFeedback = spoken,
+            data = mapOf("hour" to hour24, "minute" to minute, "period" to period, "date" to dateStr)
+        )
     }
 }

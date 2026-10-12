@@ -56,6 +56,17 @@ object FifoDataRepository {
             _deviceLocation.value = helper.getDeviceLocation()
             android.util.Log.i("FifoDataRepository", "Base de datos relacional SQLite cargada con éxito en el dispositivo")
 
+            // Sincronizar libreta de contactos del teléfono celular en segundo plano si hay permiso
+            if (androidx.core.content.ContextCompat.checkSelfPermission(
+                    context,
+                    android.Manifest.permission.READ_CONTACTS
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            ) {
+                repositoryScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                    syncDeviceContactsToRelationalGraph(context)
+                }
+            }
+
             // Sincronizar en segundo plano con el backend Docker / MySQL (database/api)
             syncFromBackend(_userProfile.value.id)
         } catch (e: Exception) {
@@ -498,6 +509,20 @@ object FifoDataRepository {
     }
 
     /**
+     * Actualiza los tags de intereses específicos del usuario identificados por IA.
+     */
+    fun updateInterestTags(tags: List<String>) {
+        if (tags.isNotEmpty()) {
+            val cleanTags = tags.map { it.trim() }.filter { it.isNotBlank() }.distinct()
+            _userProfile.value = _userProfile.value.copy(interestTags = cleanTags)
+            dbHelper?.updateInterestTags(_userProfile.value.id, cleanTags)
+            repositoryScope.launch {
+                com.fifo.voicepipeline.network.FifoBackendClient.putInterestTags(_userProfile.value.id, cleanTags)
+            }
+        }
+    }
+
+    /**
      * Agrega un nuevo gusto aprendido por Fifo.
      */
     fun addTaste(tasteName: String): Boolean {
@@ -620,6 +645,51 @@ object FifoDataRepository {
     }
 
     /**
+     * Elimina un recordatorio del teléfono y lo sincroniza con el backend.
+     */
+    fun removeReminder(id: String) {
+        _reminders.value = _reminders.value.filterNot { it.id == id }
+        dbHelper?.deleteReminder(reminderId = id)
+        repositoryScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.deleteReminder(id)
+        }
+    }
+
+    /**
+     * Guarda un recuerdo directamente en la memoria viva de celular y SQLite local
+     * sin disparar llamada HTTP redundante al backend (útil post-consolidación de IA).
+     */
+    fun addMemoryDirect(item: FifoMemoryItem) {
+        val current = _memories.value
+        if (!current.any { it.title.equals(item.title, ignoreCase = true) }) {
+            _memories.value = listOf(item) + current
+            dbHelper?.addMemory(_userProfile.value.id, item)
+        }
+    }
+
+    /**
+     * Guarda una historia de gusto detallada directamente en la memoria viva y SQLite local.
+     */
+    fun addTasteStoryDirect(story: FifoTasteStory) {
+        val current = _tasteStories.value
+        if (!current.any { it.title.equals(story.title, ignoreCase = true) }) {
+            _tasteStories.value = listOf(story) + current
+            dbHelper?.addTasteStory(_userProfile.value.id, story)
+        }
+    }
+
+    /**
+     * Guarda un recordatorio directamente en la memoria viva y SQLite local.
+     */
+    fun addReminderDirect(reminder: FifoReminderItem) {
+        val current = _reminders.value
+        if (!current.any { it.title.equals(reminder.title, ignoreCase = true) && it.timeStr == reminder.timeStr }) {
+            _reminders.value = listOf(reminder) + current
+            dbHelper?.addReminder(_userProfile.value.id, reminder)
+        }
+    }
+
+    /**
      * Registra una conversación pasada en el historial.
      */
     fun addConversation(item: PastConversationItem) {
@@ -714,6 +784,248 @@ object FifoDataRepository {
             (normalizedQ.contains("nieta") && cRole.contains("nieta")) ||
             (normalizedQ.contains("amiga") && cRole.contains("amiga")) ||
             (normalizedQ.contains("vecina") && cRole.contains("vecina"))
+        }
+    }
+
+    private data class InferredContactAttributes(
+        val role: String,
+        val alias: String?,
+        val initialScore: Float,
+        val tier: Int,
+        val valence: String
+    )
+
+    /**
+     * Ingesta y sincroniza la libreta real de contactos del teléfono celular en el Grafo Relacional de Fifo.
+     * Preserva la memoria aprendida y puntuaciones de cercanía si el contacto ya existía.
+     * Infiere roles iniciales (Hijo, Nieto, Doctor, etc.) a partir del nombre guardado.
+     */
+    fun syncDeviceContactsToRelationalGraph(context: android.content.Context): Int {
+        if (androidx.core.content.ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.READ_CONTACTS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            android.util.Log.d("FifoDataRepository", "Permiso READ_CONTACTS no concedido; omitiendo ingesta de libreta.")
+            return 0
+        }
+
+        val phoneContacts = mutableListOf<RelationalContact>()
+        try {
+            val uri = android.provider.ContactsContract.CommonDataKinds.Phone.CONTENT_URI
+            val projection = arrayOf(
+                android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER
+            )
+
+            context.contentResolver.query(
+                uri,
+                projection,
+                null,
+                null,
+                android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME + " ASC"
+            )?.use { cursor ->
+                val nameIdx = cursor.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                val numIdx = cursor.getColumnIndex(android.provider.ContactsContract.CommonDataKinds.Phone.NUMBER)
+                val seenKeys = mutableSetOf<String>()
+
+                while (cursor.moveToNext()) {
+                    val name = if (nameIdx >= 0) cursor.getString(nameIdx)?.trim() ?: "" else ""
+                    val rawPhone = if (numIdx >= 0) cursor.getString(numIdx)?.trim() ?: "" else ""
+                    if (name.isBlank()) continue
+
+                    val cleanPhone = rawPhone.replace(Regex("[^0-9+]"), "")
+                    val dedupeKey = name.lowercase()
+                    if (!seenKeys.add(dedupeKey)) continue
+
+                    val nameLower = name.lowercase()
+                    val attrs = when {
+                        nameLower.contains("hija") -> InferredContactAttributes("Hija", "hija", 0.95f, 1, "afectuoso_familiar")
+                        nameLower.contains("hijo") -> InferredContactAttributes("Hijo", "hijo", 0.95f, 1, "afectuoso_familiar")
+                        nameLower.contains("mama") || nameLower.contains("mamá") || nameLower.contains("mami") || nameLower.contains("madre") ->
+                            InferredContactAttributes("Madre", "mamá", 0.98f, 1, "afectuoso_familiar")
+                        nameLower.contains("papa") || nameLower.contains("papá") || nameLower.contains("papi") || nameLower.contains("padre") ->
+                            InferredContactAttributes("Padre", "papá", 0.98f, 1, "afectuoso_familiar")
+                        nameLower.contains("nieto") -> InferredContactAttributes("Nieto", "nieto", 0.90f, 1, "afectuoso_familiar")
+                        nameLower.contains("nieta") -> InferredContactAttributes("Nieta", "nieta", 0.90f, 1, "afectuoso_familiar")
+                        nameLower.contains("hermana") -> InferredContactAttributes("Hermana", "hermana", 0.85f, 2, "afectuoso_familiar")
+                        nameLower.contains("hermano") -> InferredContactAttributes("Hermano", "hermano", 0.85f, 2, "afectuoso_familiar")
+                        nameLower.contains("doctor") || nameLower.contains("dr.") || nameLower.contains("dr ") ||
+                        nameLower.contains("médico") || nameLower.contains("medico") || nameLower.contains("dra.") ||
+                        nameLower.contains("dra ") || nameLower.contains("cardio") ->
+                            InferredContactAttributes("Médico de cabecera", "doctor", 0.82f, 2, "respeto_salud")
+                        nameLower.contains("tía") || nameLower.contains("tia") -> InferredContactAttributes("Tía", "tía", 0.78f, 2, "afectuoso")
+                        nameLower.contains("tío") || nameLower.contains("tio") -> InferredContactAttributes("Tío", "tío", 0.78f, 2, "afectuoso")
+                        nameLower.contains("primo") || nameLower.contains("prima") -> InferredContactAttributes("Primo/a", "primo/a", 0.75f, 3, "afectuoso")
+                        nameLower.contains("amiga") -> InferredContactAttributes("Amiga cercana", "amiga", 0.75f, 3, "afectuoso_amigo")
+                        nameLower.contains("amigo") -> InferredContactAttributes("Amigo cercano", "amigo", 0.75f, 3, "afectuoso_amigo")
+                        nameLower.contains("vecina") -> InferredContactAttributes("Vecina", "vecina", 0.70f, 3, "afectuoso_vecindad")
+                        nameLower.contains("vecino") -> InferredContactAttributes("Vecino", "vecino", 0.70f, 3, "afectuoso_vecindad")
+                        else -> InferredContactAttributes("Contacto del teléfono", null, 0.50f, 3, "neutral")
+                    }
+
+                    val sanitizedId = "ctc_phone_" + name.replace(Regex("[^a-zA-Z0-9]"), "_").take(20).lowercase() + "_" + cleanPhone.takeLast(4)
+
+                    phoneContacts.add(
+                        RelationalContact(
+                            id = sanitizedId,
+                            contactName = name,
+                            phoneNumber = cleanPhone.ifBlank { null },
+                            relationshipRole = attrs.role,
+                            closenessScore = attrs.initialScore,
+                            trustTier = attrs.tier,
+                            emotionalValence = attrs.valence,
+                            contextualMemory = "Contacto guardado en la libreta del celular.",
+                            mentionCount = 0,
+                            lastMentionedAt = "",
+                            alias = attrs.alias
+                        )
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("FifoDataRepository", "Error leyendo contactos de Android: ${e.message}", e)
+        }
+
+        if (phoneContacts.isEmpty()) return 0
+
+        // Merge inteligente preservando memoria y puntuaciones aprendidas
+        val currentList = _relationalContacts.value.toMutableList()
+        val toSaveInDb = mutableListOf<RelationalContact>()
+
+        for (phoneContact in phoneContacts) {
+            val existingIdx = currentList.indexOfFirst {
+                it.contactName.equals(phoneContact.contactName, ignoreCase = true) ||
+                (!it.phoneNumber.isNullOrBlank() && it.phoneNumber == phoneContact.phoneNumber)
+            }
+
+            if (existingIdx >= 0) {
+                val existing = currentList[existingIdx]
+                val updated = existing.copy(
+                    phoneNumber = phoneContact.phoneNumber ?: existing.phoneNumber,
+                    relationshipRole = if (existing.relationshipRole in listOf("Contacto del teléfono", "Desconocido") && phoneContact.relationshipRole != "Contacto del teléfono")
+                        phoneContact.relationshipRole else existing.relationshipRole,
+                    alias = existing.alias ?: phoneContact.alias
+                )
+                currentList[existingIdx] = updated
+                toSaveInDb.add(updated)
+            } else {
+                currentList.add(phoneContact)
+                toSaveInDb.add(phoneContact)
+            }
+        }
+
+        _relationalContacts.value = currentList.sortedByDescending { it.closenessScore }
+
+        // Persistir en SQLite local
+        dbHelper?.syncDeviceContactsBatch(_userProfile.value.id, toSaveInDb)
+
+        // Sincronizar en segundo plano con el Backend MySQL
+        repositoryScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.syncRelationalContactsBatch(_userProfile.value.id, toSaveInDb)
+        }
+
+        android.util.Log.i("FifoDataRepository", "Sincronizados ${phoneContacts.size} contactos del celular al Grafo Relacional de Fifo.")
+        return phoneContacts.size
+    }
+
+    /**
+     * Procesa las personas mencionadas en una conversación reciente:
+     * - Si la persona ya existe en el grafo o en los contactos del teléfono:
+     *   Aumenta su puntuación de cercanía (closeness_score) y frecuencia de mención.
+     *   Enriquece su descripción y notas de memoria episódica.
+     * - Si es una persona nueva mencionada (ej: "mi nieto Lucas", "la vecina Marta"):
+     *   Crea un nuevo vínculo en el grafo relacional para recordarla y mencionarla a futuro.
+     */
+    fun updateContactsFromSessionMentions(mentions: List<com.fifo.voicepipeline.network.MentionedPersonExtraction>) {
+        if (mentions.isEmpty()) return
+
+        val currentList = _relationalContacts.value.toMutableList()
+        val modifiedOrCreated = mutableListOf<RelationalContact>()
+
+        for (mention in mentions) {
+            val mentionName = mention.name.trim()
+            if (mentionName.isBlank()) continue
+
+            // 1. Buscar coincidencia exacta o semántica en el grafo relacional
+            val existingIdx = currentList.indexOfFirst { c ->
+                val cName = c.contactName.lowercase().trim()
+                val mName = mentionName.lowercase()
+                cName == mName || cName.contains(mName) || mName.contains(cName) ||
+                (c.alias != null && c.alias.equals(mName, ignoreCase = true)) ||
+                (mention.inferredRole != null && c.relationshipRole.contains(mention.inferredRole, ignoreCase = true))
+            }
+
+            if (existingIdx >= 0) {
+                val existing = currentList[existingIdx]
+                val newMentions = existing.mentionCount + 1
+                val valenceBonus = when (mention.emotionalValence.lowercase()) {
+                    "afectuoso", "gratitud" -> 0.04f
+                    "preocupacion", "apoyo" -> 0.03f
+                    else -> 0.02f
+                }
+                val newScore = minOf(1.0f, existing.closenessScore + mention.closenessDelta.coerceAtLeast(0.03f) + valenceBonus)
+                val newRole = if (existing.relationshipRole in listOf("Contacto del teléfono", "Desconocido") && !mention.inferredRole.isNullOrBlank()) {
+                    mention.inferredRole
+                } else existing.relationshipRole
+
+                val enrichedMemory = buildString {
+                    val prev = existing.contextualMemory?.trim() ?: ""
+                    if (prev.isNotBlank() && !prev.contains("libreta del celular")) {
+                        append(prev)
+                        if (!prev.endsWith(".")) append(".")
+                        if (mention.contextSnippet.isNotBlank() && !prev.contains(mention.contextSnippet)) {
+                            append(" ")
+                            append(mention.contextSnippet)
+                        }
+                    } else if (mention.contextSnippet.isNotBlank()) {
+                        append(mention.contextSnippet)
+                    } else {
+                        append("Mencionado(a) con afecto en conversaciones recientes.")
+                    }
+                }.take(400)
+
+                val updated = existing.copy(
+                    closenessScore = newScore,
+                    mentionCount = newMentions,
+                    relationshipRole = newRole,
+                    contextualMemory = enrichedMemory,
+                    emotionalValence = mention.emotionalValence,
+                    lastMentionedAt = "Hoy"
+                )
+                currentList[existingIdx] = updated
+                modifiedOrCreated.add(updated)
+                android.util.Log.i("FifoDataRepository", "Contacto actualizado en grafo relacional: ${updated.contactName} (score=${(updated.closenessScore * 100).toInt()}%, menciones=$newMentions)")
+            } else {
+                // 2. Persona nueva aprendida en la conversación
+                val newId = "ctc_rel_${java.util.UUID.randomUUID().toString().take(8)}"
+                val newContact = RelationalContact(
+                    id = newId,
+                    contactName = mentionName,
+                    phoneNumber = null,
+                    relationshipRole = mention.inferredRole ?: "Persona cercana",
+                    closenessScore = 0.65f, // Score inicial significativo por haber sido mencionada en charla personal
+                    trustTier = 3,
+                    emotionalValence = mention.emotionalValence,
+                    contextualMemory = mention.contextSnippet.ifBlank { "Mencionado(a) en charla reciente con Fifo." },
+                    mentionCount = 1,
+                    lastMentionedAt = "Hoy",
+                    alias = mention.inferredRole?.lowercase()
+                )
+                currentList.add(newContact)
+                modifiedOrCreated.add(newContact)
+                android.util.Log.i("FifoDataRepository", "Nuevo contacto aprendido en grafo relacional: ${newContact.contactName} (${newContact.relationshipRole})")
+            }
+        }
+
+        _relationalContacts.value = currentList.sortedByDescending { it.closenessScore }
+
+        // Persistir en SQLite y Backend
+        for (c in modifiedOrCreated) {
+            dbHelper?.addOrUpdateRelationalContact(_userProfile.value.id, c)
+            repositoryScope.launch {
+                com.fifo.voicepipeline.network.FifoBackendClient.postRelationalContact(_userProfile.value.id, c)
+            }
         }
     }
 
@@ -836,19 +1148,38 @@ object FifoDataRepository {
         val fragments = _conversationFragments.value.take(maxFragments)
         val profile = _userProfile.value
         val tastes = _tastes.value
-        val topContacts = _relationalContacts.value.sortedByDescending { it.closenessScore }.take(4)
+        val topContacts = _relationalContacts.value.sortedByDescending { it.closenessScore }.take(6)
         val routines = _dailyRoutines.value.take(4)
+        val tasteStories = _tasteStories.value
+        val activeReminders = _reminders.value.filter { !it.isCompleted }
 
         return buildString {
             appendLine("=== CONTEXTO DEL USUARIO Y GRAFO RELACIONAL ===")
             appendLine("Nombre: ${profile.fullName} | Edad: ${profile.estimatedAge} | Ciudad: ${profile.city}")
             if (profile.bioAi.isNotBlank()) appendLine("Perfil AI: ${profile.bioAi}")
+            if (profile.interestTags.isNotEmpty()) {
+                appendLine("Tags de interés específicos: ${profile.interestTags.joinToString(", ")}")
+            }
             appendLine("Gustos conocidos: ${tastes.joinToString(", ")}")
+
+            if (tasteStories.isNotEmpty()) {
+                appendLine("--- GUSTOS EN DETALLE (MEMORIA INMEDIATA DE CELULAR: FRAGMENTOS CORTOS) ---")
+                tasteStories.take(8).forEach { story ->
+                    appendLine("- ${story.title} [${story.subtitle}] (Tags: ${story.tags.joinToString("/")})")
+                }
+            }
 
             if (topContacts.isNotEmpty()) {
                 appendLine("--- CONTACTOS Y VÍNCULOS CERCANOS (GRAFO RELACIONAL) ---")
                 topContacts.forEach { c ->
                     appendLine("- ${c.contactName} [${c.relationshipRole}] (Cercanía: ${(c.closenessScore * 100).toInt()}%, Tel: ${c.phoneNumber}): ${c.contextualMemory}")
+                }
+            }
+
+            if (activeReminders.isNotEmpty()) {
+                appendLine("--- RECORDATORIOS ACTIVOS PENDIENTES ---")
+                activeReminders.forEach { r ->
+                    appendLine("- [${r.timeStr}] ${r.title} (ID: ${r.id})")
                 }
             }
 
@@ -859,9 +1190,9 @@ object FifoDataRepository {
                 }
             }
 
-            val recentMemories = _memories.value.take(3)
+            val recentMemories = _memories.value.take(6)
             if (recentMemories.isNotEmpty()) {
-                appendLine("--- Recuerdos y locales clave aprendidos ---")
+                appendLine("--- RECUERDOS IMPORTANTES EN MEMORIA VIVA DE CELULAR ---")
                 recentMemories.forEach { mem ->
                     appendLine("- ${mem.title}: ${mem.detail}")
                 }
@@ -912,6 +1243,8 @@ object FifoDataRepository {
         val allMemories = _memories.value
         val allConversations = _conversations.value
         val allTastes = _tastes.value
+        val allTasteStories = _tasteStories.value
+        val allReminders = _reminders.value
 
         val stopWords = setOf(
             "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "a", "al", "en", "con",
@@ -960,7 +1293,29 @@ object FifoDataRepository {
             }
         }
 
-        // D. Búsqueda en Fragmentos de Conversaciones Pasadas (conversationFragments)
+        // D. Búsqueda en Gustos en Detalle (tasteStories con fragmento corto y descripción completa)
+        for (story in allTasteStories) {
+            val storyText = "${story.title} ${story.subtitle} ${story.description} ${story.tags.joinToString(" ")}".lowercase()
+            val matchesToken = queryTokens.any { storyText.contains(it) }
+            val matchesLiteral = queryLower.length >= 4 && storyText.contains(queryLower)
+            if (matchesToken || matchesLiteral) {
+                excerpts.add("Gusto en detalle (${story.title}): ${story.subtitle}. Detalle completo: ${story.description}")
+                foundEntities.addAll(story.tags)
+            }
+        }
+
+        // E. Búsqueda en Recordatorios (reminders)
+        for (rem in allReminders) {
+            val remText = "${rem.title} ${rem.timeStr}".lowercase()
+            val matchesToken = queryTokens.any { remText.contains(it) }
+            val matchesLiteral = queryLower.length >= 4 && remText.contains(queryLower)
+            if (matchesToken || matchesLiteral) {
+                val status = if (rem.isCompleted) "Completado" else "Pendiente"
+                excerpts.add("Recordatorio ($status): '${rem.title}' para las ${rem.timeStr}")
+            }
+        }
+
+        // F. Búsqueda en Fragmentos de Conversaciones Pasadas (conversationFragments)
         val scoredFragments = allFragments.mapIndexed { index, frag ->
             val fragText = "${frag.primaryTag} ${frag.compactSummary} ${frag.keyTopics.joinToString(" ")} ${frag.namedEntities.joinToString(" ")}".lowercase()
             var score = 0
@@ -980,7 +1335,7 @@ object FifoDataRepository {
             foundEntities.addAll(frag.keyTopics)
         }
 
-        // E. Búsqueda en Charlas Pasadas (past_conversations)
+        // G. Búsqueda en Charlas Pasadas (past_conversations)
         for (conv in allConversations) {
             val convText = "${conv.title} ${conv.summary} ${conv.tag}".lowercase()
             if (queryTokens.any { convText.contains(it) } || (queryLower.length >= 4 && convText.contains(queryLower))) {
@@ -990,7 +1345,7 @@ object FifoDataRepository {
             }
         }
 
-        // D. Búsqueda en Gustos e Intereses (tastes)
+        // H. Búsqueda en Gustos e Intereses (tastes simples)
         val matchedTastes = allTastes.filter { taste ->
             val tLower = taste.lowercase()
             queryTokens.any { tLower.contains(it) } || queryLower.contains(tLower)

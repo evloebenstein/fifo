@@ -80,7 +80,8 @@ data class UserProfileData(
     val bioAi: String = "Amante de las novelas de historia, la música clásica de piano y las mañanas tranquilas con café. Disfruta compartir con Fifo anécdotas de su familia, preparar recetas caseras y cuidar las orquídeas de su jardín.",
     val emergencyContactName: String = "Carmen (Hija)",
     val emergencyContactPhone: String = "+56987654321",
-    val preferredAddress: String = "Av. Providencia 1234, Providencia, Santiago"
+    val preferredAddress: String = "Av. Providencia 1234, Providencia, Santiago",
+    val interestTags: List<String> = emptyList()
 )
 
 /**
@@ -151,6 +152,42 @@ data class DeepContextResult(
     val synthesizedContext: String,
     /** Cuántas conversaciones completas se analizaron en el servidor */
     val conversationsSearched: Int = 0
+)
+
+/**
+ * Resultado estructurado retornado por el motor de análisis y consolidación del backend.
+ * Permite que Fifo modifique en tiempo real recordatorios, recuerdos, gustos en detalle,
+ * tags de intereses específicos y su biografía evolucionada.
+ */
+data class BackendConsolidationResult(
+    val success: Boolean,
+    val serverConversationId: String? = null,
+    val fragmentId: String? = null,
+    val updatedBioAi: String? = null,
+    val interestTags: List<String> = emptyList(),
+    val contactsUpdated: List<RelationalContact> = emptyList(),
+    val memoriesAdded: List<FifoMemoryItem> = emptyList(),
+    val tasteStoriesAdded: List<FifoTasteStory> = emptyList(),
+    val remindersAdded: List<FifoReminderItem> = emptyList(),
+    val tastesAdded: List<String> = emptyList()
+)
+
+/**
+ * Recomendación de amistad en la red comunitaria Fifo Amigos calculada a partir de los
+ * tags de gustos e intereses compartidos y la biografía enriquecida.
+ */
+data class FriendRecommendation(
+    val friendId: String,
+    val fullName: String,
+    val age: Int,
+    val quote: String,
+    val avatarBgHex: Long,
+    val bioAi: String,
+    val sharedTags: List<String>,
+    val candTags: List<String>,
+    val affinityScore: Float,
+    val suggestedTopic: String,
+    val friendshipStatus: String = "suggested"
 )
 
 // ═════════════════════════════════════════════════════════════════════
@@ -232,7 +269,8 @@ data class RelationalContact(
     val contextualMemory: String? = null,
     val mentionCount: Int = 1,
     val lastMentionedAt: String = "",
-    val alias: String? = null
+    val alias: String? = null,
+    val linkedConversationIds: List<String> = emptyList()
 )
 
 /**

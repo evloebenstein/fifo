@@ -59,6 +59,10 @@ services:
       DB_NAME: ${MYSQL_DATABASE:-fifo_db}
       DB_USER: ${MYSQL_USER:-fifo_app}
       DB_PASSWORD: ${MYSQL_PASSWORD:-fifo_app_secret_2026}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    volumes:
+      - ./api:/app
     ports:
       - "${API_PORT:-8090}:8090"
     networks:

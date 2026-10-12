@@ -48,7 +48,7 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
         "properties": {
             "action": {
                 "type": "string",
-                "enum": ["update_demographics", "add_taste", "remove_taste", "publish_post", "add_memory"],
+                "enum": ["update_demographics", "add_taste", "remove_taste", "publish_post", "add_memory", "add_taste_story"],
                 "description": "Tipo de mutación a realizar en la base de datos"
             },
             "full_name": { "type": "string", "description": "Nombre completo" },
@@ -57,6 +57,11 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
             "gender": { "type": "string", "description": "Género o trato ('Mujer', 'Hombre', etc.)" },
             "city": { "type": "string", "description": "Ciudad de residencia" },
             "taste_name": { "type": "string", "description": "Nombre del gusto o pasatiempo recreativo positivo" },
+            "taste_title": { "type": "string", "description": "Título del gusto en detalle (ej: 'Cuidado y amor por las orquídeas')" },
+            "taste_subtitle": { "type": "string", "description": "Fragmento corto o esencia del gusto (ej: 'Riego por inmersión y luz filtrada de mañana')" },
+            "taste_description": { "type": "string", "description": "Descripción detallada de la historia o hábito para el perfil" },
+            "taste_tags": { "type": "string", "description": "Etiquetas separadas por comas (ej: 'Jardinería, Plantas, Paciencia')" },
+            "icon_category": { "type": "string", "enum": ["nature", "music", "restaurant", "book", "walk", "craft", "family"], "description": "Categoría visual del icono" },
             "memory_title": { "type": "string", "description": "Título del recuerdo, plan de entrenamiento o nota (ej: 'Plan de Jiu-Jitsu semanal', 'Receta')" },
             "memory_description": { "type": "string", "description": "Detalle completo del plan de entrenamiento o recuerdo para guardarlo en la pestaña de recuerdos" },
             "memory_icon": { "type": "string", "description": "Emoji representativo (ej: '🥋' para entreno, '📝' para plan, '🌸' para recuerdo)" },
@@ -237,6 +242,53 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
                     success = true,
                     spokenFeedback = "He guardado '$title' en tus recuerdos de Fifo para que puedas revisarlo cuando quieras en la app.",
                     data = mapOf("title" to title, "icon" to icon)
+                )
+            }
+
+            "add_taste_story" -> {
+                val title = args["taste_title"]?.toString()?.trim()
+                    ?: args["taste_name"]?.toString()?.trim()
+                    ?: "Gusto especial"
+                val subtitle = args["taste_subtitle"]?.toString()?.trim()
+                    ?: "Fragmento de preferencia personal"
+                val description = args["taste_description"]?.toString()?.trim()
+                    ?: subtitle
+                val tagsStr = args["taste_tags"]?.toString()?.trim() ?: ""
+                val tags = if (tagsStr.isNotBlank()) {
+                    tagsStr.split(",").map { it.trim() }.filter { it.isNotBlank() }
+                } else listOf("Interés")
+                val iconCategory = args["icon_category"]?.toString()?.trim() ?: "nature"
+
+                // Salvaguardas y filtros
+                if (ABUSE_SAFEGUARD_REGEX.containsMatchIn(title) || ABUSE_SAFEGUARD_REGEX.containsMatchIn(description)) {
+                    return SkillResult(
+                        success = false,
+                        spokenFeedback = "Comprendo lo difícil de esto y estoy aquí para apoyarle. ¿Me autoriza a contactar a su familiar o a un canal confidencial de ayuda?"
+                    )
+                }
+                if (SEXUAL_PROHIBITED_REGEX.containsMatchIn(title) || SEXUAL_PROHIBITED_REGEX.containsMatchIn(description)) {
+                    return SkillResult(
+                        success = false,
+                        spokenFeedback = "Por privacidad, no se registran temas de esa índole en el perfil."
+                    )
+                }
+
+                val story = com.fifo.voicepipeline.ui.model.FifoTasteStory(
+                    id = "taste_${java.util.UUID.randomUUID()}",
+                    title = title,
+                    subtitle = subtitle,
+                    description = description,
+                    tags = tags,
+                    iconCategory = iconCategory,
+                    learnedFrom = "Conversación hablada con Fifo"
+                )
+                FifoDataRepository.addTasteStory(story)
+                FifoDataRepository.addTaste(title)
+
+                SkillResult(
+                    success = true,
+                    spokenFeedback = "He guardado '$title' con su detalle en tu sección de gustos del perfil.",
+                    data = mapOf("title" to title, "subtitle" to subtitle, "tags" to tags)
                 )
             }
 

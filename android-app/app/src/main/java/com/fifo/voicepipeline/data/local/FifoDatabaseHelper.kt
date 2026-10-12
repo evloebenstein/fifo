@@ -26,7 +26,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
     companion object {
         private const val TAG = "FifoDatabaseHelper"
         private const val DATABASE_NAME = "fifo_local.db"
-        private const val DATABASE_VERSION = 3
+        private const val DATABASE_VERSION = 4
         private val gson = Gson()
 
         @Volatile
@@ -70,6 +70,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
                 emergency_contact_phone TEXT,
                 preferred_address TEXT,
                 continuous_listening_enabled INTEGER NOT NULL DEFAULT 0,
+                interest_tags TEXT,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         """.trimIndent())
@@ -220,6 +221,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
                 contextual_memory TEXT,
                 mention_count INTEGER NOT NULL DEFAULT 1,
                 last_mentioned_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                linked_conversation_ids TEXT,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         """.trimIndent())
@@ -239,6 +241,18 @@ class FifoDatabaseHelper private constructor(context: Context) :
                 is_active INTEGER NOT NULL DEFAULT 1,
                 last_observed_at TEXT DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+        """.trimIndent())
+
+        // 13. contact_conversation_mentions (puente relacional local)
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS contact_conversation_mentions (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                contact_id TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
+                snippet_mention TEXT,
+                mentioned_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
         """.trimIndent())
 
@@ -298,6 +312,23 @@ class FifoDatabaseHelper private constructor(context: Context) :
                 )
             """.trimIndent())
         }
+        if (oldVersion < 4) {
+            try {
+                db.execSQL("ALTER TABLE user_contacts_relational ADD COLUMN linked_conversation_ids TEXT")
+            } catch (e: Exception) {
+                Log.w(TAG, "Columna linked_conversation_ids ya existía o error: ${e.message}")
+            }
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS contact_conversation_mentions (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    contact_id TEXT NOT NULL,
+                    conversation_id TEXT NOT NULL,
+                    snippet_mention TEXT,
+                    mentioned_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """.trimIndent())
+        }
     }
 
     override fun onOpen(db: SQLiteDatabase) {
@@ -348,6 +379,11 @@ class FifoDatabaseHelper private constructor(context: Context) :
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         """.trimIndent())
+        try {
+            db.execSQL("ALTER TABLE user_profiles ADD COLUMN interest_tags TEXT")
+        } catch (_: Exception) {
+            // Columna ya existe
+        }
     }
 
 
@@ -446,13 +482,24 @@ class FifoDatabaseHelper private constructor(context: Context) :
     //  LECTURAS Y ESCRITURAS DE CONTACTOS RELACIONALES Y RUTINAS
     // ══════════════════════════════════════════════════════════
 
+    private fun parseStringList(raw: String?): List<String> {
+        if (raw.isNullOrBlank()) return emptyList()
+        return try {
+            val type = object : com.google.gson.reflect.TypeToken<List<String>>() {}.type
+            gson.fromJson<List<String>>(raw, type) ?: emptyList()
+        } catch (_: Exception) {
+            raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        }
+    }
+
     fun getRelationalContacts(userId: String = "usr_lucia_01"): List<RelationalContact> {
         val list = mutableListOf<RelationalContact>()
         readableDatabase.rawQuery(
-            "SELECT id, contact_name, phone_number, relationship_role, closeness_score, trust_tier, emotional_valence, contextual_memory, mention_count, last_mentioned_at FROM user_contacts_relational WHERE user_id = ? ORDER BY closeness_score DESC, mention_count DESC",
+            "SELECT id, contact_name, phone_number, relationship_role, closeness_score, trust_tier, emotional_valence, contextual_memory, mention_count, last_mentioned_at, linked_conversation_ids FROM user_contacts_relational WHERE user_id = ? ORDER BY closeness_score DESC, mention_count DESC",
             arrayOf(userId)
         ).use { cursor ->
             while (cursor.moveToNext()) {
+                val linkedIds = parseStringList(if (cursor.columnCount > 10) cursor.getString(10) else null)
                 list.add(
                     RelationalContact(
                         id = cursor.getString(0) ?: "",
@@ -464,7 +511,8 @@ class FifoDatabaseHelper private constructor(context: Context) :
                         emotionalValence = cursor.getString(6) ?: "afectuoso",
                         contextualMemory = cursor.getString(7),
                         mentionCount = cursor.getInt(8),
-                        lastMentionedAt = cursor.getString(9) ?: ""
+                        lastMentionedAt = cursor.getString(9) ?: "",
+                        linkedConversationIds = linkedIds
                     )
                 )
             }
@@ -473,19 +521,87 @@ class FifoDatabaseHelper private constructor(context: Context) :
     }
 
     fun addOrUpdateRelationalContact(userId: String = "usr_lucia_01", contact: RelationalContact) {
+        val db = writableDatabase
+        // 1. Verificar si ya existe por nombre o número telefónico para este usuario
+        var existingId: String? = null
+        var existingScore = 0.5f
+        var existingMentions = 0
+        var existingMemory: String? = null
+        var existingLinkedStr: String? = null
+
+        val queryName = contact.contactName.trim()
+        val queryPhone = contact.phoneNumber?.trim()
+
+        val selectSql = if (!queryPhone.isNullOrBlank()) {
+            "SELECT id, closeness_score, mention_count, contextual_memory, linked_conversation_ids FROM user_contacts_relational WHERE user_id = ? AND (LOWER(contact_name) = LOWER(?) OR phone_number = ?) LIMIT 1"
+        } else {
+            "SELECT id, closeness_score, mention_count, contextual_memory, linked_conversation_ids FROM user_contacts_relational WHERE user_id = ? AND LOWER(contact_name) = LOWER(?) LIMIT 1"
+        }
+        val selectArgs = if (!queryPhone.isNullOrBlank()) arrayOf(userId, queryName, queryPhone) else arrayOf(userId, queryName)
+
+        try {
+            db.rawQuery(selectSql, selectArgs).use { cursor ->
+                if (cursor.moveToFirst()) {
+                    existingId = cursor.getString(0)
+                    existingScore = cursor.getFloat(1)
+                    existingMentions = cursor.getInt(2)
+                    existingMemory = cursor.getString(3)
+                    if (cursor.columnCount > 4) existingLinkedStr = cursor.getString(4)
+                }
+            }
+        } catch (_: Exception) {
+            // Fallback si la columna aún se está migrando
+            val fallbackSql = "SELECT id, closeness_score, mention_count, contextual_memory FROM user_contacts_relational WHERE user_id = ? AND LOWER(contact_name) = LOWER(?) LIMIT 1"
+            db.rawQuery(fallbackSql, arrayOf(userId, queryName)).use { cursor ->
+                if (cursor.moveToFirst()) {
+                    existingId = cursor.getString(0)
+                    existingScore = cursor.getFloat(1)
+                    existingMentions = cursor.getInt(2)
+                    existingMemory = cursor.getString(3)
+                }
+            }
+        }
+
+        val targetId = existingId ?: contact.id.ifBlank { "ctc_rel_${UUID.randomUUID().toString().take(8)}" }
+        val finalScore = if (existingId != null && contact.closenessScore <= 0.5f && existingScore > 0.5f) existingScore else contact.closenessScore
+        val finalMentions = if (existingId != null && contact.mentionCount == 0 && existingMentions > 0) existingMentions else contact.mentionCount
+        val finalMemory = if (contact.contextualMemory.isNullOrBlank()) existingMemory else contact.contextualMemory
+        val existingLinked = parseStringList(existingLinkedStr)
+        val mergedLinked = (existingLinked + contact.linkedConversationIds).distinct()
+
         val cv = ContentValues().apply {
-            put("id", contact.id.ifBlank { "ctc_rel_${UUID.randomUUID().toString().take(8)}" })
+            put("id", targetId)
             put("user_id", userId)
             put("contact_name", contact.contactName)
             put("phone_number", contact.phoneNumber)
             put("relationship_role", contact.relationshipRole)
-            put("closeness_score", contact.closenessScore)
+            put("closeness_score", finalScore)
             put("trust_tier", contact.trustTier)
             put("emotional_valence", contact.emotionalValence)
-            put("contextual_memory", contact.contextualMemory)
-            put("mention_count", contact.mentionCount)
+            put("contextual_memory", finalMemory)
+            put("mention_count", finalMentions)
+            put("linked_conversation_ids", gson.toJson(mergedLinked))
         }
-        writableDatabase.insertWithOnConflict("user_contacts_relational", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+
+        db.insertWithOnConflict("user_contacts_relational", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    /**
+     * Ingesta o sincroniza por lotes los contactos reales del teléfono en SQLite de forma atómica.
+     */
+    fun syncDeviceContactsBatch(userId: String = "usr_lucia_01", contacts: List<RelationalContact>) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            contacts.forEach { c ->
+                addOrUpdateRelationalContact(userId, c)
+            }
+            db.setTransactionSuccessful()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error en syncDeviceContactsBatch: ${e.message}", e)
+        } finally {
+            db.endTransaction()
+        }
     }
 
     fun getDailyRoutines(userId: String = "usr_lucia_01"): List<DailyRoutine> {
@@ -538,27 +654,37 @@ class FifoDatabaseHelper private constructor(context: Context) :
         val db = readableDatabase
         val sql = """
             SELECT u.id, u.full_name, u.birth_date, u.birth_year, u.estimated_age,
-                   u.gender_identity, u.city, p.bio_ai, p.emergency_contact_name, p.emergency_contact_phone
+                   u.gender_identity, u.city, p.bio_ai, p.emergency_contact_name, p.emergency_contact_phone,
+                   p.preferred_address, p.interest_tags
             FROM users u
             LEFT JOIN user_profiles p ON p.user_id = u.id
             WHERE u.id = ?
         """.trimIndent()
 
-        db.rawQuery(sql, arrayOf(userId)).use { cursor ->
-            if (cursor.moveToFirst()) {
-                return UserProfileData(
-                    id = cursor.getString(0) ?: userId,
-                    fullName = cursor.getString(1) ?: "Lucía González",
-                    birthDate = cursor.getString(2) ?: "14 de Mayo, 1958",
-                    birthYear = cursor.getInt(3).takeIf { it > 0 } ?: 1958,
-                    estimatedAge = cursor.getInt(4).takeIf { it > 0 } ?: 68,
-                    genderIdentity = cursor.getString(5) ?: "Mujer",
-                    city = cursor.getString(6) ?: "Santiago, Chile",
-                    bioAi = cursor.getString(7) ?: "",
-                    emergencyContactName = cursor.getString(8) ?: "Carmen (Hija)",
-                    emergencyContactPhone = cursor.getString(9) ?: "+56987654321"
-                )
+        try {
+            db.rawQuery(sql, arrayOf(userId)).use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val prefAddr = if (cursor.columnCount > 10) cursor.getString(10) ?: "Av. Providencia 1234, Providencia, Santiago" else "Av. Providencia 1234, Providencia, Santiago"
+                    val rawTags = if (cursor.columnCount > 11) cursor.getString(11) else null
+                    val interestTags = parseStringList(rawTags)
+                    return UserProfileData(
+                        id = cursor.getString(0) ?: userId,
+                        fullName = cursor.getString(1) ?: "Lucía González",
+                        birthDate = cursor.getString(2) ?: "14 de Mayo, 1958",
+                        birthYear = cursor.getInt(3).takeIf { it > 0 } ?: 1958,
+                        estimatedAge = cursor.getInt(4).takeIf { it > 0 } ?: 68,
+                        genderIdentity = cursor.getString(5) ?: "Mujer",
+                        city = cursor.getString(6) ?: "Santiago, Chile",
+                        bioAi = cursor.getString(7) ?: "",
+                        emergencyContactName = cursor.getString(8) ?: "Carmen (Hija)",
+                        emergencyContactPhone = cursor.getString(9) ?: "+56987654321",
+                        preferredAddress = prefAddr,
+                        interestTags = interestTags
+                    )
+                }
             }
+        } catch (_: Exception) {
+            // Fallback si la consulta extendida falla
         }
         return UserProfileData()
     }
@@ -590,6 +716,14 @@ class FifoDatabaseHelper private constructor(context: Context) :
         val db = writableDatabase
         val cv = ContentValues().apply {
             put("bio_ai", newBio)
+        }
+        db.update("user_profiles", cv, "user_id = ?", arrayOf(userId))
+    }
+
+    fun updateInterestTags(userId: String = "usr_lucia_01", tags: List<String>) {
+        val db = writableDatabase
+        val cv = ContentValues().apply {
+            put("interest_tags", gson.toJson(tags))
         }
         db.update("user_profiles", cv, "user_id = ?", arrayOf(userId))
     }
@@ -952,6 +1086,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
                 put("emergency_contact_name", p.emergencyContactName)
                 put("emergency_contact_phone", p.emergencyContactPhone)
                 put("preferred_address", p.preferredAddress)
+                put("interest_tags", gson.toJson(p.interestTags))
             }
             db.insertWithOnConflict("user_profiles", null, cvProfile, SQLiteDatabase.CONFLICT_REPLACE)
 

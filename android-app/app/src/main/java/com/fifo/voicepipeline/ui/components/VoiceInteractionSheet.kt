@@ -828,8 +828,14 @@ fun VoiceInteractionSheet(
                                     modifier = Modifier.padding(22.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
+                                    val currentHour = remember { java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) }
+                                    val timeGreeting = when (currentHour) {
+                                        in 6..11 -> "¡Buenos días!"
+                                        in 12..19 -> "¡Buenas tardes!"
+                                        else -> "¡Buenas noches!"
+                                    }
                                     Text(
-                                        text = "¡Hola! Estoy listo para escucharle con agrado.",
+                                        text = "$timeGreeting Estoy listo para escucharle con agrado.",
                                         fontSize = 16.sp,
                                         color = Color.White,
                                         fontWeight = FontWeight.Bold,

@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS users (
 CREATE TABLE IF NOT EXISTS user_profiles (
     user_id VARCHAR(64) NOT NULL PRIMARY KEY COMMENT 'FK hacia users.id',
     bio_ai TEXT NOT NULL COMMENT 'Biografía cálida redactada automáticamente por Fifo',
+    interest_tags JSON NULL DEFAULT NULL COMMENT 'Tags específicos de gustos e intereses para perfil y red Fifo Amigos',
     bio_last_updated TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     emergency_contact_name VARCHAR(120) NULL DEFAULT NULL COMMENT 'Nombre del familiar o contacto de emergencia (ej: Carmen (Hija))',
     emergency_contact_phone VARCHAR(40) NULL DEFAULT NULL COMMENT 'Teléfono de emergencia en formato E.164',
@@ -299,6 +300,7 @@ CREATE TABLE IF NOT EXISTS user_contacts_relational (
     emotional_valence VARCHAR(60) NOT NULL DEFAULT 'afectuoso' COMMENT 'afectuoso, protector, preocupacion, neutral',
     contextual_memory TEXT NULL DEFAULT NULL COMMENT 'Notas de contexto aprendidas de charlas pasadas (ej: Llama los domingos, vive en Viña)',
     mention_count INT UNSIGNED NOT NULL DEFAULT 1 COMMENT 'Frecuencia acumulada de menciones en conversaciones',
+    linked_conversation_ids JSON NULL DEFAULT NULL COMMENT 'IDs de conversaciones donde el contacto ha sido mencionado (ej: ["srv_conv_002"])',
     last_mentioned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -306,6 +308,28 @@ CREATE TABLE IF NOT EXISTS user_contacts_relational (
     INDEX idx_contacts_user_role (user_id, relationship_role),
     CONSTRAINT fk_contacts_rel_user
         FOREIGN KEY (user_id) REFERENCES users(id)
+        ON DELETE CASCADE ON UPDATE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_es_0900_ai_ci;
+
+-- -----------------------------------------------------------------------------
+-- 2.11.1. Tabla: contact_conversation_mentions (Conexiones Contacto-Conversación)
+-- Relación muchos-a-muchos explícita entre contactos y conversaciones completas.
+-- Permite rastrear qué conversaciones exactas sustentan el contexto de una persona.
+-- -----------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS contact_conversation_mentions (
+    id VARCHAR(64) NOT NULL PRIMARY KEY,
+    user_id VARCHAR(64) NOT NULL,
+    contact_id VARCHAR(64) NOT NULL,
+    conversation_id VARCHAR(64) NOT NULL COMMENT 'ID de la conversación completa (srv_conv_...)',
+    snippet_mention TEXT NULL DEFAULT NULL COMMENT 'Fragmento textual o contexto donde fue mencionado',
+    mentioned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_contact_conv (contact_id, conversation_id),
+    INDEX idx_conv_user (user_id, conversation_id),
+    CONSTRAINT fk_mention_user
+        FOREIGN KEY (user_id) REFERENCES users(id)
+        ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT fk_mention_contact
+        FOREIGN KEY (contact_id) REFERENCES user_contacts_relational(id)
         ON DELETE CASCADE ON UPDATE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_es_0900_ai_ci;
 

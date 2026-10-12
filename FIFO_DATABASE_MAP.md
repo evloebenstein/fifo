@@ -129,6 +129,7 @@ Información enriquecida gestionada por la IA a partir de las charlas.
 | `user_id` | `String` | Sí | Clave foránea que referencia a `users.id` | `"usr_lucia_01"` |
 | `bio_ai` | `String` | Sí | Biografía redactada por Fifo a partir de las conversaciones | `"Amante de las novelas de historia, la música clásica de piano y las mañanas tranquilas con café..."` |
 | `bio_last_updated`| `Timestamp` | Sí | Fecha en que Fifo actualizó la biografía | `2026-10-03T18:00:00Z` |
+| `interest_tags` | `JSON / List<String>` | No | Tags específicos de gustos e intereses únicos identificados por IA | `["Jardinería", "Orquídeas", "Música clásica"]` |
 | `emergency_contact_name` | `String?` | No | Nombre del contacto de apoyo | `"Carmen (Hija)"` |
 | `emergency_contact_phone`| `String?` | No | Teléfono de emergencia | `"+56987654321"` |
 | `preferred_address` | `String?` | No | Dirección para mapas y traslados | `"Av. Providencia 1234, Santiago"` |
@@ -350,15 +351,16 @@ Fifo cuenta con un sistema de **Skills (Herramientas / Function Calling)** que l
 [
   {
     "name": "set_reminder",
-    "description": "Programa un recordatorio o alarma en el teléfono del usuario para medicamentos, agua, familia o actividades.",
+    "description": "Gestiona los recordatorios y alarmas del usuario en la app: crear ('set'), marcar como completado ('complete'), eliminar ('delete') o listar pendientes ('list').",
     "input_schema": {
       "type": "object",
       "properties": {
-        "title": { "type": "string", "description": "Motivo del recordatorio (ej: 'Tomar Enalapril')" },
+        "action": { "type": "string", "enum": ["set", "complete", "delete", "list"], "description": "Acción a realizar" },
+        "reminder_id": { "type": "string", "description": "ID del recordatorio (opcional)" },
+        "title": { "type": "string", "description": "Motivo del recordatorio (ej: 'Tomar Enalapril', 'Llamar a Carmen')" },
         "time_str": { "type": "string", "description": "Hora en formato 24h 'HH:mm' o texto relativo 'en 30 minutos'" },
-        "category": { "type": "string", "enum": ["medication", "family", "hobby", "health"], "description": "Categoría" }
-      },
-      "required": ["title", "time_str"]
+        "category": { "type": "string", "enum": ["medication", "family", "hobby", "health", "sport"], "description": "Categoría" }
+      }
     }
   },
   {

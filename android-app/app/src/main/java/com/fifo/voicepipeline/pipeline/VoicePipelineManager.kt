@@ -983,8 +983,11 @@ class VoicePipelineManager(
      * Identifica órdenes explícitas de despedida o descanso.
      */
     private fun isSleepCommand(textLower: String): Boolean {
-        return textLower.contains("duérmete") || textLower.contains("duermete") ||
-                textLower.contains("a dormir") || textLower.contains("buenas noches") ||
+        // "buenas noches" solo es comando de dormir si va acompañado de despedida explícita
+        val isNightSleep = (textLower.contains("buenas noches") && (textLower.contains("descansa") || textLower.contains("a dormir") || textLower.contains("hasta mañana") || textLower.contains("que descanses"))) ||
+                textLower.contains("hasta mañana") || textLower.contains("a dormir") || textLower.contains("a descansar") || textLower.contains("me voy a dormir")
+
+        val isDirectSleep = textLower.contains("duérmete") || textLower.contains("duermete") ||
                 textLower.contains("descansa") || textLower.contains("adiós") ||
                 textLower.contains("adios") || textLower.contains("hasta luego") ||
                 textLower.contains("deja de escuchar") || textLower.contains("ya no escuches") ||
@@ -992,6 +995,8 @@ class VoicePipelineManager(
                 textLower.contains("no necesito nada") || textLower.contains("no quiero nada") ||
                 textLower.contains("eso es todo") || textLower.contains("eso sería todo") ||
                 textLower.contains("chao fifo") || textLower.contains("cállate") || textLower.contains("callate")
+
+        return isNightSleep || isDirectSleep
     }
 
     /**
@@ -1226,7 +1231,13 @@ class VoicePipelineManager(
                 updateEspDisplay(state = "ESCUCHANDO", transcript = "", response = "")
 
                 val query = extractQuery(rawText)
-                if (query.isBlank() || query.length < 2) {
+                val qLower = query.lowercase().trim()
+                val isOnlyGreeting = query.isBlank() || query.length < 2 ||
+                        qLower in listOf(
+                            "hola", "buenas noches", "buenos días", "buenos dias",
+                            "buenas tardes", "saludos", "hola fifo", "buenas"
+                        )
+                if (isOnlyGreeting) {
                     expectFollowUpQuestion = true
                     speakResponseChunk(getDynamicGreeting())
                     return@launch
@@ -1464,7 +1475,13 @@ class VoicePipelineManager(
                 updateEspDisplay(state = "PENSANDO")
 
                 val query = extractQuery(transcript)
-                if (query.isBlank() || query.length < 2) {
+                val qLower = query.lowercase().trim()
+                val isOnlyGreeting = query.isBlank() || query.length < 2 ||
+                        qLower in listOf(
+                            "hola", "buenas noches", "buenos días", "buenos dias",
+                            "buenas tardes", "saludos", "hola fifo", "buenas"
+                        )
+                if (isOnlyGreeting) {
                     expectFollowUpQuestion = true
                     speakResponseChunk(getDynamicGreeting())
                     return@launch
@@ -1649,14 +1666,42 @@ class VoicePipelineManager(
                     com.fifo.voicepipeline.data.FifoDataRepository.addTaste(consolidation.newTaste.trim())
                 }
 
-                // 5. Disparar consolidación profunda en el Backend Docker/MySQL (Grafo Relacional, Rutinas y Perfil)
+                // 5. Actualizar Grafo Relacional de Contactos Cercanos (Score de cercanía, menciones y memoria de personas)
+                if (consolidation.mentionedPersons.isNotEmpty()) {
+                    com.fifo.voicepipeline.data.FifoDataRepository.updateContactsFromSessionMentions(consolidation.mentionedPersons)
+                }
+
+                // 6. Disparar consolidación profunda en el Backend Docker/MySQL (Grafo Relacional, Rutinas, Perfil y Doble Capa)
                 val userId = com.fifo.voicepipeline.data.FifoDataRepository.userProfile.value.id
-                com.fifo.voicepipeline.network.FifoBackendClient.analyzeAndConsolidateSession(
+                val effectiveKey = if (::cloudClient.isInitialized) cloudClient.effectiveGroqKey.ifBlank { groqApiKey } else groqApiKey
+                val backendResult = com.fifo.voicepipeline.network.FifoBackendClient.analyzeAndConsolidateSession(
                     userId = userId,
                     turns = turns,
                     durationSeconds = (turns.size * 20).coerceAtLeast(30),
-                    primaryTag = consolidation.primaryTag
+                    primaryTag = consolidation.primaryTag,
+                    mentionedPersons = consolidation.mentionedPersons,
+                    groqApiKey = effectiveKey.ifBlank { null }
                 )
+
+                // 7. Si el backend consolidó datos, inyectar inmediatamente en la memoria viva de celular (sin HTTP redundante)
+                if (backendResult != null) {
+                    if (!backendResult.updatedBioAi.isNullOrBlank()) {
+                        com.fifo.voicepipeline.data.FifoDataRepository.updateBio(backendResult.updatedBioAi)
+                    }
+                    if (backendResult.interestTags.isNotEmpty()) {
+                        com.fifo.voicepipeline.data.FifoDataRepository.updateInterestTags(backendResult.interestTags)
+                    }
+                    backendResult.memoriesAdded.forEach { mem ->
+                        com.fifo.voicepipeline.data.FifoDataRepository.addMemoryDirect(mem)
+                    }
+                    backendResult.tasteStoriesAdded.forEach { story ->
+                        com.fifo.voicepipeline.data.FifoDataRepository.addTasteStoryDirect(story)
+                    }
+                    backendResult.remindersAdded.forEach { rem ->
+                        com.fifo.voicepipeline.data.FifoDataRepository.addReminderDirect(rem)
+                    }
+                    Log.i(TAG, "Backend consolidó sesión: ${backendResult.contactsUpdated.size} contactos actualizados, ${backendResult.memoriesAdded.size} recuerdos vivos, ${backendResult.tasteStoriesAdded.size} gustos en detalle, ${backendResult.remindersAdded.size} recordatorios.")
+                }
 
                 Log.i(TAG, "Consolidación de memoria completada y persistida en SQLite y Backend exitosamente!")
             } catch (e: Exception) {

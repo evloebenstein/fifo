@@ -51,35 +51,41 @@ ON DUPLICATE KEY UPDATE
 -- 2. PERFILES ENRIQUECIDOS POR IA (Tabla: user_profiles)
 -- -----------------------------------------------------------------------------
 INSERT INTO user_profiles (
-    user_id, bio_ai, emergency_contact_name, emergency_contact_phone, preferred_address, continuous_listening_enabled
+    user_id, bio_ai, interest_tags, emergency_contact_name, emergency_contact_phone, preferred_address, continuous_listening_enabled
 ) VALUES
     (
         'usr_lucia_01',
         'Amante de las novelas de historia, la música clásica de piano y las mañanas tranquilas con café. Disfruta compartir con Fifo anécdotas de su familia, preparar recetas caseras y cuidar las orquídeas de su jardín.',
+        '["Orquídeas y botánica", "Música clásica (Chopin)", "Cocina tradicional (Cazuela)", "Lectura histórica", "Paseos en parque"]',
         'Carmen (Hija)', '+56987654321', 'Av. Providencia 1234, Providencia, Santiago', 0
     ),
     (
         'usr_sofia_02',
         'Profesora jubilada de literatura con gran amor por los conciertos de piano y las tertulias de tarde con café de grano. Le encanta recomendar novelas latinoamericanas en el club de lectura del barrio.',
+        '["Música clásica y piano", "Tertulias literarias", "Novelas latinoamericanas", "Café de grano"]',
         'Andrés (Hijo)', '+56976543210', 'Eliodoro Yáñez 1890, Providencia, Santiago', 0
     ),
     (
         'usr_mateo_03',
         'Apasionado de las caminatas matutinas junto al río, el cine clásico italiano y la cocina chilena de antaño. Siempre está probando nuevas preparaciones al horno para sorprender a sus nietos los domingos.',
+        '["Cocina chilena tradicional", "Caminatas matutinas", "Cine clásico", "Compartir con nietos"]',
         'Claudia (Sobrina)', '+56965432109', 'Av. Irarrázaval 3450, Ñuñoa, Santiago', 0
     ),
     (
         'usr_valentina_04',
         'Espíritu creativo que disfruta pintar acuarelas botánicas en su terraza mientras escucha boleros y música de cámara. Participa activamente en talleres de pintura y clubes de lectura.',
+        '["Acuarelas botánicas", "Jardinería en terraza", "Boleros y música de cámara", "Lectura"]',
         'Javier (Hermano)', '+56954321098', 'Av. Apoquindo 4500, Las Condes, Santiago', 0
     ),
     (
         'usr_diego_05',
         'Fotógrafo aficionado que retrata aves y parques de Santiago con su cámara réflex. Disfruta las caminatas sin prisa, las películas clásicas de misterio y conversar en banca de plaza.',
+        '["Fotografía de aves", "Caminatas en parques", "Películas clásicas", "Tertulias de plaza"]',
         'Elena (Hija)', '+56943210987', 'Av. Príncipe de Gales 6200, La Reina, Santiago', 0
     )
 ON DUPLICATE KEY UPDATE
     bio_ai = VALUES(bio_ai),
+    interest_tags = VALUES(interest_tags),
     preferred_address = VALUES(preferred_address);
 
 -- -----------------------------------------------------------------------------
@@ -618,29 +624,44 @@ ON DUPLICATE KEY UPDATE status = VALUES(status);
 -- -----------------------------------------------------------------------------
 INSERT INTO user_contacts_relational (
     id, user_id, contact_name, phone_number, relationship_role, closeness_score,
-    trust_tier, emotional_valence, contextual_memory, mention_count
+    trust_tier, emotional_valence, contextual_memory, mention_count, linked_conversation_ids
 ) VALUES
     (
         'ctc_rel_01', 'usr_lucia_01', 'Carmen González', '+56987654321',
         'Hija mayor (contacto prioritario de apoyo)', 0.98, 1, 'afectuoso',
-        'Llama los domingos por la tarde y suele visitarla cada dos semanas. La acompaña a controles médicos.', 14
+        'Llama los domingos por la tarde y suele visitarla cada dos semanas. La acompaña a controles médicos. [Ref: srv_conv_001]', 14,
+        '["srv_conv_001"]'
     ),
     (
         'ctc_rel_02', 'usr_lucia_01', 'Dr. Álvaro Muñoz', '+56922334455',
         'Médico geriatra de cabecera', 0.85, 2, 'protector',
-        'Controla la presión arterial y receta Enalapril. Atiende en el centro médico cercano.', 6
+        'Controla la presión arterial y receta Enalapril. Atiende en el centro médico cercano. [Ref: srv_conv_001]', 6,
+        '["srv_conv_001"]'
     ),
     (
         'ctc_rel_03', 'usr_lucia_01', 'Rosa Martínez', '+56933445566',
         'Vecina de confianza y amiga', 0.78, 3, 'afectuoso',
-        'Vecina del departamento del frente. Toman té y comparten esquejes de plantas y recetas caseras.', 8
+        'Vecina del departamento del frente. Toman té y comparten esquejes de plantas y recetas de cazuela casera. [Ref: srv_conv_003]', 8,
+        '["srv_conv_003"]'
     ),
     (
         'ctc_rel_04', 'usr_lucia_01', 'Tomás', '+56944556677',
         'Nieto universitario', 0.92, 2, 'afectuoso',
-        'Estudia ingeniería y la visita los fines de semana. Le gusta que su abuela le prepare queque de limón.', 5
+        'Estudia ingeniería y la visita los fines de semana. Lucía le enseña a escuchar conciertos de piano de Chopin. [Ref: srv_conv_002]', 5,
+        '["srv_conv_002"]'
     )
-ON DUPLICATE KEY UPDATE closeness_score = VALUES(closeness_score);
+ON DUPLICATE KEY UPDATE closeness_score = VALUES(closeness_score), linked_conversation_ids = VALUES(linked_conversation_ids);
+
+-- -----------------------------------------------------------------------------
+-- 13.1. CONEXIONES EXPLÍCITAS ENTRE CONTACTOS Y CONVERSACIONES (Tabla: contact_conversation_mentions)
+-- -----------------------------------------------------------------------------
+INSERT INTO contact_conversation_mentions (
+    id, user_id, contact_id, conversation_id, snippet_mention
+) VALUES
+    ('ment_01', 'usr_lucia_01', 'ctc_rel_04', 'srv_conv_002', 'Tomás vendrá el domingo a escuchar piano de Chopin y compartir la tarde.'),
+    ('ment_02', 'usr_lucia_01', 'ctc_rel_03', 'srv_conv_003', 'Rosa Martínez compartió secretos de cocina tradicional y cazuela de ave.'),
+    ('ment_03', 'usr_lucia_01', 'ctc_rel_01', 'srv_conv_001', 'Carmen llamó para confirmar el almuerzo del fin de semana.')
+ON DUPLICATE KEY UPDATE snippet_mention = VALUES(snippet_mention);
 
 -- -----------------------------------------------------------------------------
 -- 14. RUTINAS Y PATRONES DE VIDA DIARIA (Tabla: user_daily_routines)

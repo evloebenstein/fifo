@@ -94,6 +94,8 @@ object FifoBackendClient {
                 val root = JSONObject(bodyStr)
 
                 val pObj = root.getJSONObject("userProfile")
+                val interestTagsArr = pObj.optJSONArray("interestTags") ?: JSONArray()
+                val interestTags = (0 until interestTagsArr.length()).map { interestTagsArr.getString(it) }
                 val profile = UserProfileData(
                     id = pObj.optString("id", userId),
                     fullName = pObj.optString("fullName", "Lucía González"),
@@ -105,7 +107,8 @@ object FifoBackendClient {
                     bioAi = pObj.optString("bioAi", ""),
                     emergencyContactName = pObj.optString("emergencyContactName", ""),
                     emergencyContactPhone = pObj.optString("emergencyContactPhone", ""),
-                    preferredAddress = pObj.optString("preferredAddress", "")
+                    preferredAddress = pObj.optString("preferredAddress", ""),
+                    interestTags = interestTags
                 )
 
                 val tastesArr = root.optJSONArray("tastes") ?: JSONArray()
@@ -206,6 +209,8 @@ object FifoBackendClient {
                 val contactsArr = root.optJSONArray("relationalContacts") ?: JSONArray()
                 val relationalContacts = (0 until contactsArr.length()).map { idx ->
                     val c = contactsArr.getJSONObject(idx)
+                    val linkedIdsArr = c.optJSONArray("linkedConversationIds") ?: JSONArray()
+                    val linkedConversationIds = (0 until linkedIdsArr.length()).map { linkedIdsArr.getString(it) }
                     RelationalContact(
                         id = c.optString("id"),
                         contactName = c.optString("contactName"),
@@ -216,7 +221,8 @@ object FifoBackendClient {
                         emotionalValence = c.optString("emotionalValence", "afectuoso"),
                         contextualMemory = if (c.isNull("contextualMemory")) null else c.optString("contextualMemory"),
                         mentionCount = c.optInt("mentionCount", 1),
-                        lastMentionedAt = c.optString("lastMentionedAt", "")
+                        lastMentionedAt = c.optString("lastMentionedAt", ""),
+                        linkedConversationIds = linkedConversationIds
                     )
                 }
 
@@ -261,8 +267,10 @@ object FifoBackendClient {
         userId: String,
         turns: List<Pair<String, String>>,
         durationSeconds: Int = 180,
-        primaryTag: String = "Conversación"
-    ): Boolean = withContext(Dispatchers.IO) {
+        primaryTag: String = "Conversación",
+        mentionedPersons: List<MentionedPersonExtraction> = emptyList(),
+        groqApiKey: String? = null
+    ): BackendConsolidationResult? = withContext(Dispatchers.IO) {
         try {
             val jsonTurns = JSONArray()
             turns.forEach { (speaker, text) ->
@@ -271,21 +279,92 @@ object FifoBackendClient {
                     put("text", text)
                 })
             }
+            val jsonMentions = JSONArray()
+            mentionedPersons.forEach { p ->
+                jsonMentions.put(JSONObject().apply {
+                    put("name", p.name)
+                    p.inferredRole?.let { put("inferred_role", it) }
+                    put("context_snippet", p.contextSnippet)
+                    put("emotional_valence", p.emotionalValence)
+                    put("closeness_delta", p.closenessDelta.toDouble())
+                })
+            }
             val payload = JSONObject().apply {
                 put("turns", jsonTurns)
                 put("duration_seconds", durationSeconds)
                 put("primary_tag", primaryTag)
+                put("mentioned_persons", jsonMentions)
+                groqApiKey?.let { put("groq_api_key", it) }
             }
             val req = Request.Builder()
                 .url("$baseUrl/users/$userId/conversations/analyze-and-consolidate")
                 .post(payload.toString().toRequestBody(jsonMediaType))
                 .build()
             httpClient.newCall(req).execute().use { resp ->
-                resp.isSuccessful
+                if (!resp.isSuccessful) return@withContext null
+                val bodyStr = resp.body?.string() ?: return@withContext null
+                val obj = JSONObject(bodyStr)
+                val convId = obj.optString("conversation_id", "")
+                val updatedBio = if (obj.isNull("updated_bio_ai")) null else obj.optString("updated_bio_ai")
+
+                val tagsArr = obj.optJSONArray("interest_tags") ?: JSONArray()
+                val interestTags = (0 until tagsArr.length()).map { tagsArr.getString(it) }
+
+                val contactsCount = obj.optInt("contacts_updated", 0)
+
+                val memArr = obj.optJSONArray("memories_added") ?: JSONArray()
+                val memoriesAdded = (0 until memArr.length()).map { idx ->
+                    val m = memArr.getJSONObject(idx)
+                    FifoMemoryItem(
+                        id = m.optString("id", "mem_${java.util.UUID.randomUUID()}"),
+                        emoji = m.optString("emoji", "🌺"),
+                        title = m.optString("title", "Recuerdo"),
+                        detail = m.optString("detail", ""),
+                        learnedDate = "Aprendido en la última charla"
+                    )
+                }
+
+                val storiesArr = obj.optJSONArray("taste_stories_added") ?: JSONArray()
+                val tasteStoriesAdded = (0 until storiesArr.length()).map { idx ->
+                    val s = storiesArr.getJSONObject(idx)
+                    val sTagsArr = s.optJSONArray("tags") ?: JSONArray()
+                    val sTags = (0 until sTagsArr.length()).map { sTagsArr.getString(it) }
+                    FifoTasteStory(
+                        id = s.optString("id", "taste_${java.util.UUID.randomUUID()}"),
+                        title = s.optString("title", "Gusto especial"),
+                        subtitle = s.optString("subtitle", ""),
+                        description = s.optString("description", ""),
+                        tags = if (sTags.isNotEmpty()) sTags else listOf("Gusto"),
+                        iconCategory = s.optString("icon_category", "nature"),
+                        learnedFrom = s.optString("learned_from", "Charla reciente con Fifo")
+                    )
+                }
+
+                val remArr = obj.optJSONArray("reminders_added") ?: JSONArray()
+                val remindersAdded = (0 until remArr.length()).map { idx ->
+                    val r = remArr.getJSONObject(idx)
+                    FifoReminderItem(
+                        id = r.optString("id", "rem_${java.util.UUID.randomUUID()}"),
+                        title = r.optString("title", "Recordatorio"),
+                        timeStr = r.optString("time_str", "en un momento"),
+                        category = r.optString("category", "medication"),
+                        isCompleted = false
+                    )
+                }
+
+                BackendConsolidationResult(
+                    success = true,
+                    serverConversationId = convId,
+                    updatedBioAi = updatedBio,
+                    interestTags = interestTags,
+                    memoriesAdded = memoriesAdded,
+                    tasteStoriesAdded = tasteStoriesAdded,
+                    remindersAdded = remindersAdded
+                )
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error enviando sesión para consolidación profunda: ${e.message}")
-            false
+            null
         }
     }
 
@@ -375,6 +454,36 @@ object FifoBackendClient {
             contact.alias?.let { put("alias", it) }
         })
 
+    suspend fun syncRelationalContactsBatch(userId: String, contacts: List<RelationalContact>): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                if (contacts.isEmpty()) return@withContext true
+                val jsonArr = JSONArray()
+                contacts.forEach { c ->
+                    jsonArr.put(JSONObject().apply {
+                        put("contact_name", c.contactName)
+                        c.phoneNumber?.let { put("phone_number", it) }
+                        put("relationship_role", c.relationshipRole)
+                        put("closeness_score", c.closenessScore.toDouble())
+                        put("trust_tier", c.trustTier)
+                        put("emotional_valence", c.emotionalValence)
+                        c.contextualMemory?.let { put("contextual_memory", it) }
+                        c.alias?.let { put("alias", it) }
+                    })
+                }
+                val req = Request.Builder()
+                    .url("$baseUrl/users/$userId/contacts-relational/sync")
+                    .post(jsonArr.toString().toRequestBody(jsonMediaType))
+                    .build()
+                httpClient.newCall(req).execute().use { resp ->
+                    resp.isSuccessful
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error sincronizando lote de contactos relacionales: ${e.message}")
+                false
+            }
+        }
+
     suspend fun postDailyRoutine(userId: String, routine: DailyRoutine) =
         postOrPatchJson("$baseUrl/users/$userId/daily-routines", "POST", JSONObject().apply {
             put("routine_name", routine.routineName)
@@ -459,6 +568,52 @@ object FifoBackendClient {
             }
         }
 
+    suspend fun putInterestTags(userId: String, tags: List<String>) =
+        postOrPatchJson("$baseUrl/users/$userId/interest-tags", "PUT", JSONObject().apply {
+            put("interest_tags", JSONArray(tags))
+        })
+
+    suspend fun deleteReminder(reminderId: String) =
+        postOrPatchJson("$baseUrl/reminders/$reminderId", "DELETE", JSONObject())
+
+    suspend fun fetchFriendRecommendations(userId: String): List<FriendRecommendation> =
+        withContext(Dispatchers.IO) {
+            try {
+                val req = Request.Builder()
+                    .url("$baseUrl/users/$userId/fifo-friends/recommendations")
+                    .get()
+                    .build()
+                httpClient.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful) return@withContext emptyList()
+                    val bodyStr = resp.body?.string() ?: return@withContext emptyList()
+                    val obj = JSONObject(bodyStr)
+                    val arr = obj.optJSONArray("recommendations") ?: JSONArray()
+                    (0 until arr.length()).map { idx ->
+                        val item = arr.getJSONObject(idx)
+                        val tagsArr = item.optJSONArray("sharedInterestTags") ?: JSONArray()
+                        val topicsArr = item.optJSONArray("suggestedConversationTopics") ?: JSONArray()
+                        val postsArr = item.optJSONArray("recentPosts") ?: JSONArray()
+                        FriendRecommendation(
+                            friendId = item.optString("userId", "usr_friend_${idx}"),
+                            fullName = item.optString("fullName", "Amigo Fifo"),
+                            age = item.optInt("age", 68),
+                            quote = item.optString("quote", "Me encanta compartir aficiones."),
+                            avatarBgHex = item.optLong("avatarBgHex", 0xFF10B981),
+                            bioAi = item.optString("bioAi", ""),
+                            sharedTags = (0 until tagsArr.length()).map { tagsArr.getString(it) },
+                            candTags = emptyList(),
+                            affinityScore = item.optDouble("affinityScore", 0.0).toFloat(),
+                            suggestedTopic = if (topicsArr.length() > 0) topicsArr.getString(0) else "Gustos afines",
+                            friendshipStatus = "suggested"
+                        )
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error consultando recomendaciones de amigos: ${e.message}")
+                emptyList()
+            }
+        }
+
     private suspend fun postOrPatchJson(url: String, method: String, payload: JSONObject): Boolean =
         withContext(Dispatchers.IO) {
             try {
@@ -468,6 +623,7 @@ object FifoBackendClient {
                     "POST" -> builder.post(body)
                     "PUT" -> builder.put(body)
                     "PATCH" -> builder.patch(body)
+                    "DELETE" -> builder.delete()
                 }
                 httpClient.newCall(builder.build()).execute().use { it.isSuccessful }
             } catch (e: Exception) {

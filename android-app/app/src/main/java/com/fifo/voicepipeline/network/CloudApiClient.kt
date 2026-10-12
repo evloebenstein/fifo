@@ -79,8 +79,19 @@ REGLAS ESTRICTAS DE INTERACCIÓN:
    - Plural vs Singular: Si pregunta en plural, ofrece 2 o 3 opciones con sus distancias. Si pregunta en singular, destaca el principal y ofrece guiarle con naturalidad.
 4. Comprensión de voz y aclaraciones: Si lo dicho por el usuario suena entrecortado, ininteligible o incoherente, NO inventes respuestas; pide con amabilidad que te repita la frase.
 5. Memoria episódica ('recall_past_context'): Si mencionan anécdotas, personas o lugares pasados, consulta 'recall_past_context' antes de responder.
-6. Llamadas y robot: 'manage_phone_call' para llamadas, 'find_fifo_device' para hacer sonar el robot, 'read_phone_contacts' para contactos del celular.
-7. Internet en vivo ('web_search'): Úsala para noticias del día, clima o información reciente."""
+6. Hardware del celular y robot: 'control_device_hardware' para linterna, volumen, batería y hora; 'manage_phone_call' para llamadas, 'find_fifo_device' para hacer sonar el robot, 'read_phone_contacts' para contactos del celular.
+7. Internet en vivo ('web_search'): Úsala para noticias del día, clima / pronóstico del tiempo o información reciente.
+8. Horarios, saludos y conciencia temporal:
+   - Adapta SIEMPRE tus saludos y respuestas a la HORA LOCAL REAL y período (Mañana/Tarde/Noche) del bloque temporal.
+   - Jamás saludes diciendo 'Buenos días' en la tarde o noche. Si el usuario pregunta la hora o la fecha, indícala directamente con afecto y precisión.
+   - Continuidad conversacional: Si ya has conversado en esta interacción, no repitas saludos formales como si recién despertaras; responde directo y cercano ('Dígame', 'Aquí estoy', 'Hola de nuevo').
+9. Entorno social, personas cercanas y dictado de contactos:
+   - En tu contexto dispones del Grafo Relacional de personas cercanas al usuario (familia, nietos, amigos, doctores) con sus recuerdos e intimidad.
+   - Tráelas a colación de forma cariñosa y natural en la charla cuando corresponda (ej: preguntar por su nieto o su hija, o por sus amigas si habla de sus actividades).
+   - Si el usuario te pide dictar, saber o buscar el teléfono de un contacto ("díctame el número de Pedro", "¿cuál es el teléfono de mi hija?"):
+     a) Búscalo en tu memoria relacional o usa 'read_phone_contacts' con action='dictate'.
+     b) Díctale el número pausado con comas entre grupos de números (ej: "El número de Pedro es más cinco seis nueve, doce, treinta y cuatro, cincuenta y seis, setenta y ocho").
+     c) Pregúntale amablemente si desea que le marques por teléfono."""
 
         fun isWhisperHallucination(rawText: String): Boolean {
             val norm = java.text.Normalizer.normalize(rawText.lowercase().trim(), java.text.Normalizer.Form.NFD)
@@ -264,19 +275,31 @@ Analiza la siguiente conversación de voz reciente entre el usuario y Fifo:
 
 $conversationText
 
-Extrae la información clave para persistirla en la base de datos de memoria densa del asistente, prestando especial atención a: locales comerciales, tiendas, calles, comidas, gustos específicos, personas o lugares visitados o consultados.
+Extrae la información clave para persistirla en la base de datos de memoria densa del asistente, prestando especial atención a:
+1. Locales comerciales, tiendas, calles, comidas, gustos específicos o lugares visitados o consultados.
+2. PERSONAS Y VÍNCULOS MENCIONADOS: Familiares, nietos, hijos, amigos, vecinos, conocidos o doctores hablados en la charla, su parentesco o rol, qué se contó de ellos y la valencia emocional.
+
 Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
 {
   "primaryTag": "categoría temática corta (ej: Lugares, Comida, Deportes, Rutina, Familia, Salud, General)",
   "keyTopics": ["tema1", "tema2", "comidas o productos"],
   "namedEntities": ["locales, tiendas, personas, calles o lugares específicos"],
   "detectedMood": "ánimo detectado (ej: motivado, tranquilo, contento, pensativo, neutral)",
-  "compactSummary": "resumen denso de 1 o 2 oraciones incluyendo nombres exactos de locales, lugares o temas hablados",
-  "conversationTitle": "título conciso de la charla (ej: Visita a Panadería Las Rosas, Búsqueda de OXXO)",
+  "compactSummary": "resumen denso de 1 o 2 oraciones incluyendo nombres exactos de personas, locales, lugares o temas hablados",
+  "conversationTitle": "título conciso de la charla (ej: Visita de nieto Tomás, Charla sobre orquídeas)",
   "memoryTitle": "título de un recuerdo nuevo sobre el usuario (o null si solo fue saludo o charla trivial)",
   "memoryDetail": "detalle específico denso del recuerdo aprendido sobre el usuario, locales o gustos (o null si no aplica)",
   "memoryEmoji": "emoji representativo (ej: 📍, 🥐, 🥋, ⭐, 💊, 🏃)",
-  "newTaste": "nuevo gusto, comida o interés del usuario mencionado (o null si no hubo)"
+  "newTaste": "nuevo gusto, comida o interés del usuario mencionado (o null si no hubo)",
+  "mentionedPersons": [
+    {
+      "name": "nombre de la persona mencionada (ej: Tomás, Carmen, Rosa, Pedro)",
+      "inferredRole": "parentesco o relación deducida (ej: Nieto, Hija, Vecina, Amiga, Sobrino, Médico)",
+      "contextSnippet": "qué contó o qué pasó con esta persona (ej: vino a almorzar el domingo, la llamó por teléfono, la ayudó con las plantas)",
+      "emotionalValence": "afectuoso, preocupacion, gratitud, respeto, neutral",
+      "closenessDelta": 0.05
+    }
+  ]
 }
 """.trimIndent()
 
@@ -339,6 +362,29 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
             val memoryEmoji = obj.get("memoryEmoji")?.run { if (isJsonNull || asString.equals("null", true)) null else asString }
             val newTaste = obj.get("newTaste")?.run { if (isJsonNull || asString.equals("null", true)) null else asString }
 
+            val mentionedPersons = mutableListOf<MentionedPersonExtraction>()
+            obj.getAsJsonArray("mentionedPersons")?.forEach { elem ->
+                if (elem.isJsonObject) {
+                    val pObj = elem.asJsonObject
+                    val name = pObj.get("name")?.run { if (!isJsonNull) asString else "" } ?: ""
+                    if (name.isNotBlank()) {
+                        val inferredRole = pObj.get("inferredRole")?.run { if (!isJsonNull && !asString.equals("null", true)) asString else null }
+                        val snippet = pObj.get("contextSnippet")?.run { if (!isJsonNull) asString else "" } ?: ""
+                        val valence = pObj.get("emotionalValence")?.run { if (!isJsonNull) asString else "afectuoso" } ?: "afectuoso"
+                        val delta = pObj.get("closenessDelta")?.run { if (!isJsonNull && isJsonPrimitive && asJsonPrimitive.isNumber) asFloat else 0.05f } ?: 0.05f
+                        mentionedPersons.add(
+                            MentionedPersonExtraction(
+                                name = name.trim(),
+                                inferredRole = inferredRole?.trim(),
+                                contextSnippet = snippet.trim(),
+                                emotionalValence = valence,
+                                closenessDelta = delta
+                            )
+                        )
+                    }
+                }
+            }
+
             SessionMemoryConsolidation(
                 primaryTag = primaryTag,
                 keyTopics = keyTopics,
@@ -349,7 +395,8 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
                 memoryTitle = memoryTitle,
                 memoryDetail = memoryDetail,
                 memoryEmoji = memoryEmoji,
-                newTaste = newTaste
+                newTaste = newTaste,
+                mentionedPersons = mentionedPersons
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error parseando JSON de consolidación: ${e.message}", e)
@@ -1361,6 +1408,17 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
 }
 
 /**
+ * Entidad de persona mencionada en una conversación para el Grafo Relacional.
+ */
+data class MentionedPersonExtraction(
+    val name: String,
+    val inferredRole: String? = null,
+    val contextSnippet: String = "",
+    val emotionalValence: String = "afectuoso",
+    val closenessDelta: Float = 0.05f
+)
+
+/**
  * Modelo de consolidación de sesión de conversación para extracción y guardado en SQLite.
  */
 data class SessionMemoryConsolidation(
@@ -1373,5 +1431,6 @@ data class SessionMemoryConsolidation(
     val memoryTitle: String? = null,
     val memoryDetail: String? = null,
     val memoryEmoji: String? = null,
-    val newTaste: String? = null
+    val newTaste: String? = null,
+    val mentionedPersons: List<MentionedPersonExtraction> = emptyList()
 )

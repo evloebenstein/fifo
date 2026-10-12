@@ -77,8 +77,12 @@ class WebSearchSkill(private val context: Context) : FifoSkill {
         Log.i(TAG, "Ejecutando web_search: '$query' (tipo=$searchTypeRaw)")
 
         val qLower = query.lowercase()
-        val isWeather = searchTypeRaw == "weather" || qLower.contains("clima") || qLower.contains("temperatura") || qLower.contains("llover") || qLower.contains("pronóstico") || qLower.contains("pronostico")
-        val isNews = searchTypeRaw == "news" || qLower.contains("noticia") || qLower.contains("hoy") || qLower.contains("ayer") || qLower.contains("última hora") || qLower.contains("ultima hora") || qLower.contains("partido") || qLower.contains("quién ganó") || qLower.contains("quien gano")
+        val isWeather = searchTypeRaw == "weather" ||
+                qLower.contains("clima") || qLower.contains("temperatura") ||
+                qLower.contains("llover") || qLower.contains("lluvia") ||
+                qLower.contains("pronóstico") || qLower.contains("pronostico") ||
+                (qLower.contains("tiempo") && (qLower.contains("cómo") || qLower.contains("como") || qLower.contains("qué") || qLower.contains("que") || qLower.contains("el tiempo") || qLower.contains("afuera") || qLower.contains("hoy") || qLower.contains("mañana")))
+        val isNews = searchTypeRaw == "news" || (!isWeather && (qLower.contains("noticia") || qLower.contains("hoy") || qLower.contains("ayer") || qLower.contains("última hora") || qLower.contains("ultima hora") || qLower.contains("partido") || qLower.contains("quién ganó") || qLower.contains("quien gano")))
         val isEncyclopedia = searchTypeRaw == "encyclopedia" || qLower.startsWith("qué es") || qLower.startsWith("que es") || qLower.startsWith("quién es") || qLower.startsWith("quien es") || qLower.startsWith("definición") || qLower.startsWith("definicion")
 
         // 1. Clima en tiempo real si la consulta es sobre el tiempo

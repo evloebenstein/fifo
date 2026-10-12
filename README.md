@@ -35,6 +35,16 @@ Asistente robótico interactivo de compañía para adultos mayores con **conexi�
 - **Copiloto Peatonal y Orientación Espacial en Tiempo Real:**
   - Orientación por voz con giroscopio y brújula integrada (*"¿dónde estoy?", "hacia dónde voy?"*), avisando rumbos relativos y cuadras restantes.
   - Búsqueda autónoma de locales esenciales cercanos (Oxxo, farmacias, supermercados) sin latencia.
+- **Memoria de Doble Capa y Síntesis Continua de IA:**
+  - **Capa Celular Inmediata (On-Device RAM + SQLite):** Fifo retiene en su memoria de trabajo viva los tags de intereses únicos, los extractos cortos de cada gusto, los recuerdos clave y los recordatorios activos pendientes. Responde al instante con calidez y sin latencia de red.
+  - **Capa Nube Profunda (MySQL 8.4 + Microservicio FastAPI en Docker):** Preserva la transcripción íntegra de cada turno y utiliza modelos de IA de alta precisión para conectar puntos entre personas mencionadas en distintas charlas, sintetizar biografías enriquecidas y generar los `interest_tags`.
+  - **Búsqueda Dinámica de Nicho (`recall_past_context`):** Si el usuario pide recordar un detalle profundo o anécdota antigua, Fifo extrae los segmentos relevantes del backend al instante.
+- **Red Comunitaria Fifo Amigos & Matchmaking de Afinidad:**
+  - Motor de compatibilidad que analiza los tags de gustos de los usuarios para recomendar amistades cálidas (`GET /users/{id}/fifo-friends/recommendations`), proponiendo temas compartidos para romper el hielo y publicaciones afines en el muro social.
+- **Mutación Autónoma en Vivo de la Aplicación por Voz:**
+  - **Gestión Integral de Recordatorios:** Programar (`set`), marcar como completado (`complete`), descartar (`delete`) y listar pendientes (`list`).
+  - **Historias de Gustos en Detalle (`add_taste_story`):** Registro por voz de pasatiempos con fragmento corto/subtítulo para la memoria viva y descripción profunda para el perfil.
+  - **Recuerdos Importantes Instantáneos (`add_memory`):** Guarda notas y afectos en la sección de recuerdos sin tocar la pantalla.
 - **Interfaz Móvil Accesible (Jetpack Compose):**
   - Diseñada especialmente para adultos mayores con alto contraste, tipografía grande, retroalimentación táctil, botón de silencio con protección visual, localizador GPS/sonoro para encontrar el robot extraviado y comunidad *Fifo Amigos*.
 
@@ -141,7 +151,27 @@ OPENAI_API_KEY=sk-...
 
 > **Nota de Seguridad:** El archivo `local.properties` está excluido en `.gitignore`. Las claves nunca se suben al repositorio. Además, el usuario puede actualizar la API key directamente desde la app en el panel **Perfil → Ajustes**.
 
-### 3. Compilar e Instalar App Android
+### 3. Levantar Microservicio de Backend y Base de Datos MySQL (Docker)
+
+El backend de Fifo provee la sincronización de perfil, grafo relacional, síntesis de biografía por IA y la red social Fifo Amigos:
+
+```bash
+cd backend
+# 1. Copiar plantilla de variables si aún no existe
+copy .env.example .env
+# 2. Iniciar contenedores MySQL 8.4 LTS, FastAPI y Adminer
+docker compose up -d
+```
+
+- **API REST:** `http://localhost:8090` (Docs interactivos en `/docs`)
+- **Panel Web Adminer:** `http://localhost:8080` (Base de datos: `fifo_db`)
+
+> **Conexión Celular ↔ PC:** Si ejecutas la app en un teléfono físico conectado por USB, redirige el puerto con ADB:
+> ```bash
+> adb reverse tcp:8090 tcp:8090
+> ```
+
+### 4. Compilar e Instalar App Android
 
 ```bash
 cd android-app

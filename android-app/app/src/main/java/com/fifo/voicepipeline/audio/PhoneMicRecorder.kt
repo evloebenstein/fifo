@@ -83,7 +83,6 @@ class PhoneMicRecorder(
             val audioManager = context?.getSystemService(android.content.Context.AUDIO_SERVICE) as? AudioManager
             val inCallMode = forceCallSource ?: (
                 audioManager?.mode == AudioManager.MODE_IN_CALL ||
-                audioManager?.mode == AudioManager.MODE_IN_COMMUNICATION ||
                 com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
             )
 

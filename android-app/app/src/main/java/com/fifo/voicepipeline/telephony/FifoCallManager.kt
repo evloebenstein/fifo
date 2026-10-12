@@ -54,41 +54,34 @@ class FifoCallManager(
 
     /**
      * Comprueba si el teléfono está actualmente en una llamada o videollamada activa
-     * (VoIP como WhatsApp, Google Meet, Zoom o llamada celular clásica).
+     * (llamada celular clásica vía TelephonyManager o llamada VoIP registrada explícitamente).
+     * Las llamadas en segundo plano de apps terceras (WeChat, Meet, etc.) no son tratadas como llamada de Fifo.
      */
     fun isCommunicationModeActive(): Boolean {
-        return cachedCommActive || FifoDataRepository.incomingCall.value != null
+        if (FifoDataRepository.incomingCall.value != null) return true
+        val isCellularCall = try {
+            telephonyManager?.callState != TelephonyManager.CALL_STATE_IDLE
+        } catch (_: Exception) {
+            false
+        }
+        if (isCellularCall) return true
+
+        val mode = audioManager?.mode ?: AudioManager.MODE_NORMAL
+        return mode == AudioManager.MODE_IN_CALL
     }
 
     /**
      * Actualiza el estado en caché del modo de comunicación.
      */
     fun refreshCommunicationMode(): Boolean {
-        if (FifoDataRepository.incomingCall.value != null) {
-            cachedCommActive = true
-            return true
-        }
-        val isCellularCall = try {
-            telephonyManager?.callState != TelephonyManager.CALL_STATE_IDLE
-        } catch (_: Exception) {
-            false
-        }
-        if (isCellularCall) {
-            cachedCommActive = true
-            return true
-        }
-
-        val mode = audioManager?.mode ?: AudioManager.MODE_NORMAL
-        val active = mode == AudioManager.MODE_IN_COMMUNICATION || mode == AudioManager.MODE_IN_CALL
-        cachedCommActive = active
-        return active
+        return isCommunicationModeActive()
     }
 
     /**
-     * Inicia la escucha de eventos telefónicos y llamadas VoIP/videollamadas.
+     * Inicia la escucha de eventos telefónicos y llamadas celulares.
      */
     fun startListening() {
-        // 1. Escuchar cambios de modo de audio para detectar llamadas entrantes o videollamadas
+        // 1. Escuchar cambios de modo de audio para detectar llamadas entrantes
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 val modeListener = AudioManager.OnModeChangedListener { mode ->
@@ -97,9 +90,9 @@ class FifoCallManager(
                 audioManager?.addOnModeChangedListener(context.mainExecutor, modeListener)
                 audioModeListener = modeListener
             }
-            // Comprobación inicial de si ya estamos en llamada o videollamada al arrancar
+            // Comprobación inicial SOLO si hay llamada celular activa al arrancar
             val currentMode = audioManager?.mode ?: AudioManager.MODE_NORMAL
-            if (currentMode == AudioManager.MODE_IN_COMMUNICATION || currentMode == AudioManager.MODE_IN_CALL) {
+            if (currentMode == AudioManager.MODE_IN_CALL) {
                 handleAudioModeChanged(currentMode)
             }
         } catch (e: Exception) {
@@ -146,28 +139,23 @@ class FifoCallManager(
     }
 
     /**
-     * Procesa los cambios en el modo de audio del sistema (ej: inicio de llamada celular o VoIP).
+     * Procesa los cambios en el modo de audio del sistema (ej: inicio de llamada celular).
      */
     fun handleAudioModeChanged(mode: Int) {
         when (mode) {
-            AudioManager.MODE_IN_COMMUNICATION, AudioManager.MODE_IN_CALL -> {
-                Log.i(TAG, "Detectada llamada/videollamada activa (modo audio: $mode)")
-                cachedCommActive = true
-                val current = FifoDataRepository.incomingCall.value
-                if (current == null) {
-                    FifoDataRepository.setIncomingCall(
-                        IncomingCallInfo(
-                            callerName = "Llamada en curso",
-                            phoneNumber = "",
-                            isRinging = false
-                        )
-                    )
-                }
+            AudioManager.MODE_IN_CALL -> {
+                Log.i(TAG, "Detectada llamada celular activa (MODE_IN_CALL)")
                 onCommunicationModeChanged?.invoke(true)
             }
+            AudioManager.MODE_IN_COMMUNICATION -> {
+                // Solo notificar si ya existía una llamada registrada por Fifo (ej: llamada contestada vía Telecom)
+                if (FifoDataRepository.incomingCall.value != null) {
+                    Log.i(TAG, "Detectada comunicación activa con llamada registrada")
+                    onCommunicationModeChanged?.invoke(true)
+                }
+            }
             AudioManager.MODE_NORMAL -> {
-                Log.i(TAG, "Llamada finalizada, restableciendo audio a MODE_NORMAL")
-                cachedCommActive = false
+                Log.i(TAG, "Audio en MODE_NORMAL")
                 resetCallAudioRouting()
                 onCommunicationModeChanged?.invoke(false)
             }
@@ -211,14 +199,10 @@ class FifoCallManager(
             }
 
             TelephonyManager.CALL_STATE_IDLE -> {
-                Log.i(TAG, "Teléfono en reposo (llamada celular finalizada o inactiva)")
+                Log.i(TAG, "Teléfono en reposo (llamada finalizada o colgada)")
                 FifoDataRepository.setIncomingCall(null)
-                if (!isCommunicationModeActive()) {
-                    resetCallAudioRouting()
-                    onCommunicationModeChanged?.invoke(false)
-                } else {
-                    Log.i(TAG, "Teléfono en reposo pero comunicación VoIP activa (manteniendo modo llamada)")
-                }
+                resetCallAudioRouting()
+                onCommunicationModeChanged?.invoke(false)
             }
         }
     }

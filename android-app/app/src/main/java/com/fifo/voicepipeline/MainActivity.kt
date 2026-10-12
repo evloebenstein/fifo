@@ -12,6 +12,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.*
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import com.fifo.voicepipeline.network.BleConnectionState
 import com.fifo.voicepipeline.pipeline.MicSource
 import com.fifo.voicepipeline.pipeline.VoicePipelineManager
@@ -58,6 +61,13 @@ class MainActivity : ComponentActivity() {
     private val blePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
+        if (permissions[Manifest.permission.READ_CONTACTS] == true ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                com.fifo.voicepipeline.data.FifoDataRepository.syncDeviceContactsToRelationalGraph(applicationContext)
+            }
+        }
+
         val allGranted = permissions.values.all { it }
         if (allGranted) {
             Toast.makeText(this, "Buscando robot FIFO por Bluetooth...", Toast.LENGTH_SHORT).show()
@@ -65,7 +75,7 @@ class MainActivity : ComponentActivity() {
         } else {
             Toast.makeText(
                 this,
-                "Se requieren permisos de Bluetooth para conectar con FIFO",
+                "Se requieren permisos para conectar con FIFO y ver sus contactos",
                 Toast.LENGTH_LONG
             ).show()
         }

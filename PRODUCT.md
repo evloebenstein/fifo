@@ -79,9 +79,19 @@ Para la especificación completa del esquema de base de datos, mapeo de componen
 
 ## Dual-Layer Memory Architecture & Zero-Latency Context Recall
 
-- **Capa Servidor (Transcripción Completa)**: La nube almacena la conversación completa con todos los turnos, transcripciones de audio y marcas de tiempo para preservación del patrimonio biográfico del usuario y auditoría.
-- **Capa Celular (Fragmentos Livianos On-Device)**: El dispositivo móvil solo mantiene fragmentos compactos (temas clave, entidades nombradas y resúmenes de ≤150 palabras). Esto elimina la latencia de red, garantizando respuestas casi instantáneas en el día a día.
-- **Recuperación Dinámica de Nicho (`recall_past_context`)**: Cuando el usuario pregunta por temas específicos pasados o anécdotas antiguas no presentes en la ventana de contexto compacto, Fifo invoca de forma autónoma su skill de búsqueda profunda en la base de datos central para responder con precisión y sin alucinaciones.
+- **Capa Servidor (Transcripción Completa y Motor de Patrones)**: La nube almacena la conversación completa con todos los turnos, transcripciones de audio y marcas de tiempo para preservación del patrimonio biográfico del usuario y auditoría. Mediante el endpoint `analyze-and-consolidate`, modelos de IA procesan las charlas para conectar puntos entre personas mencionadas a lo largo del tiempo, sintetizar biografías enriquecidas (`bio_ai`) y categorizar `interest_tags`.
+- **Capa Celular (Memoria Viva On-Device en RAM + SQLite)**: El dispositivo móvil mantiene en memoria inmediata:
+  - **Tags de Intereses Específicos**: Palabras clave de alta afinidad del usuario.
+  - **Fragmentos Cortos de Gustos**: Título y esencia concisa de cada afición para conocimiento instantáneo sin tocar la red.
+  - **Recuerdos Importantes Activos**: Memorias afectivas y notas cotidianas aprendidas.
+  - **Recordatorios Pendientes**: Lista viva de medicamentos, hábitos y compromisos.
+- **Recuperación Dinámica de Nicho (`recall_past_context`)**: Cuando el usuario pregunta por temas específicos pasados o anécdotas antiguas no presentes en la memoria viva, Fifo invoca de forma autónoma su skill de búsqueda profunda en la base de datos central para responder con precisión y sin alucinaciones.
+- **Mutación Autónoma en Tiempo Real**: Fifo puede modificar recordatorios directamente en la app (programar, completar, eliminar o listar), añadir historias de gustos en detalle (`add_taste_story`) y registrar recuerdos afectivos al instante.
+
+## Fifo Amigos: Red Comunitaria & Matchmaking por Afinidad de Tags
+
+- **Conexión Intergeneracional y entre Pares**: Con el consentimiento del usuario, sus `interest_tags` (obtenidos orgánicamente de sus charlas) y su biografía enriquecida se utilizan para calcular afinidad con otros miembros de la comunidad (`GET /users/{id}/fifo-friends/recommendations`).
+- **Sugerencias de Diálogo Cálidas**: Para reducir la timidez y fomentar la conversación, el sistema propone temas compartidos ("Podrían charlar sobre el cultivo de orquídeas o recetas tradicionales") y recomienda publicaciones afines en el muro social.
 
 ## Phone-Only Mode, Lost Device Locator & GPS Navigation
 

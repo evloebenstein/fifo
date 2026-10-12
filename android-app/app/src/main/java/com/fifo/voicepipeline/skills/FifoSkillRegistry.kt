@@ -156,6 +156,9 @@ class FifoSkillRegistry(private val context: Context) {
                                 if (propObj.has("type")) {
                                     compactProp.add("type", propObj.get("type"))
                                 }
+                                if (propObj.has("enum")) {
+                                    compactProp.add("enum", propObj.get("enum"))
+                                }
                                 if (propKey == "open_screen_map") {
                                     compactProp.addProperty("description", "default false, only true if user explicitly asked to see screen map")
                                 }
@@ -285,7 +288,7 @@ class FifoSkillRegistry(private val context: Context) {
             return executeSkill("find_fifo_device", emptyMap())
         }
 
-        // 0.2 CONTROL DE HARDWARE DEL TELÉFONO (Linterna, Volumen, Batería)
+        // 0.2 CONTROL DE HARDWARE DEL TELÉFONO (Linterna, Volumen, Batería, Hora y Fecha)
         if (text.contains("linterna") || (text.contains("luz") && (text.contains("prende") || text.contains("enciende") || text.contains("apaga")))) {
             val turnOn = !text.contains("apaga") && !text.contains("desactiva")
             return executeSkill("control_device_hardware", mapOf("feature" to "flashlight", "state" to if (turnOn) "on" else "off"))
@@ -303,6 +306,64 @@ class FifoSkillRegistry(private val context: Context) {
 
         if (text.contains("batería") || text.contains("bateria") || text.contains("cuánta carga") || text.contains("cuanta carga")) {
             return executeSkill("control_device_hardware", mapOf("feature" to "battery"))
+        }
+
+        // 0.2B CONSULTA INMEDIATA DE HORA Y FECHA ("¿Qué hora es?", "¿Qué día es hoy?", "¿Qué fecha es?")
+        val isTimeOrDateIntent = (text.contains("hora") && (text.contains("qué") || text.contains("que") || text.contains("dime") || text.contains("sabes") || text.contains("tienes") || text == "la hora" || text == "¿la hora?")) ||
+                (text.contains("día es") || text.contains("dia es") || text.contains("fecha es") || text.contains("qué día") || text.contains("que dia") || text.contains("qué fecha") || text.contains("que fecha"))
+        if (isTimeOrDateIntent) {
+            return executeSkill("control_device_hardware", mapOf("feature" to "time"))
+        }
+
+        // 0.2C CONSULTA INMEDIATA DE ESTADO DEL TIEMPO / CLIMA ("¿Cómo está el tiempo?", "¿Cómo está el clima?", "¿Va a llover?")
+        val isWeatherIntent = text.contains("clima") || text.contains("temperatura") ||
+                text.contains("va a llover") || text.contains("irá a llover") || text.contains("lluvia") ||
+                (text.contains("tiempo") && (text.contains("cómo está") || text.contains("como esta") || text.contains("qué tal") || text.contains("que tal") || text.contains("afuera") || text.contains("hoy") || text.contains("mañana")))
+        if (isWeatherIntent) {
+            return executeSkill("web_search", mapOf("query" to text, "search_type" to "weather"))
+        }
+
+        // 0.2D CONSULTA Y DICTADO INMEDIATO DE CONTACTOS Y TELÉFONOS
+        // Ej: "Díctame el número de Pedro", "Cuál es el teléfono de mamá", "Quiénes son mis contactos", "Dame el teléfono de mi hija"
+        val isContactDictateOrSearch = (text.contains("dictame") || text.contains("díctame") ||
+                text.contains("dime el número") || text.contains("dime el numero") ||
+                text.contains("dame el número") || text.contains("dame el numero") ||
+                text.contains("cuál es el número") || text.contains("cual es el numero") ||
+                text.contains("cuál es el teléfono") || text.contains("cual es el telefono") ||
+                text.contains("dame el teléfono") || text.contains("dame el telefono") ||
+                text.contains("dime el teléfono") || text.contains("dime el telefono") ||
+                text.contains("número de") || text.contains("numero de") ||
+                text.contains("teléfono de") || text.contains("telefono de")) &&
+                !text.contains("hora") && !text.contains("cuadra") && !text.contains("calle")
+
+        if (isContactDictateOrSearch) {
+            val extractedQuery = text
+                .replace(Regex("^(fifo|oye fifo|por favor)\\s*"), "")
+                .replace(Regex("^(dictame|díctame|dime|dame|cual es|cuál es|busca)\\s+(el\\s+)?(numero|número|telefono|teléfono|contacto)?(\\s+de)?\\s*"), "")
+                .replace("el número de", "")
+                .replace("el numero de", "")
+                .replace("el teléfono de", "")
+                .replace("el telefono de", "")
+                .replace("número de", "")
+                .replace("numero de", "")
+                .replace("teléfono de", "")
+                .replace("telefono de", "")
+                .replace(Regex("[¿?.,!¡]"), "")
+                .trim()
+
+            if (extractedQuery.isNotBlank() && extractedQuery.length >= 2) {
+                return executeSkill("read_phone_contacts", mapOf("action" to "dictate", "query" to extractedQuery))
+            }
+        }
+
+        val isListContactsIntent = text.contains("mis contactos") || text.contains("quiénes son mis contactos") ||
+                text.contains("quienes son mis contactos") || text.contains("a quiénes puedo llamar") ||
+                text.contains("a quienes puedo llamar") || text.contains("lista mis contactos") ||
+                text.contains("listar contactos") || text.contains("ver mis contactos") ||
+                text.contains("puedes ver mis contactos") || text.contains("tienes mis contactos")
+
+        if (isListContactsIntent) {
+            return executeSkill("read_phone_contacts", mapOf("action" to "list"))
         }
 
         // 0.3 CONFIRMACIÓN NATURAL DE DESTINO PENDIENTE

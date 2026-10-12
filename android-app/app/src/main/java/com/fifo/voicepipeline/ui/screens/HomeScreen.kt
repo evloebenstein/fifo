@@ -159,16 +159,22 @@ fun HomeScreen(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val currentHour = remember { java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY) }
+            val (greetingWord, greetingSub) = when (currentHour) {
+                in 6..11 -> "Buenos días" to "Qué lindo comenzar la mañana juntos."
+                in 12..19 -> "Buenas tardes" to "Qué bueno tenerle por aquí esta tarde."
+                else -> "Buenas noches" to "Qué bueno acompañarle esta noche."
+            }
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Hola, $userName",
+                    text = "$greetingWord, $userName",
                     fontSize = 26.sp,
                     fontWeight = FontWeight.Bold,
                     color = FifoColors.LightTextPrimary
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = "Qué bueno tenerle por aquí hoy.",
+                    text = greetingSub,
                     fontSize = 14.sp,
                     color = FifoColors.LightTextSecondary
                 )
