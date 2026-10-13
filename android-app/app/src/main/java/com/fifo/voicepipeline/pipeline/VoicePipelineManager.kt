@@ -1176,7 +1176,7 @@ class VoicePipelineManager(
             return
         }
 
-        val isWaitingFollowUp = expectFollowUpQuestion || (_isAwake.value && autoSleepJob?.isActive == true)
+        val isWaitingFollowUp = expectFollowUpQuestion
         val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
         val callInfo = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value
         val isCommActive = callManager?.isCommunicationModeActive() == true
@@ -1436,7 +1436,7 @@ class VoicePipelineManager(
                 val isCallControl = (callInfo != null || isCommActive) && isCallActionCommand(textLower, isRinging = callInfo?.isRinging == true)
                 val wasPushed = oneShotPushedToTalk
                 oneShotPushedToTalk = false
-                val isWaitingFollowUp = expectFollowUpQuestion || (_isAwake.value && autoSleepJob?.isActive == true)
+                val isWaitingFollowUp = expectFollowUpQuestion
 
                 // Si no se dijo "Fifo", verificar si estábamos en pregunta pendiente formulada por Fifo (follow-up), modo continuo, botón táctil o control de llamada
                 if (!hasWakeWord && !wasPushed && !isWaitingFollowUp && !isContinuous && !isCallControl) {
@@ -1715,36 +1715,37 @@ class VoicePipelineManager(
     }
 
     /**
-     * Determina si la frase emitida por Fifo formula una pregunta o invitación a responder,
-     * para que Fifo se quede esperando activamente la respuesta del usuario (follow-up).
+     * Determina si la frase emitida por Fifo formula una pregunta directa al usuario
+     * para quedarse en modo follow-up esperando la respuesta.
      */
-    private fun isQuestionOrPrompt(text: String): Boolean {
+    private fun isAskingQuestion(text: String): Boolean {
         if (text.isBlank()) return false
         val trimmed = text.trim()
 
-        // 1. Signos explícitos de interrogación en cualquier parte del texto
+        // 1. Signos explícitos de interrogación en cualquier parte del texto (? o ¿)
         if (trimmed.contains("?") || trimmed.contains("¿")) return true
 
         val lower = java.text.Normalizer.normalize(trimmed.lowercase(), java.text.Normalizer.Form.NFD)
             .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
 
-        // 2. Invitaciones conversacionales o preguntas indirectas comunes en español
-        val promptKeywords = listOf(
-            "cuentame", "dime", "digame", "cuenteme",
-            "te gustaria", "le gustaria", "te parece", "le parece",
-            "que opinas", "que piensa", "que piensas", "que le parece",
-            "como estas", "como se siente", "como te sientes", "como le va",
-            "quieres que", "quiere que", "deseas que", "desea que",
-            "prefieres", "prefiere", "cual prefieres", "cual prefiere",
-            "te ayudo", "le ayudo", "te colaboro", "le colaboro",
-            "confirmas", "confirma", "me avisas", "me avisa",
-            "recuerdas", "recuerda", "te acuerdas", "se acuerda",
-            "que le gustaria", "que te gustaria", "en que le puedo", "en que te puedo",
-            "hay algo mas", "algo mas", "que tal", "que planes tienes", "que planes tiene",
-            "desea algo", "deseas algo"
+        // 2. Invitaciones explícitas a responder ubicadas al final de la frase
+        val endPrompts = listOf(
+            "cuentame", "cuenteme", "dime", "digame",
+            "que opinas", "que piensa", "que piensas", "que le parece", "te parece",
+            "cual prefieres", "cual prefiere", "como te sientes", "como se siente"
         )
+        if (endPrompts.any { lower.endsWith(it) || lower.endsWith("$it.") || lower.endsWith("$it!") }) {
+            return true
+        }
 
-        return promptKeywords.any { lower.contains(it) }
+        // 3. La última oración empieza con una invitación directa a responder ("Dime...", "Cuéntame...", etc.)
+        val lastSentence = lower.split(Regex("[.!?]")).filter { it.isNotBlank() }.lastOrNull()?.trim() ?: lower
+        val startPrompts = listOf("dime ", "digame ", "cuentame ", "cuenteme ")
+        if (startPrompts.any { lastSentence.startsWith(it) }) {
+            return true
+        }
+
+        return false
     }
 
     /**
@@ -1783,10 +1784,9 @@ class VoicePipelineManager(
         }
 
         val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
-        val isQuestion = isQuestionOrPrompt(spokenText)
-        val wasAwakeInConversation = _isAwake.value && activeSessionTurns.isNotEmpty()
-        // Quedarse esperando activamente si Fifo hizo una pregunta, está en escucha continua o venimos de una conversación activa
-        val shouldStayAwake = isContinuous || expectFollowUpQuestion || isQuestion || wasAwakeInConversation
+        val isQuestion = isAskingQuestion(spokenText)
+        // Únicamente permanecer en espera activa (follow-up) si Fifo formuló una pregunta o está en modo continuo
+        val shouldStayAwake = isContinuous || isQuestion
 
         if (shouldStayAwake) {
             expectFollowUpQuestion = true
@@ -1798,7 +1798,7 @@ class VoicePipelineManager(
                 "Le escucho... Puede responder directamente"
             }
             updateEspDisplay(state = "ESCUCHANDO")
-            resetFollowUpSleepTimer(timeoutMs = if (isContinuous) 120000L else 20000L)
+            resetFollowUpSleepTimer(timeoutMs = if (isContinuous) 120000L else 14000L)
         } else {
             expectFollowUpQuestion = false
             _isAwake.value = false
