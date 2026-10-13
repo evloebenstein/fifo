@@ -137,52 +137,191 @@ class FifoSkillRegistry(private val context: Context) {
 
     /**
      * Genera la lista de herramientas en formato ultra-compacto para Groq,
-     * reduciendo los tokens de herramientas en más del 65% para nunca rebasar el límite de 8,000 TPM.
+     * reduciendo los tokens de herramientas a ~1,070 tokens (63% de reducción)
+     * para nunca rebasar el límite de 7,000 ITPM en Groq.
      */
     fun getCompactOpenAiToolsJson(): String {
-        val toolsList = skills.values.map { skill ->
-            val schemaObj = try {
-                val parsed = JsonParser.parseString(skill.parameterSchemaJson)
-                if (parsed.isJsonObject) {
-                    val root = parsed.asJsonObject
-                    if (root.has("properties") && root.get("properties").isJsonObject) {
-                        val props = root.getAsJsonObject("properties")
-                        val compactProps = com.google.gson.JsonObject()
-                        for (propKey in props.keySet()) {
-                            val propElem = props.get(propKey)
-                            if (propElem.isJsonObject) {
-                                val propObj = propElem.asJsonObject
-                                val compactProp = com.google.gson.JsonObject()
-                                if (propObj.has("type")) {
-                                    compactProp.add("type", propObj.get("type"))
-                                }
-                                if (propObj.has("enum")) {
-                                    compactProp.add("enum", propObj.get("enum"))
-                                }
-                                if (propKey == "open_screen_map") {
-                                    compactProp.addProperty("description", "default false, only true if user explicitly asked to see screen map")
-                                }
-                                compactProps.add(propKey, compactProp)
-                            }
-                        }
-                        root.add("properties", compactProps)
-                    }
-                    root
-                } else parsed
-            } catch (e: Exception) {
-                JsonParser.parseString("{}")
-            }
-            val shortDesc = skill.description.split(".").firstOrNull()?.trim()?.ifBlank { skill.description } ?: skill.description
+        val compactTools = listOf(
             mapOf(
                 "type" to "function",
                 "function" to mapOf(
-                    "name" to skill.name,
-                    "description" to shortDesc.take(85),
-                    "parameters" to schemaObj
+                    "name" to "search_nearby_places",
+                    "description" to "Busca comercios o locales cercanos por GPS (oxxo, farmacia, minimarket)",
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "place_type" to mapOf("type" to "string"),
+                            "query_hint" to mapOf("type" to "string")
+                        )
+                    )
+                )
+            ),
+            mapOf(
+                "type" to "function",
+                "function" to mapOf(
+                    "name" to "open_navigation_directions",
+                    "description" to "Guía navegación a un destino o confirma destino sugerido (destination=confirm_pending)",
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "destination" to mapOf("type" to "string"),
+                            "open_screen_map" to mapOf("type" to "boolean", "description" to "default false, solo true si pide ver mapa")
+                        ),
+                        "required" to listOf("destination")
+                    )
+                )
+            ),
+            mapOf(
+                "type" to "function",
+                "function" to mapOf(
+                    "name" to "get_current_location",
+                    "description" to "Obtiene ubicación GPS actual y dirección física",
+                    "parameters" to mapOf("type" to "object", "properties" to emptyMap<String, Any>())
+                )
+            ),
+            mapOf(
+                "type" to "function",
+                "function" to mapOf(
+                    "name" to "manage_phone_call",
+                    "description" to "Llamadas del teléfono: make_call, answer, end_call",
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "action" to mapOf("type" to "string"),
+                            "phone_number" to mapOf("type" to "string"),
+                            "contact_name" to mapOf("type" to "string")
+                        ),
+                        "required" to listOf("action")
+                    )
+                )
+            ),
+            mapOf(
+                "type" to "function",
+                "function" to mapOf(
+                    "name" to "read_phone_contacts",
+                    "description" to "Contactos del celular: search, list, dictate",
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "action" to mapOf("type" to "string"),
+                            "search_query" to mapOf("type" to "string")
+                        ),
+                        "required" to listOf("action")
+                    )
+                )
+            ),
+            mapOf(
+                "type" to "function",
+                "function" to mapOf(
+                    "name" to "control_device_hardware",
+                    "description" to "Control: linterna, volumen, batería, hora",
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "action" to mapOf("type" to "string"),
+                            "level" to mapOf("type" to "integer")
+                        ),
+                        "required" to listOf("action")
+                    )
+                )
+            ),
+            mapOf(
+                "type" to "function",
+                "function" to mapOf(
+                    "name" to "web_search",
+                    "description" to "Noticias, clima o información en Internet",
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf("query" to mapOf("type" to "string")),
+                        "required" to listOf("query")
+                    )
+                )
+            ),
+            mapOf(
+                "type" to "function",
+                "function" to mapOf(
+                    "name" to "recall_past_context",
+                    "description" to "Consulta anécdotas, recuerdos y charlas pasadas del usuario",
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf("query" to mapOf("type" to "string")),
+                        "required" to listOf("query")
+                    )
+                )
+            ),
+            mapOf(
+                "type" to "function",
+                "function" to mapOf(
+                    "name" to "manage_reminders",
+                    "description" to "Recordatorios: add, list, delete",
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "action" to mapOf("type" to "string"),
+                            "title" to mapOf("type" to "string"),
+                            "time_str" to mapOf("type" to "string")
+                        ),
+                        "required" to listOf("action")
+                    )
+                )
+            ),
+            mapOf(
+                "type" to "function",
+                "function" to mapOf(
+                    "name" to "manage_calendar_events",
+                    "description" to "Eventos de calendario: add, list, delete",
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "action" to mapOf("type" to "string"),
+                            "title" to mapOf("type" to "string"),
+                            "date" to mapOf("type" to "string")
+                        ),
+                        "required" to listOf("action")
+                    )
+                )
+            ),
+            mapOf(
+                "type" to "function",
+                "function" to mapOf(
+                    "name" to "send_sms_message",
+                    "description" to "Envía mensaje SMS a un contacto",
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "phone_number" to mapOf("type" to "string"),
+                            "message" to mapOf("type" to "string")
+                        ),
+                        "required" to listOf("message")
+                    )
+                )
+            ),
+            mapOf(
+                "type" to "function",
+                "function" to mapOf(
+                    "name" to "find_fifo_device",
+                    "description" to "Hace sonar el robot Fifo para encontrarlo",
+                    "parameters" to mapOf("type" to "object", "properties" to emptyMap<String, Any>())
+                )
+            ),
+            mapOf(
+                "type" to "function",
+                "function" to mapOf(
+                    "name" to "update_profile_and_tastes",
+                    "description" to "Guarda gustos, recuerdos o datos del usuario",
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "action" to mapOf("type" to "string"),
+                            "taste_name" to mapOf("type" to "string"),
+                            "detail" to mapOf("type" to "string")
+                        ),
+                        "required" to listOf("action")
+                    )
                 )
             )
-        }
-        return gson.toJson(toolsList)
+        )
+        return gson.toJson(compactTools)
     }
 
     /**

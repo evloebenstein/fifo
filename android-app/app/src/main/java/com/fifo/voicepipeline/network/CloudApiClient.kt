@@ -67,31 +67,15 @@ class CloudApiClient(
         private const val TTS_VOICE = "nova"
 
         // ── System prompt ultra-compacto del robot Fifo (optimizado para voz y bajo consumo de tokens) ──
-        private const val SYSTEM_PROMPT = """Eres Fifo, asistente robótico y compañero empático para adultos mayores (especialista en bienestar y vida diaria).
-REGLAS ESTRICTAS DE INTERACCIÓN:
-1. Voz concisa: Trata siempre de "usted" con cariño. Responde ÚNICAMENTE en 1 o 2 oraciones breves diseñadas para ser habladas en voz alta por TTS. Sin emojis, sin markdown (*, #), sin "Fifo:".
-2. Sin preámbulos: Prohibido decir "Revisé su ubicación en...". Si piden un local o dirección, da directamente el nombre, la calle y la distancia sin rodeos.
-3. Ubicación, comercios y navegación en vivo ('search_nearby_places', 'open_navigation_directions'):
-   - Usa la ubicación física real para responder comercios reales. NUNCA respondas con el nombre de la comuna o ciudad como si fuera un local o mercado.
-   - Variedad y naturalidad humana: Sé variado, espontáneo y cálido. PROHIBIDO usar siempre las mismas frases mecánicas o plantillas fijas. Respeta género y artículo ("el OXXO", "la farmacia", "el supermercado Líder").
-   - Acompañante de navegación tipo Waze: Si el usuario pregunta "¿a dónde voy?", "¿y ahora?", "¿por dónde sigo?", usa el bloque de MODO NAVEGACIÓN ACTIVA. NUNCA digas que no te acuerdas ni cambies de tema; guíale directamente indicando su orientación y distancia restante.
-   - Confirmación de destino: Si el usuario confirma un destino sugerido previamente ("sí", "por favor", "guíame", "vamos", "dije que sí", "dije sí"), invoca 'open_navigation_directions' con destination='confirm_pending'. NUNCA inventes direcciones distintas ni cambies el lugar sugerido.
-   - Plural vs Singular: Si pregunta en plural, ofrece 2 o 3 opciones con sus distancias y orientación relativa. Si pregunta en singular, destaca el principal y ofrece guiarle con naturalidad.
-4. Comprensión de voz y aclaraciones: Si lo dicho por el usuario suena entrecortado, ininteligible o incoherente, NO inventes respuestas; pide con amabilidad que te repita la frase.
-5. Memoria episódica ('recall_past_context'): Si mencionan anécdotas, personas o lugares pasados, consulta 'recall_past_context' antes de responder.
-6. Hardware del celular y robot: 'control_device_hardware' para linterna, volumen, batería y hora; 'manage_phone_call' para llamadas, 'find_fifo_device' para hacer sonar el robot, 'read_phone_contacts' para contactos del celular.
-7. Internet en vivo ('web_search'): Úsala para noticias del día, clima / pronóstico del tiempo o información reciente.
-8. Horarios, saludos y conciencia temporal:
-   - Adapta SIEMPRE tus saludos y respuestas a la HORA LOCAL REAL y período (Mañana/Tarde/Noche) del bloque temporal.
-   - Jamás saludes diciendo 'Buenos días' en la tarde o noche. Si el usuario pregunta la hora o la fecha, indícala directamente con afecto y precisión.
-   - Continuidad conversacional: Si ya has conversado en esta interacción, no repitas saludos formales como si recién despertaras; responde directo y cercano ('Dígame', 'Aquí estoy', 'Hola de nuevo').
-9. Entorno social, personas cercanas y dictado de contactos:
-   - En tu contexto dispones del Grafo Relacional de personas cercanas al usuario (familia, nietos, amigos, doctores) con sus recuerdos e intimidad.
-   - Tráelas a colación de forma cariñosa y natural en la charla cuando corresponda (ej: preguntar por su nieto o su hija, o por sus amigas si habla de sus actividades).
-   - Si el usuario te pide dictar, saber o buscar el teléfono de un contacto ("díctame el número de Pedro", "¿cuál es el teléfono de mi hija?"):
-     a) Búscalo en tu memoria relacional o usa 'read_phone_contacts' con action='dictate'.
-     b) Díctale el número pausado con comas entre grupos de números (ej: "El número de Pedro es más cinco seis nueve, doce, treinta y cuatro, cincuenta y seis, setenta y ocho").
-     c) Pregúntale amablemente si desea que le marques por teléfono."""
+        private const val SYSTEM_PROMPT = """Eres Fifo, asistente robótico y compañero empático para adultos mayores.
+REGLAS:
+1. Trata siempre de usted con cariño. Responde ÚNICAMENTE en 1 o 2 oraciones breves habladas por TTS. Sin emojis, sin markdown (*, #), sin "Fifo:".
+2. Sin preámbulos: Ve directo a la respuesta. Si piden comercios o direcciones, da nombre, calle y distancia directamente.
+3. Ubicación y navegación ('search_nearby_places', 'open_navigation_directions'):
+   - Al sugerir o guiar, usa la ubicación GPS real. NUNCA respondas con el nombre de la comuna como si fuera un local.
+   - Si el usuario confirma un destino sugerido ("sí", "guíame", "vamos", "dije sí"), invoca 'open_navigation_directions' con destination='confirm_pending'.
+4. Celular y hardware: 'manage_phone_call' para llamadas, 'read_phone_contacts' para contactos (si piden dictar número, díctalo pausado con comas), 'control_device_hardware' para linterna/volumen/batería/hora, 'find_fifo_device' para hacer sonar el robot.
+5. Internet y memoria: 'web_search' para noticias o clima; 'recall_past_context' para recuerdos, anécdotas o personas pasadas. Si el audio no se entiende, pide amablemente repetir sin inventar."""
 
         fun isWhisperHallucination(rawText: String): Boolean {
             val norm = java.text.Normalizer.normalize(rawText.lowercase().trim(), java.text.Normalizer.Form.NFD)
@@ -440,65 +424,41 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
         val firstName = FifoDataRepository.userProfile.value.fullName.split(" ").firstOrNull { it.isNotBlank() } ?: ""
         val nameExample = if (firstName.isNotBlank()) "'Dígame $firstName'" else "'Dígame'"
 
-        return """
-        === CONTEXTO TEMPORAL Y DINÁMICA DE CONVERSACIÓN ===
-        - HORA LOCAL EXACTA: $timeFormatted hrs ($period).
-        - FECHA ACTUAL: $fullDate.
-        - SALUDO ADECUADO POR HORARIO: "$correctGreeting".
-        - REGLA ESTRICTA DE SALUDO: NUNCA saludes diciendo "Buenos días" si la hora actual es tarde o noche ($timeFormatted hrs).
-        - CONTINUIDAD CONVERSACIONAL: ${if (userTurnsInHistory <= 1 && pastConvsCount == 0) "Es el inicio del contacto con el usuario." else "Ya has hablado $userTurnsInHistory veces con el usuario en esta interacción continua (y tienen $pastConvsCount charlas previas). NO te presentes de nuevo ni repitas un saludo formal en cada turno. Responde de forma cercana, directa y natural (ej: $nameExample, 'Aquí estoy', 'Por supuesto', o respondiendo directamente a la consulta)."}
-        """.trimIndent()
+        return "HORA ACTUAL: $timeFormatted hrs ($period, saludo: '$correctGreeting')." +
+            if (userTurnsInHistory > 1 || pastConvsCount > 0) " (Conversación en curso: responde directo y cercano sin repetir saludos formales)." else ""
     }
 
     /**
-     * Construye el prompt de sistema enriquecido con memoria y estado temporal en tiempo real.
+     * Construye el prompt de sistema enriquecido con memoria y estado temporal en tiempo real,
+     * ultra-optimizado (<300 tokens) para evitar sobrecostos y errores 429 en Groq.
      */
     private fun getEnrichedSystemPrompt(): String {
-        val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 2)
+        val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 1)
         val temporalContext = buildTemporalAndSessionContext()
         val profile = FifoDataRepository.userProfile.value
         val gpsInfo = context?.let { com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(it) }
 
-        val userContext = buildString {
-            appendLine("=== DATOS DEL USUARIO ===")
-            if (profile.fullName.isNotBlank()) appendLine("- NOMBRE DEL USUARIO: ${profile.fullName}")
-            if (profile.emergencyContactName.isNotBlank()) appendLine("- CONTACTO DE APOYO: ${profile.emergencyContactName} (${profile.emergencyContactPhone})")
-            if (profile.preferredAddress.isNotBlank()) appendLine("- DOMICILIO REGISTRADO (CASA): ${profile.preferredAddress}")
-        }.trim()
-
-        val locationContext = buildString {
-            if (gpsInfo != null && gpsInfo.isGpsActive) {
-                appendLine("=== UBICACIÓN EN TIEMPO REAL (GPS ACTIVO) ===")
-                appendLine("- UBICACIÓN FÍSICA ACTUAL: ${gpsInfo.address} (Comuna: ${gpsInfo.city})")
-                appendLine("- COORDENADAS GPS: ${gpsInfo.latitude}, ${gpsInfo.longitude}")
-                appendLine("- REGLA DE ORO DE NAVEGACIÓN Y COMERCIOS: El usuario se encuentra FÍSICAMENTE en ${gpsInfo.city} (${gpsInfo.address}). Al buscar lugares cercanos ('oxxo', 'farmacia', 'minimarket') o dar indicaciones de cómo ir, debes buscar y guiar SIEMPRE desde ${gpsInfo.city}. NUNCA busques en la comuna del domicilio registrado a menos que pida explícitamente 'en mi casa'.")
-            } else if (profile.preferredAddress.isNotBlank()) {
-                appendLine("=== UBICACIÓN ESTIMADA (DOMICILIO REGISTRADO) ===")
-                appendLine("- DIRECCIÓN: ${profile.preferredAddress} (${profile.city})")
-            }
-        }.trim()
+        val locationContext = if (gpsInfo != null && gpsInfo.isGpsActive) {
+            "UBICACIÓN GPS ACTUAL: ${gpsInfo.address} (${gpsInfo.city}). Coordenadas: ${gpsInfo.latitude}, ${gpsInfo.longitude}. Busca y guía siempre desde ${gpsInfo.city}."
+        } else if (profile.preferredAddress.isNotBlank()) {
+            "UBICACIÓN ESTIMADA: ${profile.preferredAddress} (${profile.city})."
+        } else ""
 
         val navContext = if (gpsInfo != null) {
             com.fifo.voicepipeline.location.FifoNavigationManager.buildSystemPromptContext(gpsInfo)
         } else ""
 
         return buildString {
-            appendLine(SYSTEM_PROMPT)
-            appendLine()
-            appendLine(userContext)
+            append(SYSTEM_PROMPT).append("\n\n")
+            append(temporalContext).append("\n")
             if (locationContext.isNotBlank()) {
-                appendLine()
-                appendLine(locationContext)
+                append(locationContext).append("\n")
             }
             if (navContext.isNotBlank()) {
-                appendLine()
-                appendLine(navContext)
+                append(navContext).append("\n")
             }
-            appendLine()
-            appendLine(temporalContext)
             if (compactContext.isNotBlank()) {
-                appendLine()
-                appendLine(compactContext)
+                append(compactContext).append("\n")
             }
         }.trim()
     }
@@ -518,8 +478,8 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
 
         val messagesList = mutableListOf<Map<String, String>>()
         messagesList.add(mapOf("role" to "system", "content" to enrichedSystemPrompt))
-        // Limitar turnos previos a los últimos 4 para no rebasar el límite de ITPM 8000
-        val compactHistory = conversationHistory.takeLast(4)
+        // Limitar turnos previos a los últimos 2 para no rebasar el límite de ITPM 7000
+        val compactHistory = conversationHistory.takeLast(2)
         messagesList.addAll(compactHistory)
 
         val messagesJson = gson.toJson(messagesList)
@@ -552,10 +512,10 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
 
             if (!response.isSuccessful) {
                 Log.e(TAG, "Groq error ($modelToUse) ${response.code}: $body")
-                // Si hay rate limit 429, esperar 1.2 segundos y reintentar (resetea en <1s)
+                // Si hay rate limit 429, esperar 2 segundos y reintentar (a ~1,100 tokens, 2s libera ~230 tokens)
                 if (response.code == 429 && retryCount < 2) {
-                    Log.w(TAG, "Groq 429: límite de tasa alcanzado. Esperando 1200ms y reintentando...")
-                    kotlinx.coroutines.delay(1200)
+                    Log.w(TAG, "Groq 429: límite de tasa alcanzado. Esperando 2000ms y reintentando...")
+                    kotlinx.coroutines.delay(2000)
                     return chatWithGroq(userText, skillRegistry, modelToUse = modelToUse, retryCount = retryCount + 1)
                 }
 
@@ -664,8 +624,8 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
                 // Follow-up a Groq con los resultados de las herramientas para que formule una respuesta inteligente, concisa y contextual
                 val followUpMessages = mutableListOf<Any>()
                 followUpMessages.add(mapOf("role" to "system", "content" to enrichedSystemPrompt))
-                // Limitar turnos previos a los últimos 4 para ahorrar tokens y no superar el límite de 7000 ITPM
-                val compactFollowUpHistory = conversationHistory.takeLast(4)
+                // Limitar turnos previos a los últimos 2 para ahorrar tokens y no superar el límite de 7000 ITPM
+                val compactFollowUpHistory = conversationHistory.takeLast(2)
                 followUpMessages.addAll(compactFollowUpHistory)
                 followUpMessages.add(currentAssistantMessage)
                 followUpMessages.addAll(toolResultMessages)

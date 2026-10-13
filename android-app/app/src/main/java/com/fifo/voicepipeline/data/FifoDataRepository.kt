@@ -1325,86 +1325,41 @@ object FifoDataRepository {
     }
 
     /**
-     * Construye la ventana de contexto compacto para inyectar como prefijo
-     * en el System Prompt o en los mensajes enviados a Claude.
+     * Construye un resumen ultra-compacto (<80 tokens) de la identidad y estado del usuario
+     * para el prompt de sistema en vivo, previniendo sobrecosto de tokens y errores 429 en Groq.
+     * Si se necesita memoria profunda o anécdotas pasadas, Fifo invoca 'recall_past_context'.
      *
-     * Retorna un bloque de texto con los últimos N fragmentos, incluyendo:
-     * - Temas clave mencionados
-     * - Entidades nombradas (personas, lugares)
-     * - Estado anímico detectado
-     * - Resumen compacto de cada charla
-     *
-     * @param maxFragments Cantidad máxima de fragmentos recientes a incluir (default 5)
-     * @return String listo para inyectar como contexto previo a Claude
+     * @param maxFragments Cantidad máxima de fragmentos recientes a incluir (default 1)
+     * @return String listo para inyectar como contexto previo
      */
-    fun buildCompactContextWindow(maxFragments: Int = 5): String {
-        val fragments = _conversationFragments.value.take(maxFragments)
+    fun buildCompactContextWindow(maxFragments: Int = 1): String {
         val profile = _userProfile.value
-        val tastes = _tastes.value
-        val topContacts = _relationalContacts.value.sortedByDescending { it.closenessScore }.take(6)
-        val routines = _dailyRoutines.value.take(4)
-        val tasteStories = _tasteStories.value
-        val activeReminders = _reminders.value.filter { !it.isCompleted }
+        val tastes = _tastes.value.take(4)
+        val topContacts = _relationalContacts.value.sortedByDescending { it.closenessScore }.take(2)
+        val activeReminders = _reminders.value.filter { !it.isCompleted }.take(2)
+        val fragments = if (maxFragments > 0) _conversationFragments.value.take(maxFragments) else emptyList()
 
         return buildString {
-            appendLine("=== CONTEXTO DEL USUARIO Y GRAFO RELACIONAL ===")
-            appendLine("Nombre: ${profile.fullName} | Edad: ${profile.estimatedAge} | Ciudad: ${profile.city}")
-            if (profile.bioAi.isNotBlank()) appendLine("Perfil AI: ${profile.bioAi}")
-            if (profile.interestTags.isNotEmpty()) {
-                appendLine("Tags de interés específicos: ${profile.interestTags.joinToString(", ")}")
+            appendLine("=== CONTEXTO DEL USUARIO ===")
+            appendLine("Nombre: ${profile.fullName.ifBlank { "Usuario" }} | Edad: ${profile.estimatedAge} | Ciudad: ${profile.city}")
+            if (tastes.isNotEmpty()) {
+                appendLine("Intereses y gustos: ${tastes.joinToString(", ")}")
             }
-            appendLine("Gustos conocidos: ${tastes.joinToString(", ")}")
-
-            if (tasteStories.isNotEmpty()) {
-                appendLine("--- GUSTOS EN DETALLE (MEMORIA INMEDIATA DE CELULAR: FRAGMENTOS CORTOS) ---")
-                tasteStories.take(8).forEach { story ->
-                    appendLine("- ${story.title} [${story.subtitle}] (Tags: ${story.tags.joinToString("/")})")
-                }
-            }
-
             if (topContacts.isNotEmpty()) {
-                appendLine("--- CONTACTOS Y VÍNCULOS CERCANOS (GRAFO RELACIONAL) ---")
-                topContacts.forEach { c ->
-                    appendLine("- ${c.contactName} [${c.relationshipRole}] (Cercanía: ${(c.closenessScore * 100).toInt()}%, Tel: ${c.phoneNumber}): ${c.contextualMemory}")
-                }
+                append("Contactos clave: ")
+                appendLine(topContacts.joinToString("; ") { "${it.contactName} (${it.relationshipRole})" })
             }
-
             if (activeReminders.isNotEmpty()) {
-                appendLine("--- RECORDATORIOS ACTIVOS PENDIENTES ---")
-                activeReminders.forEach { r ->
-                    appendLine("- [${r.timeStr}] ${r.title} (ID: ${r.id})")
-                }
+                append("Recordatorios pendientes: ")
+                appendLine(activeReminders.joinToString("; ") { "${it.timeStr}: ${it.title}" })
             }
-
-            if (routines.isNotEmpty()) {
-                appendLine("--- RUTINAS Y PATRONES DE ACTIVIDAD DIARIA ---")
-                routines.forEach { r ->
-                    appendLine("- [${r.timeAnchor.uppercase()} ${r.typicalTimeStr ?: ""}] ${r.routineName}: ${r.notes ?: ""}")
-                }
-            }
-
-            val recentMemories = _memories.value.take(6)
-            if (recentMemories.isNotEmpty()) {
-                appendLine("--- RECUERDOS IMPORTANTES EN MEMORIA VIVA DE CELULAR ---")
-                recentMemories.forEach { mem ->
-                    appendLine("- ${mem.title}: ${mem.detail}")
-                }
-            }
-            appendLine()
-
             if (fragments.isNotEmpty()) {
-                fragments.forEachIndexed { i, frag ->
-                    appendLine("--- Charla reciente ${i + 1} (${frag.primaryTag}) ---")
-                    appendLine("Temas: ${frag.keyTopics.joinToString(", ")}")
-                    appendLine("Personas/Lugares: ${frag.namedEntities.joinToString(", ")}")
-                    appendLine("Ánimo: ${frag.detectedMood}")
-                    appendLine("Resumen: ${frag.compactSummary}")
-                    appendLine()
+                val lastFrag = fragments.first()
+                if (lastFrag.compactSummary.isNotBlank()) {
+                    appendLine("Última charla: ${lastFrag.compactSummary.take(120)}")
                 }
             }
-
-            appendLine("=== Si necesitas más detalle sobre un tema pasado, usa la herramienta recall_past_context ===")
-        }
+        }.trim()
     }
 
     /**
