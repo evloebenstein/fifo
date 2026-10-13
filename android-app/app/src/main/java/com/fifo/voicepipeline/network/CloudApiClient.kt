@@ -56,10 +56,9 @@ class CloudApiClient(
         private const val TTS_URL = "https://api.openai.com/v1/audio/speech"
 
         // ── Modelos ──────────────────────────────────
-        // Modelo principal de Groq: Llama 3.3 70B (ultra-rápido, excelente tool calling, sin límite estricto de 7000 TPM)
-        const val GROQ_PRIMARY_MODEL = "llama-3.3-70b-versatile"
-        // Modelo de respaldo si hay congestión: Llama 3.1 8B Instant (instantáneo, alta tasa de tokens)
-        const val GROQ_FALLBACK_MODEL = "llama-3.1-8b-instant"
+        // Modelo principal de Groq: Qwen 27B (activo y disponible en esta cuenta de Groq)
+        const val GROQ_PRIMARY_MODEL = "qwen/qwen3.8-27b"
+        const val GROQ_FALLBACK_MODEL = "qwen/qwen3.8-27b"
         const val GROQ_WHISPER_MODEL = "whisper-large-v3-turbo"
 
         private const val CLAUDE_MODEL = "claude-haiku-4-5-20251001"
@@ -511,15 +510,16 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
     private suspend fun chatWithGroq(
         userText: String,
         skillRegistry: com.fifo.voicepipeline.skills.FifoSkillRegistry?,
-        modelToUse: String = GROQ_PRIMARY_MODEL
+        modelToUse: String = GROQ_PRIMARY_MODEL,
+        retryCount: Int = 0
     ): String {
         val apiKey = effectiveGroqKey
         val enrichedSystemPrompt = getEnrichedSystemPrompt()
 
         val messagesList = mutableListOf<Map<String, String>>()
         messagesList.add(mapOf("role" to "system", "content" to enrichedSystemPrompt))
-        // Limitar turnos previos a los últimos 6 para no rebasar el límite de ITPM 7000
-        val compactHistory = conversationHistory.takeLast(6)
+        // Limitar turnos previos a los últimos 4 para no rebasar el límite de ITPM 8000
+        val compactHistory = conversationHistory.takeLast(4)
         messagesList.addAll(compactHistory)
 
         val messagesJson = gson.toJson(messagesList)
@@ -552,18 +552,16 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
 
             if (!response.isSuccessful) {
                 Log.e(TAG, "Groq error ($modelToUse) ${response.code}: $body")
-                // Si el modelo principal de Groq falla, intentar el modelo de respaldo de Groq primero
-                if (modelToUse == GROQ_PRIMARY_MODEL) {
-                    Log.w(TAG, "Groq: Error ${response.code} en $GROQ_PRIMARY_MODEL. Probando fallback a $GROQ_FALLBACK_MODEL...")
-                    if (response.code == 429) {
-                        kotlinx.coroutines.delay(800)
-                    }
-                    return chatWithGroq(userText, skillRegistry, modelToUse = GROQ_FALLBACK_MODEL)
+                // Si hay rate limit 429, esperar 1.2 segundos y reintentar (resetea en <1s)
+                if (response.code == 429 && retryCount < 2) {
+                    Log.w(TAG, "Groq 429: límite de tasa alcanzado. Esperando 1200ms y reintentando...")
+                    kotlinx.coroutines.delay(1200)
+                    return chatWithGroq(userText, skillRegistry, modelToUse = modelToUse, retryCount = retryCount + 1)
                 }
 
-                // Si ambos modelos de Groq fallan y hay clave de Claude configurada
+                // Si Groq falla y hay clave de Claude configurada
                 if (anthropicApiKey.isNotBlank() && !anthropicApiKey.startsWith("gsk_")) {
-                    Log.w(TAG, "Groq agotado. Intentando failover a Claude...")
+                    Log.w(TAG, "Groq no disponible. Intentando failover a Claude...")
                     val claudeResult = try {
                         chatWithClaude(userText, skillRegistry)
                     } catch (e: Exception) {
