@@ -204,6 +204,40 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ---
 
+## 🗺️ Mapa Arquitectónico y Guías por Carpeta
+
+Cada carpeta del proyecto cuenta con su propio archivo `README.md` detallando la responsabilidad de cada archivo, diagramas de flujo y buenas prácticas de programación:
+
+- 🐳 **Backend & Persistencia:**
+  - [`backend/`](backend/README.md) - Orquestación Docker Compose (MySQL 8.4, Adminer y API FastAPI).
+  - [`backend/api/`](backend/api/README.md) - Microservicio REST en FastAPI (`main.py`), endpoints de perfiles, memoria y Fifo Amigos.
+  - [`backend/init/`](backend/init/README.md) - DDL del esquema relacional (`01_schema.sql`) y datos iniciales de prueba (`02_seed_lucia.sql`).
+  - [`database/`](database/README.md) - Módulo desacoplado de base de datos.
+- 🤖 **Firmware ESP32:**
+  - [`esp32-firmware/`](esp32-firmware/README.md) - Proyecto PlatformIO, hardware, diagrama de pines (pinout) y compilación.
+  - [`esp32-firmware/src/`](esp32-firmware/src/README.md) - Código fuente en C++ (I2S mic/speaker, display OLED SSD1306 y GATT BLE).
+- 📱 **Aplicación Android (Kotlin + Jetpack Compose):**
+  - [`android-app/`](android-app/README.md) - Configuración Gradle raíz, SDK y comandos de terminal.
+  - [`android-app/app/`](android-app/app/README.md) - Módulo Android, manifiesto de permisos y dependencias.
+  - [`android-app/app/src/main/java/com/fifo/voicepipeline/`](android-app/app/src/main/java/com/fifo/voicepipeline/README.md) - Raíz del paquete Kotlin y `MainActivity.kt`.
+  - [`.../audio/`](android-app/app/src/main/java/com/fifo/voicepipeline/audio/README.md) - VAD, buffer PCM, Google Voice nativo, Android TTS y sanitización de texto.
+  - [`.../data/`](android-app/app/src/main/java/com/fifo/voicepipeline/data/README.md) - Repositorio reactivo central Local-First (`FifoDataRepository.kt`).
+  - [`.../data/local/`](android-app/app/src/main/java/com/fifo/voicepipeline/data/local/README.md) - Base de datos relacional SQLite local (`FifoDatabaseHelper.kt`).
+  - [`.../data/remote/`](android-app/app/src/main/java/com/fifo/voicepipeline/data/remote/README.md) - Cliente REST para sincronización nube.
+  - [`.../location/`](android-app/app/src/main/java/com/fifo/voicepipeline/location/README.md) - GPS, brújula digital y guiado de navegación peatonal por voz estilo Waze.
+  - [`.../network/`](android-app/app/src/main/java/com/fifo/voicepipeline/network/README.md) - Cliente BLE GATT, WebSocket server, y conectores a Groq/Claude.
+  - [`.../pipeline/`](android-app/app/src/main/java/com/fifo/voicepipeline/pipeline/README.md) - **Núcleo del asistente de voz**: máquina de estados, palabra de activación estricta (*"Fifo"*), follow-up fluido, cancelación de eco y barge-in.
+  - [`.../service/`](android-app/app/src/main/java/com/fifo/voicepipeline/service/README.md) - Servicios en primer plano para escucha 24/7 y accesibilidad telefónica.
+  - [`.../skills/`](android-app/app/src/main/java/com/fifo/voicepipeline/skills/README.md) - Catálogo de 14 habilidades ejecutables por la IA.
+  - [`.../telephony/`](android-app/app/src/main/java/com/fifo/voicepipeline/telephony/README.md) - Gestor de llamadas entrantes y contestador por voz.
+  - [`.../ui/`](android-app/app/src/main/java/com/fifo/voicepipeline/ui/README.md) - Andamiaje de interfaz de usuario Compose (`MainScreen.kt`).
+  - [`.../ui/components/`](android-app/app/src/main/java/com/fifo/voicepipeline/ui/components/README.md) - Diálogos modales, carita animada (`FifoFace.kt`) y bottom sheet.
+  - [`.../ui/model/`](android-app/app/src/main/java/com/fifo/voicepipeline/ui/model/README.md) - Modelos inmutables de datos para la UI (`FifoModels.kt`).
+  - [`.../ui/screens/`](android-app/app/src/main/java/com/fifo/voicepipeline/ui/screens/README.md) - Pantallas completas (Inicio, Perfil, Amigos, Actividades, Onboarding, Login).
+  - [`.../ui/theme/`](android-app/app/src/main/java/com/fifo/voicepipeline/ui/theme/README.md) - Paleta de colores cálidos y tokens de accesibilidad.
+
+---
+
 ##  Documentación Adicional
 
 - **[PRODUCT.md](PRODUCT.md):** Visión del producto, arquitectura invisible de telefonía tipo Alexa, principios de accesibilidad y políticas de privacidad para personas mayores.

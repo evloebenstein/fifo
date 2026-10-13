@@ -1,54 +1,66 @@
-# 🐳 FIFO Backend Database & REST API (Docker + MySQL 8.4 + FastAPI)
+# 🐳 Backend Architecture & Directory Map (`backend/`)
 
-Infraestructura de backend contenerizada para el asistente robótico **FIFO**, con persistencia relacional en **MySQL 8.4 LTS**, panel de administración **Adminer** y API REST en **FastAPI**.
-
----
-
-## 🏗️ Servicios Incluidos
-
-| Servicio | Contenedor | Puerto Host | Descripción |
-| :--- | :--- | :--- | :--- |
-| **MySQL 8.4 LTS** | `fifo-mysql` | `3306` | Base de datos relacional con soporte utf8mb4, triggers de seguridad y procedimiento almacenado `sp_recall_past_context`. |
-| **Adminer** | `fifo-adminer` | `8080` | Panel web visual para administrar tablas y ejecutar consultas SQL (`http://localhost:8080`). |
-| **FastAPI REST** | `fifo-api` | `8090` | API REST para sincronizar datos con la app Android móvil y ejecutar consultas de memoria profunda (`http://localhost:8090/docs`). |
+Infraestructura de backend contenerizada para el asistente robótico **FIFO**, con persistencia relacional en **MySQL 8.4 LTS**, panel visual **Adminer** y microservicio REST en **FastAPI**.
 
 ---
 
-## 🚀 Inicio Rápido
+## 🗺️ Mapa de Archivos del Directorio
 
-### 1. Iniciar los contenedores
+| Archivo / Carpeta | Tipo | Rol Principal |
+| :--- | :--- | :--- |
+| [`docker-compose.yml`](docker-compose.yml) | Docker Compose | Orquestación multicontenedor: `fifo-mysql` (3306), `fifo-adminer` (8080) y `fifo-api` (8090). Red aislada `fifo-net` y volumen `fifo_mysql_data`. |
+| [`.env`](.env) | Configuración | Variables de entorno activas para credenciales MySQL, claves Groq/Gemini y puertos. *(No subir a repositorios públicos)*. |
+| [`.env.example`](.env.example) | Plantilla | Ejemplo de configuración con variables requeridas para desplegar en local o en VPS/Cloud. |
+| [`api/`](api/README.md) | Subdirectorio | Código fuente del microservicio Python FastAPI (`main.py`), dependencias y Dockerfile. |
+| [`init/`](init/README.md) | Subdirectorio | Scripts SQL ejecutados automáticamente al arrancar el contenedor MySQL: DDL del esquema relacional y datos de prueba. |
 
-Desde la carpeta `backend/`:
+---
 
-```bash
-cd backend
-docker compose up -d --build
+## 🏗️ Servicios en Ejecución
+
+```
++-------------------------------------------------------------+
+|                      Host (Máquina / VPS)                   |
+|                                                             |
+|   Puerto 8090                Puerto 8080       Puerto 3306  |
+|        │                          │                 │       |
+|        ▼                          ▼                 ▼       |
+|  +-------------+            +-----------+     +-----------+ |
+|  |  fifo-api   |            |fifo-adminer|     | fifo-mysql| |
+|  |  (FastAPI)  |◄──────────►| (Adminer) |◄───►| (MySQL 8) | |
+|  +-------------+            +-----------+     +-----------+ |
+|        ▲                                            ▲       |
+|        │                   Red Docker: fifo-net     │       |
+|        └────────────────────────────────────────────┘       |
+|                                                             |
+|   Volumen persistente: fifo_mysql_data                      |
++-------------------------------------------------------------+
 ```
 
-Esto automáticamente:
-1. Crea la red `fifo-net` y el volumen persistente `fifo_mysql_data`.
-2. Ejecuta los scripts de inicialización en orden:
-   - `init/01_schema.sql` (creación de todas las tablas, índices, restricciones y procedimientos).
-   - `init/02_seed_lucia.sql` (carga inicial de datos de prueba multi-usuario: Lucía, Sofía, Mateo, Valentina y Diego).
-3. Levanta la API REST en el puerto `8090` y Adminer en el puerto `8080`.
+---
 
-### 2. Acceso al Panel de Base de Datos (Adminer)
+## 🚀 Guía de Comandos Rápidos
 
-Abre en tu navegador: **[http://localhost:8080](http://localhost:8080)**
+```bash
+# 1. Levantar backend completo en segundo plano (reconstruyendo imagen API)
+docker compose up -d --build
 
-- **Sistema:** MySQL
-- **Servidor:** `fifo-mysql` (o `localhost` si te conectas externamente con DBeaver/Workbench al puerto 3306)
-- **Usuario:** `fifo_app` (o `root`)
-- **Contraseña:** `fifo_app_secret_2026` (o `fifo_root_secret_2026`)
-- **Base de datos:** `fifo_db`
+# 2. Ver logs en tiempo real de la API
+docker compose logs -f fifo-api
 
-### 3. Documentación Interactiva de la API (Swagger UI)
+# 3. Ver logs de MySQL
+docker compose logs -f fifo-mysql
 
-Abre en tu navegador: **[http://localhost:8090/docs](http://localhost:8090/docs)**
+# 4. Detener contenedores manteniendo datos intactos
+docker compose down
+
+# 5. Reinicio total borrando datos (¡CUIDADO: elimina base de datos!)
+docker compose down -v && docker compose up -d --build
+```
 
 ---
 
-## 📱 Conexión desde la Aplicación Android
-
-- **En el Emulador de Android Studio:** Usa la dirección `http://10.0.2.2:8090` (que apunta al `localhost` de tu computadora).
-- **En un Teléfono Físico por Wi-Fi:** Usa la dirección IP local de tu PC en la red local (ej: `http://192.168.1.150:8090`).
+## 🧭 Reglas de Programación en `backend/`
+1. **Idempotencia en migraciones:** La API en `api/main.py` ejecuta `ensure_schema_migrations()` al arrancar para añadir columnas faltantes sin alterar datos existentes.
+2. **Charset y Collation:** Siempre usar `utf8mb4` y `utf8mb4_es_0900_ai_ci` para tildes en español y emojis.
+3. **Persistencia de sesión:** Las llamadas desde la app Android se sincronizan bidireccionalmente hacia la tabla `users`, `user_memories`, `taste_stories`, `user_reminders` y `user_contacts_relational`.
