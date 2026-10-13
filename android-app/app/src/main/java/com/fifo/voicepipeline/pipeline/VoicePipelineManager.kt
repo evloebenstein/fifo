@@ -264,7 +264,7 @@ class VoicePipelineManager(
                 if (_isMicMuted.value) return@NativeSpeechRecognizer
 
                 val isSpeakingNow = _state.value == PipelineState.SPEAKING || androidTtsSpeaker?.isSpeaking == true || audioPlayer.isPlaying
-                val isEcho = isEchoOfLastSpokenSentence(text)
+                val isEcho = isEchoOfLastSpokenSentence(text, isSpeakingNow = isSpeakingNow)
                 if (isSpeakingNow) {
                     if (isSilenceCommand(text, whileSpeaking = true)) {
                         stopSpeakingSilently()
@@ -1003,8 +1003,12 @@ class VoicePipelineManager(
      * Determina si el texto transcrito corresponde a un eco acústico de la propia voz de Fifo
      * saliendo por el parlante del dispositivo.
      */
-    private fun isEchoOfLastSpokenSentence(text: String): Boolean {
+    private fun isEchoOfLastSpokenSentence(text: String, isSpeakingNow: Boolean = false): Boolean {
         if (lastSpokenSentence.isBlank() || text.isBlank()) return false
+        // Si Fifo ya terminó de hablar y está esperando la respuesta del usuario, jamás descartar como eco
+        // para permitir responder con palabras presentes en la pregunta (ej: "Boleros", "Sí", "A las ocho", "Jardinería")
+        if (!isSpeakingNow && expectFollowUpQuestion) return false
+
         val normSpoken = java.text.Normalizer.normalize(lastSpokenSentence.lowercase().trim(), java.text.Normalizer.Form.NFD)
             .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
             .replace(Regex("[^a-z0-9\\s]"), " ")
@@ -1014,12 +1018,18 @@ class VoicePipelineManager(
             .replace(Regex("[^a-z0-9\\s]"), " ")
             .trim()
 
-        if (normSpoken.contains(normText) || normText.contains(normSpoken)) return true
-
-        val wordsText = normText.split(" ").filter { it.length >= 3 }
-        if (wordsText.isNotEmpty()) {
-            val matching = wordsText.count { normSpoken.contains(it) }
-            if (matching.toFloat() / wordsText.size >= 0.5f) return true
+        if (isSpeakingNow) {
+            if (normSpoken.contains(normText) || normText.contains(normSpoken)) return true
+            val wordsText = normText.split(" ").filter { it.length >= 3 }
+            if (wordsText.isNotEmpty()) {
+                val matching = wordsText.count { normSpoken.contains(it) }
+                if (matching.toFloat() / wordsText.size >= 0.5f) return true
+            }
+        } else {
+            // Fuera de locución activa: solo descartar si es repetición idéntica o prácticamente completa (>20 caracteres)
+            if (normText.length >= 20 && (normSpoken == normText || normSpoken.contains(normText))) {
+                return true
+            }
         }
         return false
     }
@@ -1130,7 +1140,7 @@ class VoicePipelineManager(
 
         val hasWakeWord = isWakeWord(textLower)
         val isSilence = isSilenceCommand(rawText, whileSpeaking = isSpeakingNow)
-        val isEcho = isEchoOfLastSpokenSentence(rawText)
+        val isEcho = isEchoOfLastSpokenSentence(rawText, isSpeakingNow = isSpeakingNow)
 
         // Si Fifo está hablando actualmente:
         // Solo parar si es comando explícito de silencio o una nueva consulta con "Fifo" que no sea eco
@@ -1166,7 +1176,7 @@ class VoicePipelineManager(
             return
         }
 
-        val isWaitingFollowUp = expectFollowUpQuestion
+        val isWaitingFollowUp = expectFollowUpQuestion || (_isAwake.value && autoSleepJob?.isActive == true)
         val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
         val callInfo = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value
         val isCommActive = callManager?.isCommunicationModeActive() == true
@@ -1336,12 +1346,6 @@ class VoicePipelineManager(
             return
         }
 
-        // Si estábamos esperando respuesta a una pregunta directa pero el sonido es débil (ruido de fondo o televisión distante), descartar
-        if (expectFollowUpQuestion && peakRms < 280.0) {
-            Log.d(TAG, "Audio ignorado en espera de respuesta: energía baja (Peak RMS ${String.format(java.util.Locale.US, "%.1f", peakRms)} < 280.0), descartado como ruido de fondo.")
-            return
-        }
-
         val isSpeakingNow = _state.value == PipelineState.SPEAKING ||
             androidTtsSpeaker?.isSpeaking == true || audioPlayer.isPlaying
 
@@ -1395,7 +1399,7 @@ class VoicePipelineManager(
                 val isSpeakingRightNow = isSpeakingNow || _state.value == PipelineState.SPEAKING ||
                     androidTtsSpeaker?.isSpeaking == true || audioPlayer.isPlaying
                 val isSilence = isSilenceCommand(transcript, whileSpeaking = isSpeakingRightNow || wasCapturedWhileSpeaking)
-                val isEcho = (isSpeakingRightNow || wasCapturedWhileSpeaking) && isEchoOfLastSpokenSentence(transcript)
+                val isEcho = (isSpeakingRightNow || wasCapturedWhileSpeaking) && isEchoOfLastSpokenSentence(transcript, isSpeakingNow = isSpeakingRightNow)
 
                 // Si Fifo estaba hablando o el audio se grabó durante la locución:
                 // Solo parar si es comando explícito de silencio ("Fifo silencio", "cállate", etc.)
@@ -1432,7 +1436,7 @@ class VoicePipelineManager(
                 val isCallControl = (callInfo != null || isCommActive) && isCallActionCommand(textLower, isRinging = callInfo?.isRinging == true)
                 val wasPushed = oneShotPushedToTalk
                 oneShotPushedToTalk = false
-                val isWaitingFollowUp = expectFollowUpQuestion
+                val isWaitingFollowUp = expectFollowUpQuestion || (_isAwake.value && autoSleepJob?.isActive == true)
 
                 // Si no se dijo "Fifo", verificar si estábamos en pregunta pendiente formulada por Fifo (follow-up), modo continuo, botón táctil o control de llamada
                 if (!hasWakeWord && !wasPushed && !isWaitingFollowUp && !isContinuous && !isCallControl) {
@@ -1711,6 +1715,39 @@ class VoicePipelineManager(
     }
 
     /**
+     * Determina si la frase emitida por Fifo formula una pregunta o invitación a responder,
+     * para que Fifo se quede esperando activamente la respuesta del usuario (follow-up).
+     */
+    private fun isQuestionOrPrompt(text: String): Boolean {
+        if (text.isBlank()) return false
+        val trimmed = text.trim()
+
+        // 1. Signos explícitos de interrogación en cualquier parte del texto
+        if (trimmed.contains("?") || trimmed.contains("¿")) return true
+
+        val lower = java.text.Normalizer.normalize(trimmed.lowercase(), java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
+
+        // 2. Invitaciones conversacionales o preguntas indirectas comunes en español
+        val promptKeywords = listOf(
+            "cuentame", "dime", "digame", "cuenteme",
+            "te gustaria", "le gustaria", "te parece", "le parece",
+            "que opinas", "que piensa", "que piensas", "que le parece",
+            "como estas", "como se siente", "como te sientes", "como le va",
+            "quieres que", "quiere que", "deseas que", "desea que",
+            "prefieres", "prefiere", "cual prefieres", "cual prefiere",
+            "te ayudo", "le ayudo", "te colaboro", "le colaboro",
+            "confirmas", "confirma", "me avisas", "me avisa",
+            "recuerdas", "recuerda", "te acuerdas", "se acuerda",
+            "que le gustaria", "que te gustaria", "en que le puedo", "en que te puedo",
+            "hay algo mas", "algo mas", "que tal", "que planes tienes", "que planes tiene",
+            "desea algo", "deseas algo"
+        )
+
+        return promptKeywords.any { lower.contains(it) }
+    }
+
+    /**
      * Maneja la transición de estado cuando termina de hablar por parlante (Android TTS u OpenAI).
      */
     private fun handleTtsFinished(spokenText: String) {
@@ -1746,9 +1783,10 @@ class VoicePipelineManager(
         }
 
         val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
-        val endsWithQuestion = spokenText.trim().endsWith("?") || spokenText.contains("¿")
-        // Solo esperar respuesta directa sin palabra 'Fifo' si Fifo hizo una pregunta al usuario o está en escucha continua
-        val shouldStayAwake = isContinuous || expectFollowUpQuestion || endsWithQuestion
+        val isQuestion = isQuestionOrPrompt(spokenText)
+        val wasAwakeInConversation = _isAwake.value && activeSessionTurns.isNotEmpty()
+        // Quedarse esperando activamente si Fifo hizo una pregunta, está en escucha continua o venimos de una conversación activa
+        val shouldStayAwake = isContinuous || expectFollowUpQuestion || isQuestion || wasAwakeInConversation
 
         if (shouldStayAwake) {
             expectFollowUpQuestion = true
@@ -1760,7 +1798,7 @@ class VoicePipelineManager(
                 "Le escucho... Puede responder directamente"
             }
             updateEspDisplay(state = "ESCUCHANDO")
-            resetFollowUpSleepTimer(timeoutMs = if (isContinuous) 120000L else 12000L)
+            resetFollowUpSleepTimer(timeoutMs = if (isContinuous) 120000L else 20000L)
         } else {
             expectFollowUpQuestion = false
             _isAwake.value = false
