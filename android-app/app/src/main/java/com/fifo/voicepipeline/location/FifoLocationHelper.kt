@@ -36,12 +36,110 @@ object FifoLocationHelper {
         .readTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
         .build()
 
+    @Volatile
+    private var cachedLocationInfo: CurrentLocationInfo? = null
+    @Volatile
+    private var lastLocationFixTime: Long = 0L
+
+    /**
+     * Obtiene la ubicación física más fresca y precisa del teléfono de forma asíncrona.
+     * Si la última ubicación conocida tiene menos de 45 segundos, la retorna directamente.
+     * Si no, solicita una actualización one-shot al hardware GPS (API 30+) o al proveedor disponible.
+     */
+    suspend fun getFreshLocation(context: Context): CurrentLocationInfo = withContext(Dispatchers.IO) {
+        val cached = cachedLocationInfo
+        val now = System.currentTimeMillis()
+        if (cached != null && cached.isGpsActive && (now - lastLocationFixTime) < 45_000L) {
+            return@withContext cached
+        }
+
+        val hasFine = ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(
+            context,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (!hasFine && !hasCoarse) {
+            return@withContext getCurrentLocation(context)
+        }
+
+        val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+            ?: return@withContext getCurrentLocation(context)
+
+        // En Android 11+ (API 30+), solicitar actualización one-shot directa
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            try {
+                val freshLoc = kotlinx.coroutines.suspendCancellableCoroutine<Location?> { cont ->
+                    val cancellationSignal = android.os.CancellationSignal()
+                    cont.invokeOnCancellation { cancellationSignal.cancel() }
+
+                    val provider = when {
+                        lm.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                        lm.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+                        else -> LocationManager.PASSIVE_PROVIDER
+                    }
+
+                    try {
+                        lm.getCurrentLocation(
+                            provider,
+                            cancellationSignal,
+                            context.mainExecutor
+                        ) { location ->
+                            if (cont.isActive) {
+                                cont.resume(location) {}
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.w(TAG, "Error en getCurrentLocation API 30: ${e.message}")
+                        if (cont.isActive) cont.resume(null) {}
+                    }
+                }
+
+                if (freshLoc != null) {
+                    val lat = freshLoc.latitude
+                    val lon = freshLoc.longitude
+                    val geocoded = reverseGeocodeDetailed(context, lat, lon)
+                    val profileCity = FifoDataRepository.userProfile.value.city.trim()
+                    val addr = geocoded?.first ?: "Ubicación detectada"
+                    val city = geocoded?.second?.ifBlank { profileCity } ?: profileCity
+
+                    val freshInfo = CurrentLocationInfo(
+                        latitude = lat,
+                        longitude = lon,
+                        address = addr,
+                        city = city,
+                        isGpsActive = true
+                    )
+                    cachedLocationInfo = freshInfo
+                    lastLocationFixTime = System.currentTimeMillis()
+                    Log.i(TAG, "Ubicación GPS fresca adquirida exitosamente: $lat, $lon ($addr)")
+                    return@withContext freshInfo
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "No se pudo obtener ubicación GPS fresca: ${e.message}")
+            }
+        }
+
+        // Fallback síncrono estándar
+        getCurrentLocation(context)
+    }
+
     /**
      * Obtiene la ubicación geográfica actual del celular.
-     * Si no hay permisos o GPS apagado, retorna la ubicación de perfil como fallback seguro.
+     * Prioriza GPS real fresco, luego caché de ubicación de sesión, y si no hay GPS,
+     * retorna la ubicación de perfil como fallback seguro.
      */
     @SuppressLint("MissingPermission")
     fun getCurrentLocation(context: Context): CurrentLocationInfo {
+        val now = System.currentTimeMillis()
+        val cached = cachedLocationInfo
+        if (cached != null && cached.isGpsActive && (now - lastLocationFixTime) < 90_000L) {
+            return cached
+        }
+
         val hasFine = ContextCompat.checkSelfPermission(
             context,
             android.Manifest.permission.ACCESS_FINE_LOCATION
@@ -108,8 +206,16 @@ object FifoLocationHelper {
             for (provider in candidateProviders) {
                 try {
                     val l = lm.getLastKnownLocation(provider) ?: continue
-                    if (bestLocation == null || l.accuracy < bestLocation.accuracy) {
+                    val isFresh = (now - l.time) < 1800_000L // Menor a 30 minutos
+                    if (bestLocation == null) {
                         bestLocation = l
+                    } else {
+                        val bestIsFresh = (now - bestLocation.time) < 1800_000L
+                        if (isFresh && !bestIsFresh) {
+                            bestLocation = l
+                        } else if (isFresh == bestIsFresh && l.accuracy < bestLocation.accuracy) {
+                            bestLocation = l
+                        }
                     }
                 } catch (e: SecurityException) {
                     Log.w(TAG, "Permiso denegado para provider $provider")
@@ -122,6 +228,10 @@ object FifoLocationHelper {
         }
 
         if (bestLocation == null) {
+            // Si la caché anterior tenía GPS activo, no degradar a perfil
+            if (cached != null && cached.isGpsActive) {
+                return cached
+            }
             return resolveProfileFallback()
         }
 
@@ -131,13 +241,17 @@ object FifoLocationHelper {
         val addressName = geocoded?.first ?: profileAddress
         val detectedCity = geocoded?.second?.ifBlank { profileCity } ?: profileCity
 
-        return CurrentLocationInfo(
+        val detectedInfo = CurrentLocationInfo(
             latitude = lat,
             longitude = lon,
             address = addressName,
             city = detectedCity,
             isGpsActive = true
         )
+        cachedLocationInfo = detectedInfo
+        lastLocationFixTime = now
+
+        return detectedInfo
     }
 
     /**
@@ -313,14 +427,16 @@ object FifoLocationHelper {
             else -> "hacia el norponiente"
         }
 
+        val userAzimuth = FifoOrientationHelper.currentAzimuthDegrees
+        val turnInfo = FifoOrientationHelper.getRelativeTurnInstruction(userAzimuth, initialBearing)
         val walkingMinutes = (distanceMeters / 75).coerceAtLeast(2) // 75 m/min (~4.5 km/h)
         val drivingMinutes = (distanceMeters / 400).coerceAtLeast(1)
 
         val spoken = if (distanceMeters < 1200) {
-            "Para ir a $resolvedName: queda a unos $distanceMeters metros ($walkingMinutes minutos caminando $cardinal). ¿Te voy indicando los pasos?"
+            "Para ir a $resolvedName: queda a unos $distanceMeters metros ($walkingMinutes minutos a pie). Según apunta su teléfono, le queda ${turnInfo.instruction}. ¿Le gustaría que le vaya indicando el camino?"
         } else {
             val km = String.format(Locale("es", "ES"), "%.1f", distanceMeters / 1000.0)
-            "Para ir a $resolvedName: queda a unos $km kilómetros $cardinal ($drivingMinutes min en vehículo o $walkingMinutes min a pie). ¿Te indico la ruta?"
+            "Para ir a $resolvedName: queda a unos $km kilómetros hacia el $cardinal ($drivingMinutes min en vehículo o $walkingMinutes min a pie). ¿Desea que le oriente?"
         }
 
         return SpokenRouteGuidance(
@@ -329,6 +445,7 @@ object FifoLocationHelper {
             walkingMinutes = walkingMinutes,
             drivingMinutes = drivingMinutes,
             cardinalDirection = cardinal,
+            relativeDirection = turnInfo.instruction,
             spokenGuidance = spoken,
             destinationLat = destLat,
             destinationLon = destLon
@@ -451,6 +568,8 @@ object FifoLocationHelper {
                     val distMeters = distResults[0].toInt().coerceAtLeast(20)
                     val bearing = (distResults[1] + 360) % 360
                     val cardinal = calculateCardinal(bearing)
+                    val userAzimuth = FifoOrientationHelper.currentAzimuthDegrees
+                    val turnInfo = FifoOrientationHelper.getRelativeTurnInstruction(userAzimuth, bearing)
                     val walkingMin = (distMeters / 75).coerceAtLeast(1)
                     val drivingMin = (distMeters / 400).coerceAtLeast(1)
                     val blocks = (distMeters / 100).coerceAtLeast(1)
@@ -479,7 +598,8 @@ object FifoLocationHelper {
                             walkingMinutes = walkingMin,
                             drivingMinutes = drivingMin,
                             blocks = blocks,
-                            fullAddressText = fullAddress
+                            fullAddressText = fullAddress,
+                            relativeDirection = turnInfo.instruction
                         )
                     )
                 }
@@ -500,7 +620,7 @@ object FifoLocationHelper {
         query: String,
         currentLocation: CurrentLocationInfo? = null
     ): List<NearbyPlaceMatch> = withContext(Dispatchers.IO) {
-        val currentLoc = currentLocation ?: getCurrentLocation(context)
+        val currentLoc = currentLocation ?: getFreshLocation(context)
         val queryLower = query.lowercase().trim()
 
         val cleanQuery = if (currentLoc.isGpsActive && !currentLoc.city.contains("Providencia", ignoreCase = true)) {
@@ -519,7 +639,7 @@ object FifoLocationHelper {
                     cleanQuery.contains("santa isabel") -> listOf("santa isabel", "supermarket", "supermercado")
                     cleanQuery.contains("alvi") -> listOf("alvi", "supermarket", "supermercado")
                     cleanQuery.contains("oxxo") -> listOf("oxxo", "convenience")
-                    else -> listOf("supermarket", "convenience", "supermercado", "minimarket", "almacen", "deli")
+                    else -> listOf("oxxo", "supermarket", "convenience", "supermercado", "minimarket", "almacen", "deli")
                 }
             }
             cleanQuery.contains("lider") -> listOf("lider", "supermarket")
@@ -528,13 +648,13 @@ object FifoLocationHelper {
             cleanQuery.contains("santa isabel") -> listOf("santa isabel", "supermarket")
             cleanQuery.contains("oxxo") -> listOf("oxxo", "ok market")
             cleanQuery.contains("farmacia") -> listOf("pharmacy", "farmacia", "cruz verde", "ahumada", "salcobrand")
-            cleanQuery.contains("minimarket") || cleanQuery.contains("almacen") || cleanQuery.contains("almacén") -> listOf("convenience", "minimarket", "almacen")
+            cleanQuery.contains("minimarket") || cleanQuery.contains("almacen") || cleanQuery.contains("almacén") -> listOf("oxxo", "convenience", "minimarket", "almacen")
             cleanQuery.contains("panaderia") || cleanQuery.contains("panadería") -> listOf("bakery", "panaderia")
             cleanQuery.contains("pizz") -> listOf("pizza", "restaurant", "fast_food")
             cleanQuery.contains("restaurante") || cleanQuery.contains("restaurant") || cleanQuery.contains("comida") || cleanQuery.contains("comer") || cleanQuery.contains("almuerzo") ->
                 listOf("restaurant", "fast_food", "food")
-            cleanQuery.contains("comercio") || cleanQuery.contains("local") || cleanQuery.contains("tienda") || cleanQuery.contains("negocio") || cleanQuery.contains("alrededor") ->
-                listOf("convenience", "supermarket", "bakery", "shop", "cafe", "pharmacy")
+            cleanQuery.contains("comercio") || cleanQuery.contains("local") || cleanQuery.contains("tienda") || cleanQuery.contains("negocio") || cleanQuery.contains("alrededor") || cleanQuery.contains("cerca") ->
+                listOf("oxxo", "convenience", "supermarket", "bakery", "shop", "cafe", "pharmacy")
             cleanQuery.contains("banco") -> listOf("bank", "banco")
             cleanQuery.contains("hospital") || cleanQuery.contains("cesfam") || cleanQuery.contains("consultorio") -> listOf("hospital", "clinic", "cesfam", "consultorio")
             cleanQuery.contains("parque") || cleanQuery.contains("plaza") -> listOf("park", "plaza", "parque")
@@ -544,10 +664,9 @@ object FifoLocationHelper {
         val resultsList = mutableListOf<NearbyPlaceMatch>()
         val seenCoords = mutableSetOf<String>()
 
-        // Fase 0: Búsqueda inmediata a pie (~1.2 km a la redonda, delta = 0.012)
-        // Esto captura negocios inmediatos de barrio (ej: Oxxo en Lo Pasteur / Manquehue Norte en Vitacura)
-        // que Nominatim de otro modo relega por score de 'importancia' nacional
-        val deltaImmediate = 0.012
+        // Fase 0: Búsqueda inmediata a pie (~1.5 km a la redonda, delta = 0.015)
+        // Esto captura negocios inmediatos de barrio (ej: Oxxo en Manquehue Norte en Vitacura)
+        val deltaImmediate = 0.015
         for (term in searchTerms.take(3)) {
             val matches = fetchNominatimPlaces(term, currentLoc, delta = deltaImmediate, limit = 30)
             for (m in matches) {
@@ -558,9 +677,9 @@ object FifoLocationHelper {
             }
         }
 
-        // Fase 1: Búsqueda acotada al entorno inmediato (~2.5 km a la redonda) si no se halló en 1.2 km
+        // Fase 1: Búsqueda acotada al entorno inmediato (~2.8 km a la redonda) si no se halló en 1.5 km
         if (resultsList.isEmpty()) {
-            val deltaNear = 0.025
+            val deltaNear = 0.028
             for (term in searchTerms.take(4)) {
                 val matches = fetchNominatimPlaces(term, currentLoc, delta = deltaNear, limit = 35)
                 for (m in matches) {
@@ -572,7 +691,7 @@ object FifoLocationHelper {
             }
         }
 
-        // Fase 2: Si no hubo resultados en 2.5 km, ampliar radio a ~5 km con los términos principales
+        // Fase 2: Si no hubo resultados en 2.8 km, ampliar radio a ~5 km con los términos principales
         if (resultsList.isEmpty()) {
             val deltaExpanded = 0.05
             for (term in searchTerms.take(2)) {
@@ -610,6 +729,8 @@ object FifoLocationHelper {
                         val distMeters = distResults[0].toInt().coerceAtLeast(50)
                         val bearing = (distResults[1] + 360) % 360
                         val cardinal = calculateCardinal(bearing)
+                        val userAzimuth = FifoOrientationHelper.currentAzimuthDegrees
+                        val turnInfo = FifoOrientationHelper.getRelativeTurnInstruction(userAzimuth, bearing)
                         val walkingMin = (distMeters / 75).coerceAtLeast(1)
                         val drivingMin = (distMeters / 400).coerceAtLeast(1)
                         val blocks = (distMeters / 100).coerceAtLeast(1)
@@ -635,7 +756,8 @@ object FifoLocationHelper {
                                 walkingMinutes = walkingMin,
                                 drivingMinutes = drivingMin,
                                 blocks = blocks,
-                                fullAddressText = fullAddress
+                                fullAddressText = fullAddress,
+                                relativeDirection = turnInfo.instruction
                             )
                         )
                     }
@@ -668,7 +790,8 @@ data class NearbyPlaceMatch(
     val walkingMinutes: Int,
     val drivingMinutes: Int,
     val blocks: Int,
-    val fullAddressText: String
+    val fullAddressText: String,
+    val relativeDirection: String = "al frente"
 )
 
 /**
@@ -680,6 +803,7 @@ data class SpokenRouteGuidance(
     val walkingMinutes: Int,
     val drivingMinutes: Int,
     val cardinalDirection: String,
+    val relativeDirection: String = "al frente",
     val spokenGuidance: String,
     val destinationLat: Double = 0.0,
     val destinationLon: Double = 0.0

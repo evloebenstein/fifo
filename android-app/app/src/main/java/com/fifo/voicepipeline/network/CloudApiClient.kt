@@ -56,10 +56,10 @@ class CloudApiClient(
         private const val TTS_URL = "https://api.openai.com/v1/audio/speech"
 
         // ── Modelos ──────────────────────────────────
-        // Modelo principal de Groq: Qwen 27B (ultra-rápido, con tool calling nativo y baja huella de tokens)
-        const val GROQ_PRIMARY_MODEL = "qwen/qwen3.8-27b"
-        // Modelo de respaldo si hay congestión: OpenAI GPT-OSS 120B
-        const val GROQ_FALLBACK_MODEL = "openai/gpt-oss-120b"
+        // Modelo principal de Groq: Llama 3.3 70B (ultra-rápido, excelente tool calling, sin límite estricto de 7000 TPM)
+        const val GROQ_PRIMARY_MODEL = "llama-3.3-70b-versatile"
+        // Modelo de respaldo si hay congestión: Llama 3.1 8B Instant (instantáneo, alta tasa de tokens)
+        const val GROQ_FALLBACK_MODEL = "llama-3.1-8b-instant"
         const val GROQ_WHISPER_MODEL = "whisper-large-v3-turbo"
 
         private const val CLAUDE_MODEL = "claude-haiku-4-5-20251001"
@@ -76,7 +76,8 @@ REGLAS ESTRICTAS DE INTERACCIÓN:
    - Usa la ubicación física real para responder comercios reales. NUNCA respondas con el nombre de la comuna o ciudad como si fuera un local o mercado.
    - Variedad y naturalidad humana: Sé variado, espontáneo y cálido. PROHIBIDO usar siempre las mismas frases mecánicas o plantillas fijas. Respeta género y artículo ("el OXXO", "la farmacia", "el supermercado Líder").
    - Acompañante de navegación tipo Waze: Si el usuario pregunta "¿a dónde voy?", "¿y ahora?", "¿por dónde sigo?", usa el bloque de MODO NAVEGACIÓN ACTIVA. NUNCA digas que no te acuerdas ni cambies de tema; guíale directamente indicando su orientación y distancia restante.
-   - Plural vs Singular: Si pregunta en plural, ofrece 2 o 3 opciones con sus distancias. Si pregunta en singular, destaca el principal y ofrece guiarle con naturalidad.
+   - Confirmación de destino: Si el usuario confirma un destino sugerido previamente ("sí", "por favor", "guíame", "vamos", "dije que sí", "dije sí"), invoca 'open_navigation_directions' con destination='confirm_pending'. NUNCA inventes direcciones distintas ni cambies el lugar sugerido.
+   - Plural vs Singular: Si pregunta en plural, ofrece 2 o 3 opciones con sus distancias y orientación relativa. Si pregunta en singular, destaca el principal y ofrece guiarle con naturalidad.
 4. Comprensión de voz y aclaraciones: Si lo dicho por el usuario suena entrecortado, ininteligible o incoherente, NO inventes respuestas; pide con amabilidad que te repita la frase.
 5. Memoria episódica ('recall_past_context'): Si mencionan anécdotas, personas o lugares pasados, consulta 'recall_past_context' antes de responder.
 6. Hardware del celular y robot: 'control_device_hardware' para linterna, volumen, batería y hora; 'manage_phone_call' para llamadas, 'find_fifo_device' para hacer sonar el robot, 'read_phone_contacts' para contactos del celular.
@@ -803,6 +804,65 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
             }
             "Disculpe, hubo un problema de conexión con la API de Groq. Por favor intente nuevamente en unos instantes."
         }
+    }
+
+    /**
+     * Genera dinámicamente una frase de reanudación cálida, variada y 100% natural
+     * cuando el usuario interrumpió diciendo "Fifo" pero luego se quedó en silencio o no dijo una orden.
+     */
+    suspend fun generateNaturalResumption(interruptedSentence: String): String {
+        val apiKey = effectiveGroqKey
+        if (apiKey.isNotBlank() && isGroqActive) {
+            try {
+                val prompt = """Eres Fifo, asistente afectuoso. Estabas diciendo esto en voz alta:
+"$interruptedSentence"
+El usuario te interrumpió diciendo "Fifo", te callaste de inmediato para escucharle con atención, pero él no dijo nada más (se quedó en silencio).
+Reanuda el habla de manera muy natural, espontánea y cálida (por ejemplo notando amablemente que parecía querer decir algo o preguntar, y retomando tu idea donde quedó).
+Genera ÚNICAMENTE 1 oración concisa para hablar en voz alta por voz, sin introducciones ni comillas ni formato."""
+
+                val jsonBody = """
+                {
+                    "model": "$GROQ_PRIMARY_MODEL",
+                    "messages": [
+                        {"role": "system", "content": "Eres un asistente de voz humano y espontáneo. Responde solo el texto a decir."},
+                        {"role": "user", "content": ${gson.toJson(prompt)}}
+                    ],
+                    "max_tokens": 80,
+                    "temperature": 0.7
+                }
+                """.trimIndent()
+
+                val request = Request.Builder()
+                    .url(GROQ_CHAT_URL)
+                    .header("Authorization", "Bearer $apiKey")
+                    .header("Content-Type", "application/json")
+                    .post(jsonBody.toRequestBody("application/json".toMediaType()))
+                    .build()
+
+                val response = httpClient.newCall(request).executeSuspend()
+                val body = response.body?.string() ?: ""
+                if (response.isSuccessful && body.isNotBlank()) {
+                    val root = JsonParser.parseString(body).asJsonObject
+                    val text = root.getAsJsonArray("choices")?.get(0)?.asJsonObject
+                        ?.getAsJsonObject("message")?.get("content")?.asString?.trim() ?: ""
+                    if (text.isNotBlank()) {
+                        return com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(text)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Error generando reanudación natural con LLM: ${e.message}")
+            }
+        }
+
+        // Generador dinámico conversacional de respaldo con conectores naturales en español
+        val connectors = listOf(
+            "Vi que quería decir algo... Pero bueno, como le decía: $interruptedSentence",
+            "Pensé que me iba a comentar algo. En todo caso, como le iba diciendo: $interruptedSentence",
+            "Creí que tenía una duda... Bueno, como le estaba comentando: $interruptedSentence",
+            "Sentí que iba a decirme algo, no se preocupe... Como le decía: $interruptedSentence",
+            "Ah, creí que me quería preguntar algo. De todos modos, continuando con lo que le decía: $interruptedSentence"
+        )
+        return connectors.random()
     }
 
     /**

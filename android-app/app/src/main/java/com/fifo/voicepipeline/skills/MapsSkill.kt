@@ -55,7 +55,7 @@ class MapsSkill(private val context: Context) : FifoSkill {
         val openScreen = (args["open_screen_map"] as? Boolean)
             ?: (args["open_screen_map"]?.toString()?.toBooleanStrictOrNull() ?: false)
 
-        val currentLoc = FifoLocationHelper.getCurrentLocation(context)
+        val currentLoc = FifoLocationHelper.getFreshLocation(context)
         val cleanHint = if (currentLoc.isGpsActive && !currentLoc.city.contains("Providencia", ignoreCase = true)) {
             hint.replace(Regex("(?i)\\b(near|cerca de)?\\s*av\\.?\\s*providencia.*"), "").trim()
         } else {
@@ -121,7 +121,7 @@ class MapsSkill(private val context: Context) : FifoSkill {
                     if (cleanName.startsWith("farmacia", ignoreCase = true)) "la $cleanName" else "la farmacia $cleanName"
                 }
                 lower.contains("panaderia") || lower.contains("panadería") || qLower.contains("panaderia") -> {
-                    if (cleanName.startsWith("panaderia", ignoreCase = true) || cleanName.startsWith("panadería", ignoreCase = true)) "la $cleanName" else "la panadería $cleanName"
+                    if (cleanName.startsWith("panaderia", ignoreCase = true)) "la $cleanName" else "la panadería $cleanName"
                 }
                 lower.contains("botilleria") || lower.contains("botillería") -> "la $cleanName"
                 lower.contains("cafeteria") || lower.contains("cafetería") -> "la cafetería $cleanName"
@@ -158,7 +158,7 @@ class MapsSkill(private val context: Context) : FifoSkill {
                 val desc = formatDescriptor(closest.name, placeTypeRaw)
                 val streetOnly = closest.road.ifBlank { closest.fullAddressText }
                 val distText = if (closest.distanceMeters < 1200) "${closest.distanceMeters} metros" else "${String.format(Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)} kilómetros"
-                "El lugar más próximo es $desc en $streetOnly, a unos $distText. Le abrí la ruta en la pantalla de su celular."
+                "El lugar más próximo es $desc en $streetOnly, a unos $distText (${closest.relativeDirection}). Le abrí la ruta en la pantalla de su celular."
             } else {
                 "Le abrí el mapa en su celular con la búsqueda de $displayName."
             }
@@ -177,25 +177,25 @@ class MapsSkill(private val context: Context) : FifoSkill {
                 val road2 = p2.road.ifBlank { p2.fullAddressText }
 
                 val pluralPhrasings = listOf(
-                    "Cerca de aquí tiene varias alternativas: $desc1 a unos $dist1 en $road1, y $desc2 a unos $dist2 en $road2. ¿Le gustaría que le indique el camino a alguno de ellos?",
-                    "Encontré estas opciones cercanas: primero $desc1 a $dist1 en $road1, y también $desc2 a $dist2 en $road2. ¿Hacia cuál de ellos prefiere que le guíe?",
+                    "Cerca de aquí tiene varias alternativas: $desc1 a unos $dist1 en $road1 (${p1.relativeDirection}), y $desc2 a unos $dist2 en $road2. ¿Le gustaría que le indique el camino a alguno de ellos?",
+                    "Encontré estas opciones cercanas: primero $desc1 a $dist1 en $road1 (${p1.relativeDirection}), y también $desc2 a $dist2 en $road2. ¿Hacia cuál de ellos prefiere que le guíe?",
                     "Por la zona cuenta con $desc1 a unas ${p1.blocks} cuadras en $road1, y $desc2 a ${p2.blocks} cuadras en $road2. ¿Desea que le oriente para llegar?"
                 )
                 pluralPhrasings.random()
             } else if (closest != null) {
-                // Respuesta singular variada y natural, sin plantillas rígidas
+                // Respuesta singular variada y natural con orientación corporal intuitiva
                 val targetDesc = formatDescriptor(closest.name, placeTypeRaw)
                 val streetOnly = closest.road.ifBlank { closest.fullAddressText }
                 val distText = if (closest.distanceMeters < 1200) "${closest.distanceMeters} metros" else "${String.format(Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)} kilómetros"
                 val minsText = "${closest.walkingMinutes} minutos"
-                val cardinal = closest.cardinalDirection
                 val blocksText = if (closest.blocks == 1) "1 cuadra" else "${closest.blocks} cuadras"
+                val relative = closest.relativeDirection
 
                 val singularPhrasings = listOf(
-                    "El más próximo es $targetDesc, ubicado en $streetOnly, a unos $distText ($minsText a pie). ¿Le gustaría que le guíe paso a paso?",
-                    "Tiene muy cerca $targetDesc en $streetOnly, a unos $distText caminando $cardinal. ¿Desea que le vaya indicando el camino?",
-                    "A unos $distText $cardinal, por $streetOnly, encuentra $targetDesc. ¿Le gustaría que le ayude a llegar?",
-                    "El establecimiento más cercano a su ubicación es $targetDesc, en $streetOnly a unas $blocksText. ¿Le gustaría que le oriente para ir?"
+                    "El más próximo es $targetDesc, ubicado en $streetOnly, a unos $distText ($minsText a pie). Según apunta su celular, le queda $relative. ¿Le gustaría que le guíe paso a paso?",
+                    "Tiene muy cerca $targetDesc en $streetOnly, a unos $distText caminando ($relative). ¿Desea que le vaya indicando el camino?",
+                    "A unos $distText ($relative) por $streetOnly, encuentra $targetDesc. ¿Le gustaría que le ayude a llegar?",
+                    "El establecimiento más cercano a su ubicación es $targetDesc, en $streetOnly a unas $blocksText ($relative). ¿Le gustaría que le oriente para ir?"
                 )
                 singularPhrasings.random()
             } else {
