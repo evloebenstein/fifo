@@ -60,7 +60,7 @@ object FifoApiClient {
     /**
      * Sincroniza todos los datos locales con el backend Docker.
      */
-    suspend fun syncAll(context: Context, userId: String = "usr_lucia_01"): Boolean = withContext(Dispatchers.IO) {
+    suspend fun syncAll(context: Context, userId: String): Boolean = withContext(Dispatchers.IO) {
         if (!isServerReachable()) {
             Log.i(TAG, "Backend no disponible, omitiendo sincronización de red")
             return@withContext false

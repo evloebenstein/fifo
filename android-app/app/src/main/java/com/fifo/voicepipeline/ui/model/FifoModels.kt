@@ -42,8 +42,9 @@ data class FifoMemoryItem(
  */
 data class UserSocialPost(
     val id: String,
-    val author: String = "Lucía",
-    val age: Int = 68,
+    val author: String = "",
+    val username: String = "",
+    val age: Int = 0,
     val category: String,
     val timeAgo: String,
     val content: String,
@@ -70,17 +71,18 @@ data class FifoTasteStory(
  * Datos del perfil del usuario gestionados por Fifo y sincronizados con la Base de Datos
  */
 data class UserProfileData(
-    val id: String = "usr_01",
-    val fullName: String = "Lucía González",
-    val birthDate: String = "14 de Mayo, 1958",
-    val birthYear: Int = 1958,
-    val estimatedAge: Int = 68,
-    val genderIdentity: String = "Mujer",
-    val city: String = "Santiago, Chile",
-    val bioAi: String = "Amante de las novelas de historia, la música clásica de piano y las mañanas tranquilas con café. Disfruta compartir con Fifo anécdotas de su familia, preparar recetas caseras y cuidar las orquídeas de su jardín.",
-    val emergencyContactName: String = "Carmen (Hija)",
-    val emergencyContactPhone: String = "+56987654321",
-    val preferredAddress: String = "Av. Providencia 1234, Providencia, Santiago",
+    val id: String = "",
+    val fullName: String = "",
+    val username: String = "",
+    val birthDate: String = "",
+    val birthYear: Int = 0,
+    val estimatedAge: Int = 0,
+    val genderIdentity: String = "",
+    val city: String = "",
+    val bioAi: String = "",
+    val emergencyContactName: String = "",
+    val emergencyContactPhone: String = "",
+    val preferredAddress: String = "",
     val interestTags: List<String> = emptyList()
 )
 

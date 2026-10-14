@@ -45,12 +45,22 @@ Asistente robótico interactivo de compañía para adultos mayores con **conexi�
   - **Gestión Integral de Recordatorios:** Programar (`set`), marcar como completado (`complete`), descartar (`delete`) y listar pendientes (`list`).
   - **Historias de Gustos en Detalle (`add_taste_story`):** Registro por voz de pasatiempos con fragmento corto/subtítulo para la memoria viva y descripción profunda para el perfil.
   - **Recuerdos Importantes Instantáneos (`add_memory`):** Guarda notas y afectos en la sección de recuerdos sin tocar la pantalla.
-- **Inicio de Sesión con Google & Creación Dinámica de Perfiles en Base de Datos:**
-  - **Google Sign-In "Un Toque":** Acceso sin fricciones para personas de la tercera edad sin necesidad de recordar contraseñas complejas. Creación instantánea de cuenta en MySQL con biografía y gustos iniciales aprovisionados por IA.
-  - **Selector y Conmutación de Perfiles en Vivo:** Permite alternar entre diferentes usuarios registrados en la base de datos desde la pantalla de login con un toque, sincronizando automáticamente su memoria viva, gustos e historial.
-  - **Creación Flexible de Cuentas:** Registro asistido por voz y formulario guiado (`POST /users`), integrando inmediatamente a la persona a la red Fifo Amigos.
+- **Inicio de Sesión con Google Nativo (Zero Fricción & Cero Dictado):**
+  - **Cero Dictado de Correos:** Diseñado específicamente para adultos mayores. Elimina la frustración de tener que dictar por voz o escribir en pantalla correos complejos como *"lucia punto gonzalez arroba..."*.
+  - **Integración con Servicios de Google:** Con un solo toque en "Registrarme rápido con Google", la app invoca directamente a los Servicios de Google (`GoogleSignInClient` / Google Play Services) o al `AccountManager` nativo de Android.
+  - **Diálogo del Sistema Nativo:** Se despliega la ventana flotante nativa de Google (*"Choose an account to continue to Fifo"*), donde el usuario solo toca su cuenta ya guardada en el teléfono (`nombre@gmail.com`).
+  - **Aprovisionamiento Automático:** Al seleccionar la cuenta, se extrae el nombre y correo del token de Google y se crea/sincroniza automáticamente el perfil en la base de datos MySQL/SQLite con biografía y gustos iniciales generados por IA.
+  - **Selector y Conmutación de Perfiles en Vivo:** Permite alternar entre diferentes usuarios registrados desde la pantalla de login con un toque.
+- **Optimización de Cuota LPU en Groq (Cero Rate Limits 429):**
+  - **Presupuesto Estricto de Tokens (<1,800 tokens):** Esquema de Function Calling ultracomprimido (reducido de 2,894 a 1,070 tokens) y prompt del sistema minimalista (<180 tokens).
+  - **Memoria Conversacional Rodante:** Mantiene el contexto de los últimos turnos sin inflar el historial, permitiendo diálogos fluidos como *"busca farmacias"* seguido de *"llévame allá"* con latencia de inferencia de apenas **~618 ms**.
+- **Herramientas de Bienestar y Utilidades Probadas:**
+  - **"Baja el ritmo" (Respiración Guiada):** Modal interactivo con ciclo 4-4-4 para relajación y manejo de ansiedad en personas mayores.
+  - **"¿Dónde está mi Fifo?" (Localizador del Robot):** Detección por proximidad Bluetooth LE, pista de habitación del hogar y botón para abrir ubicación exacta en Google Maps.
+  - **"Actividades y Talleres":** Cartelera de actividades recreativas comunitarias (Club de lectura, caminatas, música clásica).
+  - **"Fifo Amigos" & "Perfil Dinámico":** Red social de intereses compartidos, cuentos y biografía viva sintetizada con IA.
 - **Interfaz Móvil Accesible (Jetpack Compose):**
-  - Diseñada especialmente para adultos mayores con alto contraste, tipografía grande, retroalimentación táctil, botón de silencio con protección visual, localizador GPS/sonoro para encontrar el robot extraviado y comunidad *Fifo Amigos*.
+  - Diseñada para adultos mayores con alto contraste, tipografía grande, retroalimentación táctil, botón de silencio con protección visual y navegación fluida por pestañas.
 
 ---
 

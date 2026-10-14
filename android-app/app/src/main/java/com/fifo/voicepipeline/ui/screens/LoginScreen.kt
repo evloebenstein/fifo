@@ -23,11 +23,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import android.widget.Toast
 import com.fifo.voicepipeline.data.FifoDataRepository
 import com.fifo.voicepipeline.network.FifoBackendClient
 import com.fifo.voicepipeline.ui.components.FifoFace
 import com.fifo.voicepipeline.ui.components.GoogleSignInButton
-import com.fifo.voicepipeline.ui.components.GoogleSignInDialog
+import com.fifo.voicepipeline.ui.components.rememberGoogleSignInLauncher
 import com.fifo.voicepipeline.ui.theme.FifoColors
 import kotlinx.coroutines.launch
 
@@ -39,11 +40,28 @@ fun LoginScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var identifier by remember { mutableStateOf("Lucía") }
+    var identifier by remember { mutableStateOf("") }
     var availableUsers by remember { mutableStateOf<List<FifoBackendClient.UserProfileSummary>>(emptyList()) }
-    var showGoogleDialog by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val launchNativeGoogleSignIn = rememberGoogleSignInLauncher(
+        onSuccess = { gUser ->
+            scope.launch {
+                FifoDataRepository.loginWithGoogle(
+                    context = context,
+                    googleId = gUser.googleId,
+                    email = gUser.email,
+                    fullName = gUser.fullName,
+                    avatarUrl = gUser.photoUrl
+                )
+                onLoginSuccess(gUser.fullName)
+            }
+        },
+        onError = { err ->
+            Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+        }
+    )
 
     // Cargar los perfiles existentes en la base de datos MySQL para acceso rápido sin teclear
     LaunchedEffect(Unit) {
@@ -114,7 +132,7 @@ fun LoginScreen(
 
             // ── Botón Principal de Google Sign-In ───
             GoogleSignInButton(
-                onClick = { showGoogleDialog = true },
+                onClick = launchNativeGoogleSignIn,
                 text = "Continuar con Google"
             )
 
@@ -225,7 +243,7 @@ fun LoginScreen(
                 OutlinedTextField(
                     value = identifier,
                     onValueChange = { identifier = it },
-                    placeholder = { Text("Ej. Lucía, Diego o tu correo", color = Color(0xFF64748B)) },
+                    placeholder = { Text("Ej. Tu nombre, @ID o correo", color = Color(0xFF64748B)) },
                     shape = RoundedCornerShape(16.dp),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = FifoColors.DarkInputBg,
@@ -272,9 +290,14 @@ fun LoginScreen(
                         if (ok) {
                             onLoginSuccess(identifier.trim())
                         } else {
-                            // Si no se encuentra en MySQL, cambiar perfil localmente para no bloquear al usuario
-                            FifoDataRepository.switchUserProfile(context, "usr_lucia_01")
-                            onLoginSuccess(identifier.trim().ifEmpty { "Lucía" })
+                            // Si no se encuentra en backend ni localmente, crear o activar sesión con este nombre
+                            val newId = FifoDataRepository.createProfileAndStart(
+                                context = context,
+                                fullName = identifier.trim(),
+                                username = identifier.trim().removePrefix("@").lowercase().replace(" ", "_"),
+                                email = if (identifier.contains("@")) identifier.trim() else null
+                            )
+                            onLoginSuccess(identifier.trim())
                         }
                     }
                 },
@@ -328,15 +351,5 @@ fun LoginScreen(
                 color = Color(0xFF64748B)
             )
         }
-    }
-
-    if (showGoogleDialog) {
-        GoogleSignInDialog(
-            onDismiss = { showGoogleDialog = false },
-            onSignInSuccess = { name ->
-                showGoogleDialog = false
-                onLoginSuccess(name)
-            }
-        )
     }
 }

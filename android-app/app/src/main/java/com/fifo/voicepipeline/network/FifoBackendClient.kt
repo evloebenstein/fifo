@@ -100,7 +100,7 @@ object FifoBackendClient {
         }
     }
 
-    suspend fun fetchUserBundle(userId: String = "usr_lucia_01"): SyncedUserBundle? = withContext(Dispatchers.IO) {
+    suspend fun fetchUserBundle(userId: String): SyncedUserBundle? = withContext(Dispatchers.IO) {
         try {
             val req = Request.Builder()
                 .url("$baseUrl/users/$userId/sync")
@@ -117,12 +117,12 @@ object FifoBackendClient {
                 val interestTags = (0 until interestTagsArr.length()).map { interestTagsArr.getString(it) }
                 val profile = UserProfileData(
                     id = pObj.optString("id", userId),
-                    fullName = pObj.optString("fullName", "Lucía González"),
-                    birthDate = pObj.optString("birthDate", "14 de Mayo, 1958"),
-                    birthYear = pObj.optInt("birthYear", 1958),
-                    estimatedAge = pObj.optInt("estimatedAge", 68),
-                    genderIdentity = pObj.optString("genderIdentity", "Mujer"),
-                    city = pObj.optString("city", "Santiago, Chile"),
+                    fullName = pObj.optString("fullName", ""),
+                    birthDate = pObj.optString("birthDate", ""),
+                    birthYear = pObj.optInt("birthYear", 0),
+                    estimatedAge = pObj.optInt("estimatedAge", 0),
+                    genderIdentity = pObj.optString("genderIdentity", ""),
+                    city = pObj.optString("city", ""),
                     bioAi = pObj.optString("bioAi", ""),
                     emergencyContactName = pObj.optString("emergencyContactName", ""),
                     emergencyContactPhone = pObj.optString("emergencyContactPhone", ""),
@@ -393,8 +393,8 @@ object FifoBackendClient {
             val p = arr.getJSONObject(idx)
             UserSocialPost(
                 id = p.optString("id"),
-                author = p.optString("author", "Lucía"),
-                age = p.optInt("age", 68),
+                author = p.optString("author", ""),
+                age = p.optInt("age", 0),
                 category = p.optString("category", "Bienestar"),
                 timeAgo = p.optString("timeAgo", "Hoy"),
                 content = p.optString("content", ""),

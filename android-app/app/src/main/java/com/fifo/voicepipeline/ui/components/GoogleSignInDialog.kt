@@ -1,5 +1,10 @@
 package com.fifo.voicepipeline.ui.components
 
+import android.app.Activity
+import android.util.Log
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,85 +26,154 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.fifo.voicepipeline.R
 import com.fifo.voicepipeline.data.FifoDataRepository
 import com.fifo.voicepipeline.ui.theme.FifoColors
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
 import kotlinx.coroutines.launch
 
 /**
- * Ícono vectorial oficial dibujado de la 'G' de Google con sus 4 colores distintivos.
+ * Datos del usuario extraídos directamente de su cuenta oficial de Google.
+ */
+data class GoogleUserData(
+    val googleId: String,
+    val email: String,
+    val fullName: String,
+    val photoUrl: String? = null
+)
+
+/**
+ * Hook composable para lanzar el flujo nativo oficial de Google Sign-In
+ * de Google Play Services sin pedirle al usuario que escriba ni dicte su correo.
  */
 @Composable
-fun GoogleIcon(modifier: Modifier = Modifier.size(24.dp)) {
-    Box(
-        modifier = modifier
-            .background(Color.White, CircleShape),
-        contentAlignment = Alignment.Center
-    ) {
-        Canvas(modifier = Modifier.size(20.dp)) {
-            val w = size.width
-            val h = size.height
-            val center = Offset(w / 2f, h / 2f)
+fun rememberGoogleSignInLauncher(
+    onSuccess: (GoogleUserData) -> Unit,
+    onError: (String) -> Unit = {}
+): () -> Unit {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
 
-            // Fondo circular sutil con bordes de cuadrante simulando el logo G
-            drawCircle(color = Color(0xFF4285F4), radius = w / 2f, center = center)
-            drawCircle(color = Color.White, radius = w * 0.35f, center = center)
-            drawRect(
-                color = Color.White,
-                topLeft = Offset(center.x, 0f),
-                size = androidx.compose.ui.geometry.Size(w / 2f, h * 0.6f)
-            )
-            // Barra horizontal de la G
-            drawRect(
-                color = Color(0xFF4285F4),
-                topLeft = Offset(center.x * 0.7f, center.y - (h * 0.12f)),
-                size = androidx.compose.ui.geometry.Size(w * 0.45f, h * 0.24f)
-            )
-            // Sector rojo superior
-            drawArc(
-                color = Color(0xFFEA4335),
-                startAngle = 210f,
-                sweepAngle = 110f,
-                useCenter = true,
-                topLeft = Offset(0f, 0f),
-                size = size
-            )
-            // Sector amarillo izquierdo
-            drawArc(
-                color = Color(0xFFFBBC05),
-                startAngle = 135f,
-                sweepAngle = 75f,
-                useCenter = true,
-                topLeft = Offset(0f, 0f),
-                size = size
-            )
-            // Sector verde inferior
-            drawArc(
-                color = Color(0xFF34A853),
-                startAngle = 45f,
-                sweepAngle = 90f,
-                useCenter = true,
-                topLeft = Offset(0f, 0f),
-                size = size
-            )
-            // Centro blanco de corte
-            drawCircle(color = Color.White, radius = w * 0.32f, center = center)
-            // Re-dibujar barra de la G
-            drawRect(
-                color = Color(0xFF4285F4),
-                topLeft = Offset(center.x * 0.65f, center.y - (h * 0.1f)),
-                size = androidx.compose.ui.geometry.Size(w * 0.45f, h * 0.2f)
-            )
+    // Launcher secundario de selector oficial de cuentas del sistema Android (sin requerir SHA-1 de GCP registrado)
+    val systemAccountPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val chosenEmail = result.data?.getStringExtra(android.accounts.AccountManager.KEY_ACCOUNT_NAME)
+        if (!chosenEmail.isNullOrBlank()) {
+            val name = chosenEmail.substringBefore("@")
+                .split(".", "_", "-")
+                .filter { it.isNotBlank() }
+                .joinToString(" ") { it.replaceFirstChar { char -> if (char.isLowerCase()) char.titlecase() else char.toString() } }
+            val googleId = "goog_" + chosenEmail.filter { it.isLetterOrDigit() }.lowercase().take(12)
+            Log.i("GoogleSignIn", "Cuenta de Google seleccionada vía AccountPicker del sistema: $name ($chosenEmail)")
+            onSuccess(GoogleUserData(googleId = googleId, email = chosenEmail, fullName = name, photoUrl = null))
+        }
+    }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data
+        if (data == null) {
+            Log.d("GoogleSignIn", "Resultado vacío de Google Sign-In")
+            return@rememberLauncherForActivityResult
+        }
+
+        val task = GoogleSignIn.getSignedInAccountFromIntent(data)
+        try {
+            val account = task.getResult(ApiException::class.java)
+            val email = account?.email ?: ""
+            val extractedName: String? = account?.displayName?.ifBlank { null }
+                ?: listOfNotNull(account?.givenName, account?.familyName).joinToString(" ").ifBlank { null }
+                ?: if (email.isNotEmpty()) {
+                    email.substringBefore("@")
+                        .split(".", "_", "-")
+                        .filter { it.isNotBlank() && it.length > 1 }
+                        .joinToString(" ") { it.replaceFirstChar { char -> if (char.isLowerCase()) char.titlecase() else char.toString() } }
+                        .ifBlank { null }
+                } else null
+            val name: String = extractedName ?: ""
+            val photoUrl = account?.photoUrl?.toString()
+            val googleId = account?.id ?: ("goog_" + email.filter { it.isLetterOrDigit() }.lowercase().take(12))
+
+            Log.i("GoogleSignIn", "Cuenta de Google autenticada exitosamente: $name ($email)")
+            onSuccess(GoogleUserData(googleId = googleId, email = email, fullName = name, photoUrl = photoUrl))
+        } catch (e: ApiException) {
+            val errorMsg = when (e.statusCode) {
+                12501 -> "Selección cancelada por el usuario"
+                12500 -> "Error interno de Google Play Services (12500)"
+                7 -> "Sin conexión a internet (código 7)"
+                10 -> "Código 10 (Falta registrar SHA-1 en Google Cloud Console)"
+                else -> "Código de respuesta de Google: ${e.statusCode}"
+            }
+            Log.w("GoogleSignIn", "Google sign-in ApiException: $errorMsg (código ${e.statusCode})")
+            if (e.statusCode == 10 || e.statusCode == 12500 || e.statusCode == 7) {
+                // Si el SHA-1 aún no fue subido o hay error de red en el emulador (código 7),
+                // abrimos el selector nativo del sistema para elegir la cuenta con 1 toque sin bloquear al usuario
+                try {
+                    val chooseIntent = android.accounts.AccountManager.newChooseAccountIntent(
+                        null, null, arrayOf("com.google"), null, null, null, null
+                    )
+                    systemAccountPickerLauncher.launch(chooseIntent)
+                    return@rememberLauncherForActivityResult
+                } catch (fallbackEx: Exception) {
+                    Log.w("GoogleSignIn", "Fallo al abrir AccountManager chooser: ${fallbackEx.message}")
+                }
+            }
+            if (e.statusCode != 12501) {
+                onError(errorMsg)
+            }
+        } catch (e: Exception) {
+            Log.e("GoogleSignIn", "Error procesando cuenta de Google: ${e.message}", e)
+            onError(e.message ?: "Error al autenticar")
+        }
+    }
+
+    return {
+        try {
+            val gso = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestEmail()
+                .requestProfile()
+                .build()
+            val client = GoogleSignIn.getClient(context, gso)
+            launcher.launch(client.signInIntent)
+        } catch (e: Exception) {
+            Log.e("GoogleSignIn", "No se pudo abrir Google Sign-In, intentando selector directo: ${e.message}", e)
+            try {
+                val chooseIntent = android.accounts.AccountManager.newChooseAccountIntent(
+                    null, null, arrayOf("com.google"), null, null, null, null
+                )
+                systemAccountPickerLauncher.launch(chooseIntent)
+            } catch (fallbackEx: Exception) {
+                onError("No se pudo abrir el servicio de Google: ${e.message}")
+            }
         }
     }
 }
 
 /**
- * Botón estándar de Google Sign-In accesible y táctil.
+ * Ícono vectorial oficial de la 'G' de Google (4 colores oficiales: azul, rojo, amarillo, verde).
+ * Renderizado nítido a través del vector drawable estándar de Google Identity.
+ */
+@Composable
+fun GoogleIcon(modifier: Modifier = Modifier.size(22.dp)) {
+    Image(
+        painter = painterResource(id = R.drawable.ic_google_logo),
+        contentDescription = "Google",
+        modifier = modifier
+    )
+}
+
+/**
+ * Botón estándar de Google Sign-In accesible, táctil y de alta fidelidad visual.
  */
 @Composable
 fun GoogleSignInButton(
@@ -111,11 +185,11 @@ fun GoogleSignInButton(
         onClick = onClick,
         shape = RoundedCornerShape(28.dp),
         color = Color.White,
-        border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFCBD5E1)),
-        shadowElevation = 2.dp,
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFDADCE0)),
+        shadowElevation = 1.dp,
         modifier = modifier
             .fillMaxWidth()
-            .height(54.dp)
+            .height(52.dp)
     ) {
         Row(
             modifier = Modifier
@@ -124,13 +198,13 @@ fun GoogleSignInButton(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
-            GoogleIcon(modifier = Modifier.size(24.dp))
+            GoogleIcon(modifier = Modifier.size(22.dp))
             Spacer(modifier = Modifier.width(12.dp))
             Text(
                 text = text,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = Color(0xFF1E293B)
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color(0xFF3C4043)
             )
         }
     }
@@ -149,11 +223,20 @@ fun GoogleSignInDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    var email by remember { mutableStateOf("usuario.familia@gmail.com") }
-    var name by remember { mutableStateOf("Carlos Mendoza") }
-    var age by remember { mutableStateOf("71") }
+    var email by remember { mutableStateOf("") }
+    var name by remember { mutableStateOf("") }
+    var age by remember { mutableStateOf("") }
     var isLoading by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    val launchNative = rememberGoogleSignInLauncher(
+        onSuccess = { u ->
+            onSignInSuccess(u.fullName)
+        },
+        onError = { err ->
+            errorMessage = err
+        }
+    )
 
     Dialog(onDismissRequest = onDismiss) {
         Surface(
@@ -218,7 +301,32 @@ fun GoogleSignInDialog(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(16.dp))
+
+                // Selector oficial de Google del sistema operativo
+                GoogleSignInButton(
+                    onClick = launchNative,
+                    text = "Seleccionar cuenta de Google"
+                )
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
+                    Text(
+                        text = "O INGRESO DIRECTO",
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF94A3B8),
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+                    HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
 
                 // Campo Correo de Google
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -257,7 +365,7 @@ fun GoogleSignInDialog(
                     OutlinedTextField(
                         value = name,
                         onValueChange = { name = it },
-                        placeholder = { Text("Ej. Carlos Mendoza", color = Color(0xFF94A3B8)) },
+                        placeholder = { Text("Ej. Tu nombre", color = Color(0xFF94A3B8)) },
                         singleLine = true,
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(
@@ -282,7 +390,7 @@ fun GoogleSignInDialog(
                     OutlinedTextField(
                         value = age,
                         onValueChange = { age = it },
-                        placeholder = { Text("Ej. 71", color = Color(0xFF94A3B8)) },
+                        placeholder = { Text("Ej. 65", color = Color(0xFF94A3B8)) },
                         singleLine = true,
                         shape = RoundedCornerShape(14.dp),
                         colors = OutlinedTextFieldDefaults.colors(

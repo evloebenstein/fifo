@@ -33,47 +33,41 @@ object FifoDataRepository {
         dbHelper = helper
 
         val prefs = app.getSharedPreferences("fifo_prefs", android.content.Context.MODE_PRIVATE)
-        val activeUserId = prefs.getString("active_user_id", "usr_lucia_01") ?: "usr_lucia_01"
+        val activeUserId = prefs.getString("active_user_id", null)
 
-        try {
-            // Cargar estado inicial inmediatamente desde SQLite (100% offline, cero latencia)
-            _userProfile.value = helper.getUserProfile(activeUserId)
-            val localTastes = helper.getTastes(activeUserId)
-            if (localTastes.isNotEmpty()) _tastes.value = localTastes
-            val localStories = helper.getTasteStories(activeUserId)
-            if (localStories.isNotEmpty()) _tasteStories.value = localStories
-            val localPosts = helper.getSocialPosts()
-            if (localPosts.isNotEmpty()) _socialPosts.value = localPosts
-            val localMemories = helper.getMemories(activeUserId)
-            if (localMemories.isNotEmpty()) _memories.value = localMemories
-            val localReminders = helper.getReminders(activeUserId)
-            if (localReminders.isNotEmpty()) _reminders.value = localReminders
-            val localConvs = helper.getPastConversations(activeUserId)
-            if (localConvs.isNotEmpty()) _conversations.value = localConvs
-            val localFrags = helper.getConversationFragments(activeUserId)
-            if (localFrags.isNotEmpty()) _conversationFragments.value = localFrags
-            val localRelContacts = helper.getRelationalContacts(activeUserId)
-            if (localRelContacts.isNotEmpty()) _relationalContacts.value = localRelContacts
-            val localRoutines = helper.getDailyRoutines(activeUserId)
-            if (localRoutines.isNotEmpty()) _dailyRoutines.value = localRoutines
-            _deviceLocation.value = helper.getDeviceLocation()
-            android.util.Log.i("FifoDataRepository", "Base de datos relacional SQLite cargada con éxito en el dispositivo para $activeUserId")
+        if (activeUserId != null) {
+            try {
+                // Cargar estado inicial inmediatamente desde SQLite (100% offline, cero latencia)
+                val p = helper.getUserProfile(activeUserId)
+                if (p.id.isNotBlank()) _userProfile.value = p
+                _tastes.value = helper.getTastes(activeUserId)
+                _tasteStories.value = helper.getTasteStories(activeUserId)
+                _socialPosts.value = helper.getSocialPosts()
+                _memories.value = helper.getMemories(activeUserId)
+                _reminders.value = helper.getReminders(activeUserId)
+                _conversations.value = helper.getPastConversations(activeUserId)
+                _conversationFragments.value = helper.getConversationFragments(activeUserId)
+                _relationalContacts.value = helper.getRelationalContacts(activeUserId)
+                _dailyRoutines.value = helper.getDailyRoutines(activeUserId)
+                _deviceLocation.value = helper.getDeviceLocation()
+                android.util.Log.i("FifoDataRepository", "Base de datos relacional SQLite cargada con éxito en el dispositivo para $activeUserId")
 
-            // Sincronizar libreta de contactos del teléfono celular en segundo plano si hay permiso
-            if (androidx.core.content.ContextCompat.checkSelfPermission(
-                    context,
-                    android.Manifest.permission.READ_CONTACTS
-                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            ) {
-                repositoryScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                    syncDeviceContactsToRelationalGraph(context)
+                // Sincronizar libreta de contactos del teléfono celular en segundo plano si hay permiso
+                if (androidx.core.content.ContextCompat.checkSelfPermission(
+                        context,
+                        android.Manifest.permission.READ_CONTACTS
+                    ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    repositoryScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                        syncDeviceContactsToRelationalGraph(context)
+                    }
                 }
-            }
 
-            // Sincronizar en segundo plano con el backend Docker / MySQL (database/api)
-            syncFromBackend(activeUserId)
-        } catch (e: Exception) {
-            android.util.Log.e("FifoDataRepository", "Error inicializando base de datos SQLite: ${e.message}")
+                // Sincronizar en segundo plano con el backend Docker / MySQL (database/api)
+                syncFromBackend(activeUserId)
+            } catch (e: Exception) {
+                android.util.Log.e("FifoDataRepository", "Error inicializando base de datos SQLite: ${e.message}")
+            }
         }
     }
 
@@ -129,32 +123,18 @@ object FifoDataRepository {
         if (p.fullName.isNotBlank()) {
             _userProfile.value = p
         } else {
-            _userProfile.value = _userProfile.value.copy(id = newUserId)
+            _userProfile.value = UserProfileData(id = newUserId)
         }
 
-        val localTastes = helper.getTastes(newUserId)
-        if (localTastes.isNotEmpty()) _tastes.value = localTastes
-
-        val localStories = helper.getTasteStories(newUserId)
-        if (localStories.isNotEmpty()) _tasteStories.value = localStories
-
-        val localMemories = helper.getMemories(newUserId)
-        if (localMemories.isNotEmpty()) _memories.value = localMemories
-
-        val localReminders = helper.getReminders(newUserId)
-        if (localReminders.isNotEmpty()) _reminders.value = localReminders
-
-        val localConvs = helper.getPastConversations(newUserId)
-        if (localConvs.isNotEmpty()) _conversations.value = localConvs
-
-        val localFrags = helper.getConversationFragments(newUserId)
-        if (localFrags.isNotEmpty()) _conversationFragments.value = localFrags
-
-        val localRelContacts = helper.getRelationalContacts(newUserId)
-        if (localRelContacts.isNotEmpty()) _relationalContacts.value = localRelContacts
-
-        val localRoutines = helper.getDailyRoutines(newUserId)
-        if (localRoutines.isNotEmpty()) _dailyRoutines.value = localRoutines
+        _tastes.value = helper.getTastes(newUserId)
+        _tasteStories.value = helper.getTasteStories(newUserId)
+        _memories.value = helper.getMemories(newUserId)
+        _reminders.value = helper.getReminders(newUserId)
+        _conversations.value = helper.getPastConversations(newUserId)
+        _conversationFragments.value = helper.getConversationFragments(newUserId)
+        _relationalContacts.value = helper.getRelationalContacts(newUserId)
+        _dailyRoutines.value = helper.getDailyRoutines(newUserId)
+        _socialPosts.value = helper.getSocialPosts()
 
         syncFromBackend(newUserId)
     }
@@ -187,9 +167,11 @@ object FifoDataRepository {
             if (result == null && dbHelper != null) {
                 val ageVal = estimatedAge ?: 70
                 val yearVal = 2026 - ageVal
+                val handleVal = email.substringBefore('@').filter { it.isLetterOrDigit() || it == '_' }.lowercase().ifBlank { "usuario" }
                 val cv = android.content.ContentValues().apply {
                     put("id", effectiveUserId)
                     put("full_name", fullName)
+                    put("username", handleVal)
                     put("email", email)
                     put("birth_date", "Año $yearVal")
                     put("birth_year", yearVal)
@@ -215,11 +197,32 @@ object FifoDataRepository {
     }
 
     /**
+     * Verifica si ya existe un perfil local o remoto para un email o cuenta de Google dada.
+     */
+    fun findUserByEmailOrId(email: String, googleId: String): String? {
+        val helper = dbHelper ?: return null
+        return try {
+            val db = helper.readableDatabase
+            val cursor = db.rawQuery(
+                "SELECT id FROM users WHERE email = ? OR id = ? OR id = ? LIMIT 1",
+                arrayOf(email, googleId, "usr_g_" + googleId.takeLast(6))
+            )
+            cursor.use {
+                if (it.moveToFirst()) it.getString(0) else null
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("FifoDataRepository", "Error buscando usuario por email/googleId: ${e.message}")
+            null
+        }
+    }
+
+    /**
      * Crea un perfil de usuario en el onboarding y lo persiste inmediatamente en MySQL y SQLite.
      */
     suspend fun createProfileAndStart(
         context: android.content.Context,
         fullName: String,
+        username: String? = null,
         birthDate: String? = null,
         birthYear: Int? = null,
         estimatedAge: Int? = null,
@@ -229,6 +232,12 @@ object FifoDataRepository {
         email: String? = null
     ): String? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
         try {
+            val rawHandle = (username?.ifBlank { null } ?: email?.substringBefore('@') ?: fullName)
+                .filter { it.isLetterOrDigit() || it == '_' }
+                .lowercase()
+                .removePrefix("@")
+                .ifBlank { "usuario" }
+
             val result = com.fifo.voicepipeline.network.FifoBackendClient.createUserProfile(
                 fullName = fullName,
                 email = email,
@@ -254,6 +263,7 @@ object FifoDataRepository {
                 val cv = android.content.ContentValues().apply {
                     put("id", newUserId)
                     put("full_name", fullName)
+                    put("username", rawHandle)
                     put("email", email ?: "${newUserId}@fifo.app")
                     put("birth_date", dateVal)
                     put("birth_year", yearVal)
@@ -294,6 +304,14 @@ object FifoDataRepository {
                 switchUserProfile(context, result.userId)
                 return@withContext true
             }
+            // Buscar en SQLite local por email, username, full_name o id
+            val localUserId = dbHelper?.findUserIdByIdentifier(identifier)
+            if (localUserId != null) {
+                val prefs = context.applicationContext.getSharedPreferences("fifo_prefs", android.content.Context.MODE_PRIVATE)
+                prefs.edit().putString("active_user_id", localUserId).putBoolean("has_completed_setup", true).apply()
+                switchUserProfile(context, localUserId)
+                return@withContext true
+            }
             false
         } catch (e: Exception) {
             android.util.Log.e("FifoDataRepository", "Error en loginWithIdentifier: ${e.message}")
@@ -302,337 +320,39 @@ object FifoDataRepository {
     }
 
     // ── 1. Perfil del Usuario ──────────────────────────────────
-    private val _userProfile = MutableStateFlow(
-        UserProfileData(
-            id = "usr_lucia_01",
-            fullName = "Lucía González",
-            birthDate = "14 de Mayo, 1958",
-            birthYear = 1958,
-            estimatedAge = 68,
-            genderIdentity = "Mujer",
-            city = "Santiago, Chile",
-            bioAi = "Amante de las novelas de historia, la música clásica de piano y las mañanas tranquilas con café. Disfruta compartir con Fifo anécdotas de su familia, preparar recetas caseras y cuidar las orquídeas de su jardín.",
-            emergencyContactName = "Carmen (Hija)",
-            emergencyContactPhone = "+56987654321"
-        )
-    )
+    private val _userProfile = MutableStateFlow(UserProfileData())
     val userProfile: StateFlow<UserProfileData> = _userProfile.asStateFlow()
 
     // ── 2. Gustos e Intereses ──────────────────────────────────
-    private val _tastes = MutableStateFlow(
-        listOf(
-            "Lectura histórica",
-            "Música clásica",
-            "Paseos en el parque",
-            "Jardinería",
-            "Cocina tradicional"
-        )
-    )
+    private val _tastes = MutableStateFlow<List<String>>(emptyList())
     val tastes: StateFlow<List<String>> = _tastes.asStateFlow()
 
     // ── 3. Historias y Artículos de Blog ("Gustos en detalle") ──
-    private val _tasteStories = MutableStateFlow(
-        listOf(
-            FifoTasteStory(
-                id = "t_bday",
-                title = "Cumpleaños y orígenes familiares",
-                subtitle = "Nacida el 14 de Mayo de 1958 en Santiago",
-                description = "Lucía nació en una fresca mañana de otoño en 1958 en el barrio tradicional de Santiago. Siempre recuerda cómo en su familia celebraban con torta de milhojas casera y música de fondo. Para Fifo es un honor acompañarla y tener siempre presente su día especial.",
-                tags = listOf("Cumpleaños", "Familia", "Santiago"),
-                iconCategory = "celebration",
-                learnedFrom = "Charla inicial y configuración de perfil con Fifo"
-            ),
-            FifoTasteStory(
-                id = "t_gardening",
-                title = "Cuidado y amor por las orquídeas",
-                subtitle = "Riego por inmersión y luz filtrada de mañana",
-                description = "En sus charlas con Fifo, Lucía contó que tiene 4 maceteros en su balcón. Disfruta regarlas los miércoles y limpiar con cuidado sus hojas verdes con un paño húmedo mientras escucha la radio.",
-                tags = listOf("Jardinería", "Plantas", "Paciencia"),
-                iconCategory = "nature",
-                learnedFrom = "Charla matutina del 2 de Octubre"
-            ),
-            FifoTasteStory(
-                id = "t_music",
-                title = "Conciertos de piano y música clásica",
-                subtitle = "Chopin y las tardes tranquilas de otoño",
-                description = "La música clásica le transmite una paz inmensa. Cuando le pide a Fifo acompañarla a descansar, las melodías de piano de la época romántica son sus predilectas para recordar su juventud.",
-                tags = listOf("Música", "Relajo", "Piano"),
-                iconCategory = "music",
-                learnedFrom = "Conversación sobre melodías relajantes"
-            ),
-            FifoTasteStory(
-                id = "t_food",
-                title = "Recetas tradicionales de la abuela",
-                subtitle = "Cazuela de ave y pan amasado con pebre",
-                description = "Un gusto que Fifo descubrió con alegría: Lucía atesora un recetario escrito a mano con más de 40 años de antigüedad. Cocinar despacio y con ingredientes frescos es su forma de dar cariño.",
-                tags = listOf("Cocina", "Recetas", "Tradición"),
-                iconCategory = "restaurant",
-                learnedFrom = "Charla de mediodía sobre el almuerzo"
-            ),
-            FifoTasteStory(
-                id = "t_books",
-                title = "Novelas históricas y biografías",
-                subtitle = "Lecturas pausadas con té de manzanilla",
-                description = "Le fascina la historia de Chile y las memorias del siglo XX. Le gusta comentarle a Fifo capítulos interesantes de libros que lee en su sillón favorito cerca de la ventana.",
-                tags = listOf("Lectura", "Historia", "Tranquilidad"),
-                iconCategory = "book",
-                learnedFrom = "Charla nocturna de bienestar"
-            ),
-            FifoTasteStory(
-                id = "t_park",
-                title = "Caminatas respirando aire puro",
-                subtitle = "Paseos de 20 minutos por plazas con sombra",
-                description = "El hábito saludable que Fifo más motiva: salir por las mañanas a caminar a paso tranquilo, sintiendo el aire fresco y saludando a los vecinos del barrio.",
-                tags = listOf("Salud", "Paseos", "Bienestar"),
-                iconCategory = "walk",
-                learnedFrom = "Plan de envejecimiento activo de Fifo"
-            )
-        )
-    )
+    private val _tasteStories = MutableStateFlow<List<FifoTasteStory>>(emptyList())
     val tasteStories: StateFlow<List<FifoTasteStory>> = _tasteStories.asStateFlow()
 
-    // ── 4. Publicaciones Sociales de Lucía ("Fifo Amigos") ────
-    private val _socialPosts = MutableStateFlow(
-        listOf(
-            UserSocialPost(
-                id = "post_1",
-                author = "Lucía",
-                age = 68,
-                category = "Jardinería",
-                timeAgo = "Hoy, 10:30",
-                content = "¡Qué felicidad! Hoy abrió la primera flor de mi orquídea blanca. Fifo me recordó regarla ayer por la tarde y valió toda la pena la paciencia.",
-                likes = 14,
-                commentsCount = 4,
-                accentColorHex = 0xFF10B981
-            ),
-            UserSocialPost(
-                id = "post_2",
-                author = "Lucía",
-                age = 68,
-                category = "Música",
-                timeAgo = "Ayer",
-                content = "Escuchando los nocturnos de Chopin mientras me tomo un té tibio. Qué lindo es encontrar momentos de calma en la tarde.",
-                likes = 19,
-                commentsCount = 6,
-                accentColorHex = 0xFF8B5CF6
-            ),
-            UserSocialPost(
-                id = "post_3",
-                author = "Lucía",
-                age = 68,
-                category = "Cocina",
-                timeAgo = "Hace 3 días",
-                content = "Preparé una sopita casera con zapallo camote y cilantro fresco de la feria. Quedó deliciosa para este día fresco.",
-                likes = 23,
-                commentsCount = 8,
-                accentColorHex = 0xFFF59E0B
-            )
-        )
-    )
+    // ── 4. Publicaciones Sociales ("Fifo Amigos") ────
+    private val _socialPosts = MutableStateFlow<List<UserSocialPost>>(emptyList())
     val socialPosts: StateFlow<List<UserSocialPost>> = _socialPosts.asStateFlow()
 
     // ── 5. Recuerdos de Conversaciones ─────────────────────────
-    private val _memories = MutableStateFlow(
-        listOf(
-            FifoMemoryItem(
-                id = "m1",
-                emoji = "🌺",
-                title = "Flor favorita: Orquídeas blancas",
-                detail = "Le recuerdan el patio iluminado de su infancia en el sur.",
-                learnedDate = "Aprendido hace 2 días"
-            ),
-            FifoMemoryItem(
-                id = "m2",
-                emoji = "☕",
-                title = "Costumbre de café suave a las 11:00",
-                detail = "Siempre con poca azúcar y una galleta de avena.",
-                learnedDate = "Aprendido ayer"
-            ),
-            FifoMemoryItem(
-                id = "m3",
-                emoji = "📻",
-                title = "Radio Beethoven por las tardes",
-                detail = "Le acompaña a descansar mientras teje o lee.",
-                learnedDate = "Aprendido hoy"
-            )
-        )
-    )
+    private val _memories = MutableStateFlow<List<FifoMemoryItem>>(emptyList())
     val memories: StateFlow<List<FifoMemoryItem>> = _memories.asStateFlow()
 
     // ── 6. Recordatorios y Alarmas del Sistema ──────────────────
-    private val _reminders = MutableStateFlow(
-        listOf(
-            FifoReminderItem(
-                id = "rem_1",
-                title = "Tomar pastilla de la presión (Enalapril)",
-                timeStr = "20:00",
-                category = "medication",
-                isCompleted = false
-            ),
-            FifoReminderItem(
-                id = "rem_2",
-                title = "Llamar a Carmen (Hija)",
-                timeStr = "17:30",
-                category = "family",
-                isCompleted = false
-            ),
-            FifoReminderItem(
-                id = "rem_3",
-                title = "Paseo de 15 minutos por la plaza",
-                timeStr = "11:00",
-                category = "health",
-                isCompleted = true
-            )
-        )
-    )
+    private val _reminders = MutableStateFlow<List<FifoReminderItem>>(emptyList())
     val reminders: StateFlow<List<FifoReminderItem>> = _reminders.asStateFlow()
 
     // ── 7. Conversaciones Pasadas ───────────────────────────────
-    private val _conversations = MutableStateFlow(
-        listOf(
-            PastConversationItem(
-                id = "c1",
-                title = "Charla sobre orquídeas y flores",
-                date = "Hoy",
-                duration = "4 min",
-                summary = "Lucía le contó a Fifo cómo cuida sus plantas en maceteros de greda y lo feliz que le hace verlas florecer.",
-                tag = "Jardinería",
-                iconName = "heart"
-            ),
-            PastConversationItem(
-                id = "c2",
-                title = "Planes de fin de semana y música",
-                date = "Ayer",
-                duration = "6 min",
-                summary = "Conversaron sobre conciertos de piano clásico y la visita que le hará su nieto este domingo.",
-                tag = "Música",
-                iconName = "music"
-            ),
-            PastConversationItem(
-                id = "c3",
-                title = "Recetas de cocina tradicional",
-                date = "Hace 3 días",
-                duration = "5 min",
-                summary = "Fifo aprendió sobre la cazuela de ave casera y el secreto de dorar la cebolla con comino suave.",
-                tag = "Cocina",
-                iconName = "restaurant"
-            )
-        )
-    )
+    private val _conversations = MutableStateFlow<List<PastConversationItem>>(emptyList())
     val conversations: StateFlow<List<PastConversationItem>> = _conversations.asStateFlow()
 
     // ── 8. Grafo Relacional de Contactos Cercanos ───────────────
-    private val _relationalContacts = MutableStateFlow(
-        listOf(
-            RelationalContact(
-                id = "c_carmen",
-                contactName = "Carmen González",
-                phoneNumber = "+56987654321",
-                relationshipRole = "Hija mayor",
-                closenessScore = 0.98f,
-                trustTier = 1,
-                emotionalValence = "afectuoso_protector",
-                lastMentionedAt = "Hoy",
-                mentionCount = 14,
-                contextualMemory = "Hija mayor de Lucía. Hablan por teléfono casi todas las tardes a las 17:30. Es el contacto principal de emergencia y apoyo.",
-                alias = "hija"
-            ),
-            RelationalContact(
-                id = "c_dr_munoz",
-                contactName = "Dr. Roberto Muñoz",
-                phoneNumber = "+56912345678",
-                relationshipRole = "Cardiólogo de cabecera",
-                closenessScore = 0.85f,
-                trustTier = 2,
-                emotionalValence = "respeto_salud",
-                lastMentionedAt = "Ayer",
-                mentionCount = 6,
-                contextualMemory = "Médico cardiólogo en el Hospital Salvador. Controla la presión arterial y receta Enalapril 10mg cada noche.",
-                alias = "doctor"
-            ),
-            RelationalContact(
-                id = "c_rosa",
-                contactName = "Rosa Martínez",
-                phoneNumber = "+56923456789",
-                relationshipRole = "Amiga íntima y vecina",
-                closenessScore = 0.82f,
-                trustTier = 3,
-                emotionalValence = "afectuoso_companerismo",
-                lastMentionedAt = "Hace 3 días",
-                mentionCount = 8,
-                contextualMemory = "Vecina de toda la vida y amiga de tejido. Se juntan en las tardes a tomar té y compartir esquejes de plantas.",
-                alias = "amiga"
-            ),
-            RelationalContact(
-                id = "c_tomas",
-                contactName = "Tomás",
-                phoneNumber = "+56934567890",
-                relationshipRole = "Nieto estudiante",
-                closenessScore = 0.90f,
-                trustTier = 1,
-                emotionalValence = "gran_afecto",
-                lastMentionedAt = "Hace 2 días",
-                mentionCount = 9,
-                contextualMemory = "Nieto favorito de Lucía, estudiante de universidad. La visita los domingos y Lucía le enseña a escuchar piano.",
-                alias = "nieto"
-            )
-        )
-    )
+    private val _relationalContacts = MutableStateFlow<List<RelationalContact>>(emptyList())
     val relationalContacts: StateFlow<List<RelationalContact>> = _relationalContacts.asStateFlow()
 
     // ── 9. Rutinas Diarias y Patrones de Actividad ───────────────
-    private val _dailyRoutines = MutableStateFlow(
-        listOf(
-            DailyRoutine(
-                id = "r_medication_night",
-                routineName = "Pastilla de la presión (Enalapril)",
-                timeAnchor = "night",
-                typicalTimeStr = "20:00",
-                frequencyRule = "daily",
-                confidenceScore = 0.99f,
-                category = "medication",
-                notes = "Toma de medicamento antihipertensivo Enalapril 10mg con un vaso de agua antes de cenar.",
-                isActive = true,
-                reminderAssociated = true
-            ),
-            DailyRoutine(
-                id = "r_orchids_morning",
-                routineName = "Cuidado de orquídeas en el balcón",
-                timeAnchor = "morning",
-                typicalTimeStr = "09:30",
-                frequencyRule = "miercoles",
-                confidenceScore = 0.88f,
-                category = "hobby",
-                notes = "Riego por inmersión de sus 4 maceteros de orquídeas y limpieza de hojas con paño suave escuchando radio.",
-                isActive = true,
-                reminderAssociated = false
-            ),
-            DailyRoutine(
-                id = "r_morning_walk",
-                routineName = "Caminata matutina por la plaza",
-                timeAnchor = "morning",
-                typicalTimeStr = "11:00",
-                frequencyRule = "daily",
-                confidenceScore = 0.92f,
-                category = "exercise",
-                notes = "Paseo a paso suave de 15 a 20 minutos por la plaza con sombra para respirar aire fresco.",
-                isActive = true,
-                reminderAssociated = true
-            ),
-            DailyRoutine(
-                id = "r_daughter_call",
-                routineName = "Llamada diaria con Carmen",
-                timeAnchor = "evening",
-                typicalTimeStr = "17:30",
-                frequencyRule = "daily",
-                confidenceScore = 0.95f,
-                category = "social",
-                notes = "Llamada telefónica habitual con su hija mayor Carmen para saber cómo estuvo su jornada.",
-                isActive = true,
-                reminderAssociated = true
-            )
-        )
-    )
+    private val _dailyRoutines = MutableStateFlow<List<DailyRoutine>>(emptyList())
     val dailyRoutines: StateFlow<List<DailyRoutine>> = _dailyRoutines.asStateFlow()
 
     // ══════════════════════════════════════════════════════════
@@ -644,6 +364,7 @@ object FifoDataRepository {
      */
     fun updateDemographics(
         fullName: String? = null,
+        username: String? = null,
         birthDate: String? = null,
         birthYear: Int? = null,
         gender: String? = null,
@@ -652,9 +373,11 @@ object FifoDataRepository {
         val current = _userProfile.value
         val newYear = birthYear ?: current.birthYear
         val newAge = if (birthYear != null) (2026 - birthYear) else current.estimatedAge
+        val cleanUsername = username?.trim()?.removePrefix("@")?.filter { it.isLetterOrDigit() || it == '_' }?.lowercase()
 
         val updated = current.copy(
             fullName = fullName?.trim()?.ifBlank { current.fullName } ?: current.fullName,
+            username = cleanUsername?.ifBlank { current.username } ?: current.username,
             birthDate = birthDate?.trim()?.ifBlank { current.birthDate } ?: current.birthDate,
             birthYear = newYear,
             estimatedAge = newAge,
@@ -667,6 +390,7 @@ object FifoDataRepository {
         dbHelper?.updateDemographics(
             userId = current.id,
             fullName = fullName,
+            username = cleanUsername,
             birthDate = birthDate,
             birthYear = newYear,
             estimatedAge = newAge,
@@ -724,7 +448,7 @@ object FifoDataRepository {
         val current = _tastes.value
         if (!current.any { it.equals(clean, ignoreCase = true) }) {
             _tastes.value = current + clean
-            dbHelper?.addTaste(name = clean)
+            dbHelper?.addTaste(_userProfile.value.id, clean)
             repositoryScope.launch {
                 com.fifo.voicepipeline.network.FifoBackendClient.postTaste(_userProfile.value.id, "add", clean)
             }
@@ -742,7 +466,7 @@ object FifoDataRepository {
         val filtered = current.filterNot { it.equals(clean, ignoreCase = true) }
         if (filtered.size != current.size) {
             _tastes.value = filtered
-            dbHelper?.removeTaste(name = clean)
+            dbHelper?.removeTaste(_userProfile.value.id, clean)
             repositoryScope.launch {
                 com.fifo.voicepipeline.network.FifoBackendClient.postTaste(_userProfile.value.id, "remove", clean)
             }
@@ -756,7 +480,7 @@ object FifoDataRepository {
      */
     fun addTasteStory(story: FifoTasteStory) {
         _tasteStories.value = listOf(story) + _tasteStories.value
-        dbHelper?.addTasteStory(story = story)
+        dbHelper?.addTasteStory(_userProfile.value.id, story)
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.postTasteStory(_userProfile.value.id, story)
         }
@@ -779,7 +503,7 @@ object FifoDataRepository {
             accentColorHex = 0xFF38BDF8
         )
         _socialPosts.value = listOf(newPost) + _socialPosts.value
-        dbHelper?.addSocialPost(post = newPost)
+        dbHelper?.addSocialPost(newPost, _userProfile.value.id)
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.postSocialPost(user.id, content.trim(), category)
         }
@@ -798,7 +522,7 @@ object FifoDataRepository {
             learnedDate = "Aprendido recién"
         )
         _memories.value = listOf(newMem) + _memories.value
-        dbHelper?.addMemory(item = newMem)
+        dbHelper?.addMemory(_userProfile.value.id, newMem)
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.postMemory(_userProfile.value.id, newMem.emoji, newMem.title, newMem.detail)
         }
@@ -817,7 +541,7 @@ object FifoDataRepository {
             createdAt = "Hoy"
         )
         _reminders.value = listOf(item) + _reminders.value
-        dbHelper?.addReminder(reminder = item)
+        dbHelper?.addReminder(_userProfile.value.id, item)
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.postReminder(_userProfile.value.id, item.title, item.timeStr, item.category)
         }
@@ -831,7 +555,7 @@ object FifoDataRepository {
         _reminders.value = _reminders.value.map {
             if (it.id == id) it.copy(isCompleted = true) else it
         }
-        dbHelper?.completeReminder(reminderId = id, completed = true)
+        dbHelper?.completeReminder(_userProfile.value.id, id, true)
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.patchReminderComplete(id)
         }
@@ -842,7 +566,7 @@ object FifoDataRepository {
      */
     fun removeReminder(id: String) {
         _reminders.value = _reminders.value.filterNot { it.id == id }
-        dbHelper?.deleteReminder(reminderId = id)
+        dbHelper?.deleteReminder(_userProfile.value.id, id)
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.deleteReminder(id)
         }
@@ -1272,43 +996,7 @@ object FifoDataRepository {
      * 3. Si necesita más detalle → el skill `recall_past_context` busca la conversación
      *    completa en el servidor y retorna solo los extractos relevantes.
      */
-    private val _conversationFragments = MutableStateFlow(
-        listOf(
-            ConversationFragment(
-                id = "frag_01",
-                serverConversationId = "srv_conv_001",
-                keyTopics = listOf("orquídeas", "riego por inmersión", "balcón", "maceteros de greda"),
-                namedEntities = listOf("Lucía", "Fifo"),
-                detectedMood = "contenta",
-                compactSummary = "Lucía contó que tiene 4 maceteros de orquídeas en su balcón. Las riega por inmersión los miércoles y limpia las hojas con un paño húmedo mientras escucha la radio. Se mostró alegre hablando de sus plantas.",
-                primaryTag = "Jardinería",
-                durationSeconds = 240,
-                recordedAt = "2026-10-03T10:30:00Z"
-            ),
-            ConversationFragment(
-                id = "frag_02",
-                serverConversationId = "srv_conv_002",
-                keyTopics = listOf("Chopin", "conciertos de piano", "nieto Tomás", "visita domingo"),
-                namedEntities = listOf("Lucía", "Tomás", "Chopin"),
-                detectedMood = "ilusionada",
-                compactSummary = "Conversaron sobre la música clásica y los nocturnos de Chopin. Lucía mencionó que su nieto Tomás la visitará el domingo y quiere enseñarle a escuchar piano. Se notó ilusionada por la visita.",
-                primaryTag = "Música",
-                durationSeconds = 360,
-                recordedAt = "2026-10-02T16:00:00Z"
-            ),
-            ConversationFragment(
-                id = "frag_03",
-                serverConversationId = "srv_conv_003",
-                keyTopics = listOf("cazuela de ave", "comino", "recetario viejo", "feria del barrio"),
-                namedEntities = listOf("Lucía", "abuela Rosa"),
-                detectedMood = "nostálgica",
-                compactSummary = "Fifo aprendió sobre la cazuela de ave casera con el secreto de dorar la cebolla con comino suave. Lucía habló del recetario manuscrito de su abuela Rosa con más de 40 años y de los ingredientes frescos de la feria.",
-                primaryTag = "Cocina",
-                durationSeconds = 300,
-                recordedAt = "2026-09-30T12:15:00Z"
-            )
-        )
-    )
+    private val _conversationFragments = MutableStateFlow<List<ConversationFragment>>(emptyList())
     val conversationFragments: StateFlow<List<ConversationFragment>> = _conversationFragments.asStateFlow()
 
     /**

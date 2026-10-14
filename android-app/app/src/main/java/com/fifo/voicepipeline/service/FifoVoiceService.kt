@@ -57,13 +57,33 @@ class FifoVoiceService : Service() {
         createNotificationChannel()
         try {
             val notification = buildNotification("FIFO está activo · Di 'Fifo' para hablar")
+            val hasBtPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                androidx.core.content.ContextCompat.checkSelfPermission(
+                    this,
+                    android.Manifest.permission.BLUETOOTH_CONNECT
+                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            } else true
+
+            val hasMicPermission = androidx.core.content.ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.RECORD_AUDIO
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE or
-                    android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-                )
+                var fgsType = 0
+                if (hasBtPermission) {
+                    fgsType = fgsType or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+                }
+                if (hasMicPermission) {
+                    fgsType = fgsType or android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                }
+                if (fgsType != 0) {
+                    startForeground(NOTIFICATION_ID, notification, fgsType)
+                } else {
+                    Log.w(TAG, "Permisos de BT y Micrófono aún no otorgados. Deteniendo servicio en espera de configuración.")
+                    stopSelf()
+                    return
+                }
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
                     NOTIFICATION_ID,
@@ -74,7 +94,13 @@ class FifoVoiceService : Service() {
                 startForeground(NOTIFICATION_ID, notification)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error iniciando startForeground: ${e.message}", e)
+            Log.e(TAG, "Error iniciando startForeground con tipos: ${e.message}, reintentando sin tipos", e)
+            try {
+                val fallbackNotification = buildNotification("FIFO está activo")
+                startForeground(NOTIFICATION_ID, fallbackNotification)
+            } catch (fallbackEx: Exception) {
+                Log.e(TAG, "Error en startForeground fallback: ${fallbackEx.message}")
+            }
         }
 
         // WakeLock parcial para evitar que la CPU se duerma al apagar la pantalla

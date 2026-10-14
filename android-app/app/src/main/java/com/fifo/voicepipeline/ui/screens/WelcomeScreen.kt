@@ -17,17 +17,29 @@ import androidx.compose.ui.unit.sp
 import com.fifo.voicepipeline.ui.components.FifoFace
 import com.fifo.voicepipeline.ui.theme.FifoColors
 
+import androidx.compose.ui.platform.LocalContext
+import android.widget.Toast
 import androidx.compose.runtime.*
 import com.fifo.voicepipeline.ui.components.GoogleSignInButton
-import com.fifo.voicepipeline.ui.components.GoogleSignInDialog
+import com.fifo.voicepipeline.ui.components.GoogleUserData
+import com.fifo.voicepipeline.ui.components.rememberGoogleSignInLauncher
 
 @Composable
 fun WelcomeScreen(
     onNavigateToOnboarding: () -> Unit,
     onNavigateToLogin: () -> Unit,
-    onGoogleLoginSuccess: (String) -> Unit = {}
+    onGoogleSignInSuccess: (GoogleUserData) -> Unit
 ) {
-    var showGoogleDialog by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    val launchNativeGoogleSignIn = rememberGoogleSignInLauncher(
+        onSuccess = { googleUser ->
+            onGoogleSignInSuccess(googleUser)
+        },
+        onError = { err ->
+            Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+        }
+    )
 
     Column(
         modifier = Modifier
@@ -97,7 +109,7 @@ fun WelcomeScreen(
         ) {
             // Botón de Google Sign-In accesible sin contraseña
             GoogleSignInButton(
-                onClick = { showGoogleDialog = true },
+                onClick = launchNativeGoogleSignIn,
                 text = "Continuar con Google"
             )
 
@@ -161,15 +173,5 @@ fun WelcomeScreen(
                 color = Color(0xFF64748B)
             )
         }
-    }
-
-    if (showGoogleDialog) {
-        GoogleSignInDialog(
-            onDismiss = { showGoogleDialog = false },
-            onSignInSuccess = { name ->
-                showGoogleDialog = false
-                onGoogleLoginSuccess(name)
-            }
-        )
     }
 }

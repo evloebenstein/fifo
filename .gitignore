@@ -39,6 +39,9 @@ local.properties
 !**/.env.example
 secrets.*
 **/secrets.*
+google-services.json
+**/google-services.json
+!**/google-services.json.example
 
 # OS files
 .DS_Store
@@ -50,3 +53,6 @@ __pycache__/
 **/__pycache__/
 *.py[cod]
 
+# Temp captures & dev scripts
+current_screen.png
+take_screen.py

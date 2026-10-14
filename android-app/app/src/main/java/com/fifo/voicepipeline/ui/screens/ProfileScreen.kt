@@ -79,6 +79,7 @@ fun ProfileScreen(
 
     // Datos del perfil (se inicializan con el repositorio o parámetro)
     var name by remember { mutableStateOf(userProfileState.fullName) }
+    var username by remember { mutableStateOf(userProfileState.username) }
     var birthDate by remember { mutableStateOf(userProfileState.birthDate) }
     var age by remember { mutableStateOf(userProfileState.estimatedAge.toString()) }
     var gender by remember { mutableStateOf(userProfileState.genderIdentity) }
@@ -93,6 +94,7 @@ fun ProfileScreen(
     // Sincronización en vivo: cuando el robot Fifo ejecuta cambios por voz o BD, la UI se actualiza sola
     LaunchedEffect(userProfileState) {
         name = userProfileState.fullName
+        username = userProfileState.username
         birthDate = userProfileState.birthDate
         age = userProfileState.estimatedAge.toString()
         gender = userProfileState.genderIdentity
@@ -107,107 +109,132 @@ fun ProfileScreen(
     // Pestaña activa en el perfil (Mis Publicaciones vs Gustos en Detalle)
     var selectedTab by remember { mutableStateOf(ProfileTab.POSTS) }
 
-    // Publicaciones realizadas por la usuaria (se ven en su perfil y en Fifo Amigos)
-    var userPosts by remember {
+    val displayName = userProfileState.fullName.split(" ").firstOrNull()?.ifBlank { null }
+        ?: currentName.split(" ").firstOrNull()?.ifBlank { null }
+        ?: "Tú"
+    val displayAge = userProfileState.estimatedAge.takeIf { it > 0 } ?: (age.toIntOrNull() ?: 0)
+
+    // Publicaciones realizadas por el usuario (se ven en su perfil y en Fifo Amigos)
+    var userPosts by remember(postsState, displayName) {
         mutableStateOf(
-            listOf(
-                UserSocialPost(
-                    id = "p1",
-                    author = "Lucía",
-                    age = 68,
-                    category = "Lectura & Naturaleza",
-                    timeAgo = "Hace 2 horas",
-                    content = "Acabo de terminar una novela maravillosa de Elena Ferrante en el banco del parque bajo los árboles. Me encantaría encontrar a alguien para comentarla con calma y luego dar un paseo.",
-                    likes = 18,
-                    commentsCount = 6,
-                    accentColorHex = 0xFF38BDF8
-                ),
-                UserSocialPost(
-                    id = "p2",
-                    author = "Lucía",
-                    age = 68,
-                    category = "Jardinería & Balcón",
-                    timeAgo = "Ayer",
-                    content = "¡Mis orquídeas blancas del balcón florecieron esta mañana! Les puse un poquito de agua tibia filtrada como me aconsejó Fifo y están hermosas. ¿Alguien más tiene plantas en su terraza?",
-                    likes = 24,
-                    commentsCount = 8,
-                    accentColorHex = 0xFFF472B6
-                ),
-                UserSocialPost(
-                    id = "p3",
-                    author = "Lucía",
-                    age = 68,
-                    category = "Cocina tradicional",
-                    timeAgo = "Hace 3 días",
-                    content = "Hoy preparé la tarta de manzana casera de mi abuela Elena, con canela y nueces crujientes. Toda la casa huele a merienda de domingo. ¡Ojalá pudiera compartir un trozo con ustedes!",
-                    likes = 31,
-                    commentsCount = 12,
-                    accentColorHex = 0xFFFBBF24
+            if (postsState.isNotEmpty()) {
+                postsState
+            } else {
+                listOf(
+                    UserSocialPost(
+                        id = "p1",
+                        author = displayName,
+                        age = displayAge,
+                        category = "Lectura & Naturaleza",
+                        timeAgo = "Hace 2 horas",
+                        content = "Acabo de terminar un libro maravilloso en el banco del parque bajo los árboles. Me encantaría encontrar a alguien para comentarlo con calma y luego dar un paseo.",
+                        likes = 18,
+                        commentsCount = 6,
+                        accentColorHex = 0xFF38BDF8
+                    ),
+                    UserSocialPost(
+                        id = "p2",
+                        author = displayName,
+                        age = displayAge,
+                        category = "Jardinería & Balcón",
+                        timeAgo = "Ayer",
+                        content = "¡Mis plantas del balcón florecieron esta mañana! Les puse un poquito de agua tibia filtrada como me aconsejó Fifo y están hermosas. ¿Alguien más tiene plantas en su terraza?",
+                        likes = 24,
+                        commentsCount = 8,
+                        accentColorHex = 0xFFF472B6
+                    ),
+                    UserSocialPost(
+                        id = "p3",
+                        author = displayName,
+                        age = displayAge,
+                        category = "Cocina tradicional",
+                        timeAgo = "Hace 3 días",
+                        content = "Hoy preparé una rica receta casera con ingredientes frescos de la feria. Toda la casa huele a almuerzo de domingo. ¡Ojalá pudiera compartir un trozo con ustedes!",
+                        likes = 31,
+                        commentsCount = 12,
+                        accentColorHex = 0xFFFBBF24
+                    )
                 )
-            )
+            }
         )
     }
 
     // Historias y gustos en detalle curados por Fifo a partir de las charlas cotidianas (sin datos sensibles)
-    var tasteStories by remember {
+    var tasteStories by remember(storiesState, userProfileState) {
         mutableStateOf(
-            listOf(
-                FifoTasteStory(
-                    id = "t_bday",
-                    title = "Cumpleaños y orígenes familiares",
-                    subtitle = "Nacida el 14 de mayo de 1958 en Santiago",
-                    description = "Fifo recuerda con mucho cariño tu fecha de nacimiento (14 de mayo de 1958). Te gusta celebrar en familia recordando anécdotas de juventud y compartiendo una rica rebanada de tarta con café.",
-                    tags = listOf("#Cumpleaños", "#14DeMayo", "#1958", "#Familia", "#Tradición"),
-                    iconCategory = "heart",
-                    learnedFrom = "Configurado durante el setup inicial con Fifo"
-                ),
-                FifoTasteStory(
-                    id = "t1",
-                    title = "Nocturnos de Frédéric Chopin",
-                    subtitle = "Pasión por el piano y las melodías clásicas",
-                    description = "En nuestras conversaciones de media tarde descubrimos tu amor por las sonatas y nocturnos de piano. Te evocan momentos de paz de tu juventud y te acompañan con serenidad mientras disfrutas de una taza de té.",
-                    tags = listOf("#MúsicaClásica", "#PianoChopin", "#TardeDeTé", "#Serenidad"),
-                    iconCategory = "music",
-                    learnedFrom = "Extraído de 3 charlas cotidianas · Sin datos sensibles"
-                ),
-                FifoTasteStory(
-                    id = "t2",
-                    title = "Cuidado de orquídeas en balcón",
-                    subtitle = "Paciencia y amor por las flores vivas",
-                    description = "Fifo aprendió que cada martes dedicas tiempo a regar y ventilar tus orquídeas. Disfrutas ver crecer cada botón nuevo y prefieres la luz matutina indirecta para mantener sus hojas brillantes.",
-                    tags = listOf("#Jardinería", "#Orquídeas", "#VidaVerde", "#Balcón"),
-                    iconCategory = "gardening",
-                    learnedFrom = "Extraído de 2 charlas cotidianas · Sin datos sensibles"
-                ),
-                FifoTasteStory(
-                    id = "t3",
-                    title = "Tarta de manzana de la abuela Elena",
-                    subtitle = "Repostería con memoria y tradición familiar",
-                    description = "Un recuerdo entrañable de tu infancia: cocinar recetas tradicionales con canela fresca y manzanas verdes. Compartiste con Fifo cómo este aroma despierta historias de reuniones familiares de los domingos.",
-                    tags = listOf("#CocinaCasera", "#RecetasFamiliares", "#TartaManzana", "#Tradición"),
-                    iconCategory = "cooking",
-                    learnedFrom = "Extraído de 4 charlas cotidianas · Sin datos sensibles"
-                ),
-                FifoTasteStory(
-                    id = "t4",
-                    title = "Novelas históricas y biografías",
-                    subtitle = "El placer de viajar a otras épocas",
-                    description = "Prefieres sumergirte en libros que narran vidas extraordinarias y épocas pasadas con detalle. Disfrutas leer un capítulo al aire libre en el parque los fines de semana soleados.",
-                    tags = listOf("#Lectura", "#Historia", "#Novelas", "#TiempoLibre"),
-                    iconCategory = "book",
-                    learnedFrom = "Extraído de 3 charlas cotidianas · Sin datos sensibles"
-                ),
-                FifoTasteStory(
-                    id = "t5",
-                    title = "Caminatas bajo el sol templado",
-                    subtitle = "Bienestar, aire puro y paso tranquilo",
-                    description = "Nos contaste que caminar a media mañana por el sendero arbolado te llena de energía positiva. Prefieres días despejados sin viento frío para respirar profundo y despejar la mente.",
-                    tags = listOf("#Caminatas", "#Parque", "#Bienestar", "#AireLibre"),
-                    iconCategory = "walk",
-                    learnedFrom = "Extraído de 2 charlas cotidianas · Sin datos sensibles"
+            if (storiesState.isNotEmpty()) {
+                storiesState
+            } else {
+                listOf(
+                    FifoTasteStory(
+                        id = "t_bday",
+                        title = "Cumpleaños y orígenes familiares",
+                        subtitle = if (userProfileState.birthDate.isNotBlank()) "Nacido(a) el ${userProfileState.birthDate}" else "Fecha de cumpleaños registrada",
+                        description = if (userProfileState.birthDate.isNotBlank()) "Fifo recuerda con mucho cariño tu fecha de nacimiento (${userProfileState.birthDate}). Te gusta celebrar en familia recordando anécdotas de juventud y compartiendo con tus seres queridos." else "Fifo recordará tu cumpleaños para saludarte y celebrar contigo.",
+                        tags = listOf("#Cumpleaños", "#Familia", "#Celebración"),
+                        iconCategory = "heart",
+                        learnedFrom = "Configurado durante el setup inicial con Fifo"
+                    ),
+                    FifoTasteStory(
+                        id = "t1",
+                        title = "Música y melodías clásicas",
+                        subtitle = "Pasión por el piano y las melodías clásicas",
+                        description = "En nuestras conversaciones descubrimos tu gusto por las melodías clásicas. Te evocan momentos de paz y te acompañan con serenidad mientras disfrutas de una taza de té.",
+                        tags = listOf("#MúsicaClásica", "#Piano", "#TardeDeTé", "#Serenidad"),
+                        iconCategory = "music",
+                        learnedFrom = "Extraído de charlas cotidianas · Sin datos sensibles"
+                    ),
+                    FifoTasteStory(
+                        id = "t2",
+                        title = "Cuidado de plantas y naturaleza",
+                        subtitle = "Paciencia y amor por la vida verde",
+                        description = "Fifo aprendió que dedicas tiempo a regar y cuidar tus plantas. Disfrutas ver crecer cada brote nuevo y prefieres la luz matutina indirecta para mantener sus hojas brillantes.",
+                        tags = listOf("#Jardinería", "#Plantas", "#VidaVerde", "#Balcón"),
+                        iconCategory = "gardening",
+                        learnedFrom = "Extraído de charlas cotidianas · Sin datos sensibles"
+                    ),
+                    FifoTasteStory(
+                        id = "t3",
+                        title = "Recetas de cocina casera",
+                        subtitle = "Gastronomía con memoria y tradición familiar",
+                        description = "Un gusto entrañable: cocinar recetas tradicionales con canela fresca y sazón casera. Compartiste con Fifo cómo estos aromas despiertan historias familiares.",
+                        tags = listOf("#CocinaCasera", "#RecetasFamiliares", "#Tradición"),
+                        iconCategory = "cooking",
+                        learnedFrom = "Extraído de charlas cotidianas · Sin datos sensibles"
+                    ),
+                    FifoTasteStory(
+                        id = "t4",
+                        title = "Novelas históricas y biografías",
+                        subtitle = "El placer de viajar a otras épocas",
+                        description = "Prefieres sumergirte en libros que narran vidas extraordinarias y épocas pasadas con detalle. Disfrutas leer un capítulo al aire libre los fines de semana soleados.",
+                        tags = listOf("#Lectura", "#Historia", "#Novelas", "#TiempoLibre"),
+                        iconCategory = "book",
+                        learnedFrom = "Extraído de charlas cotidianas · Sin datos sensibles"
+                    ),
+                    FifoTasteStory(
+                        id = "t5",
+                        title = "Caminatas bajo el sol templado",
+                        subtitle = "Bienestar, aire puro y paso tranquilo",
+                        description = "Nos contaste que caminar a media mañana por el sendero arbolado te llena de energía positiva. Prefieres días despejados sin viento frío para respirar profundo y despejar la mente.",
+                        tags = listOf("#Caminatas", "#Parque", "#Bienestar", "#AireLibre"),
+                        iconCategory = "walk",
+                        learnedFrom = "Extraído de charlas cotidianas · Sin datos sensibles"
+                    )
                 )
-            )
+            }
         )
+    }
+
+    LaunchedEffect(postsState) {
+        if (postsState.isNotEmpty()) {
+            userPosts = postsState
+        }
+    }
+
+    LaunchedEffect(storiesState) {
+        if (storiesState.isNotEmpty()) {
+            tasteStories = storiesState
+        }
     }
 
     // Configuraciones amigables para personas mayores
@@ -827,15 +854,29 @@ fun ProfileScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            text = "@${username.removePrefix("@")}",
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = FifoColors.NavyPrimary
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Surface(
+                            color = FifoColors.BlueSoftPill,
+                            shape = CircleShape
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CheckCircle,
+                                contentDescription = "Verificado",
+                                tint = FifoColors.BlueAccentDark,
+                                modifier = Modifier.size(16.dp).padding(2.dp)
+                            )
+                        }
+                    }
                     Text(
-                        text = "Mi Perfil",
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = FifoColors.LightTextPrimary
-                    )
-                    Text(
-                        text = "Tu historia y recuerdos con Fifo",
-                        fontSize = 13.sp,
+                        text = "Perfil oficial en Fifo Amigos",
+                        fontSize = 12.sp,
                         color = FifoColors.LightTextSecondary
                     )
                 }
@@ -870,7 +911,7 @@ fun ProfileScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Avatar de Lucía con anillo de gradiente cálido y badge de Fifo
+                        // Avatar del usuario con anillo de gradiente cálido y badge de Fifo
                         Box(contentAlignment = Alignment.BottomEnd) {
                             Box(
                                 modifier = Modifier
@@ -974,15 +1015,22 @@ fun ProfileScreen(
 
                     Spacer(modifier = Modifier.height(14.dp))
 
-                    // Nombre y datos demográficos
+                    // Nombre y datos demográficos estilo Instagram (Nombre real en negrita + @ID)
                     Text(
                         text = name,
-                        fontSize = 18.sp,
+                        fontSize = 20.sp,
                         fontWeight = FontWeight.Bold,
                         color = FifoColors.LightTextPrimary
                     )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "@${username.removePrefix("@")}",
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF0284C7)
+                    )
 
-                    Spacer(modifier = Modifier.height(4.dp))
+                    Spacer(modifier = Modifier.height(6.dp))
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -1756,6 +1804,7 @@ fun ProfileScreen(
     // ══════════════════════════════════════════════════════════
     if (isEditProfileOpen) {
         var editName by remember { mutableStateOf(name) }
+        var editUsername by remember { mutableStateOf("@" + username.removePrefix("@")) }
         var editBirthDate by remember { mutableStateOf(birthDate) }
         var editAge by remember { mutableStateOf(age) }
         var editGender by remember { mutableStateOf(gender) }
@@ -1792,12 +1841,30 @@ fun ProfileScreen(
 
                     Spacer(modifier = Modifier.height(16.dp))
 
-                    Text("Nombre completo", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
+                    Text("Nombre y Apellido real", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
                     Spacer(modifier = Modifier.height(6.dp))
                     OutlinedTextField(
                         value = editName,
                         onValueChange = { editName = it },
-                        placeholder = { Text("Ej. Lucía González", color = FifoColors.LightTextMuted) },
+                        placeholder = { Text("Ej. María González", color = FifoColors.LightTextMuted) },
+                        leadingIcon = { Icon(Icons.Default.Person, contentDescription = null, tint = FifoColors.LightTextMuted) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(16.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text("Tu @ID de usuario en Fifo", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
+                    Spacer(modifier = Modifier.height(6.dp))
+                    OutlinedTextField(
+                        value = editUsername,
+                        onValueChange = { newVal ->
+                            val stripped = newVal.removePrefix("@").filter { it.isLetterOrDigit() || it == '_' }.lowercase()
+                            editUsername = "@$stripped"
+                        },
+                        placeholder = { Text("Ej. @maria_g", color = FifoColors.LightTextMuted) },
+                        leadingIcon = { Icon(Icons.Default.AlternateEmail, contentDescription = null, tint = Color(0xFF0284C7)) },
                         singleLine = true,
                         shape = RoundedCornerShape(16.dp),
                         modifier = Modifier.fillMaxWidth()
@@ -1925,6 +1992,7 @@ fun ProfileScreen(
                     Button(
                         onClick = {
                             name = editName
+                            username = editUsername.removePrefix("@").ifBlank { "usuario" }
                             birthDate = editBirthDate
                             age = editAge
                             gender = editGender
@@ -1933,6 +2001,7 @@ fun ProfileScreen(
                             bioText = "Amante de ${editInterests.take(3).joinToString(", ")}. Le gusta conversar con Fifo sobre sus pasatiempos favoritos y compartir anécdotas de su día a día."
                             com.fifo.voicepipeline.data.FifoDataRepository.updateDemographics(
                                 fullName = editName,
+                                username = editUsername.removePrefix("@").ifBlank { "usuario" },
                                 birthDate = editBirthDate,
                                 birthYear = editBirthDate.takeLast(4).toIntOrNull(),
                                 gender = editGender

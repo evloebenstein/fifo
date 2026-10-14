@@ -5,6 +5,11 @@ plugins {
     id("org.jetbrains.kotlin.android")
 }
 
+// Aplicar Google Services solo si google-services.json está presente localmente
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 // Cargar API keys desde local.properties o variables de entorno
 val localProps = Properties().apply {
     val propFile = rootProject.file("local.properties")

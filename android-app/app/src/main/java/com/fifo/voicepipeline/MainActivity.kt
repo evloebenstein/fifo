@@ -91,18 +91,25 @@ class MainActivity : ComponentActivity() {
         com.fifo.voicepipeline.location.FifoOrientationHelper.init(applicationContext)
         com.fifo.voicepipeline.location.FifoNavigationManager.init(applicationContext)
 
-        // ── Iniciar Foreground Service para ejecución continua 24/7 de forma segura ──
-        try {
-            FifoVoiceService.start(applicationContext)
-        } catch (e: Exception) {
-            Log.e(TAG, "No se pudo iniciar FifoVoiceService: ${e.message}")
+        // ── Iniciar Foreground Service solo si el setup ya fue completado y los permisos otorgados ──
+        val prefs = getSharedPreferences("fifo_prefs", MODE_PRIVATE)
+        val hasCompletedSetup = prefs.getBoolean("has_completed_setup", false)
+        if (hasCompletedSetup) {
+            val hasBt = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
+            val hasMic = ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
+            if (hasBt || hasMic) {
+                try {
+                    FifoVoiceService.start(applicationContext)
+                } catch (e: Exception) {
+                    Log.e(TAG, "No se pudo iniciar FifoVoiceService: ${e.message}")
+                }
+            }
         }
 
         // ── Solicitar ejecución sin restricciones de batería para escucha continua ──
         checkBatteryOptimizations()
 
         // ── Obtener API keys desde SharedPreferences o BuildConfig ────
-        val prefs = getSharedPreferences("fifo_prefs", MODE_PRIVATE)
         val savedGroqKey = prefs.getString("groq_api_key", "") ?: ""
         val groqKey = savedGroqKey.ifEmpty {
             BuildConfig.GROQ_API_KEY.ifEmpty { DEFAULT_GROQ_KEY }

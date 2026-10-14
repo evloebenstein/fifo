@@ -2,6 +2,8 @@
 
 Infraestructura de backend contenerizada para el asistente robótico **FIFO**, con persistencia relacional en **MySQL 8.4 LTS**, panel visual **Adminer** y microservicio REST en **FastAPI**.
 
+Provee sincronización de perfiles en tiempo real, autenticación y aprovisionamiento con Google, red comunitaria **Fifo Amigos**, grafos relacionales de contactos y síntesis profunda de biografías por IA.
+
 ---
 
 ## 🗺️ Mapa de Archivos del Directorio
@@ -39,6 +41,22 @@ Infraestructura de backend contenerizada para el asistente robótico **FIFO**, c
 
 ---
 
+## 🔑 Aprovisionamiento y Autenticación con Google
+
+La API expone endpoints para la sincronización y aprovisionamiento directo de usuarios autenticados mediante Google Sign-In desde la aplicación móvil:
+
+- `POST /auth/google` (o `POST /users`): Recibe las credenciales o datos verificados de la cuenta de Google (`email`, `full_name`, `avatar_url`).
+- **Aprovisionamiento Automático por IA:** Si el usuario no existe previamente en la base de datos, el backend:
+  1. Crea el registro en la tabla `users` con rol por defecto y estado activo.
+  2. Genera una biografía inicial empática y personalizada mediante IA.
+  3. Aprovisiona etiquetas de gustos sugeridas en `taste_stories` y `user_memories`.
+  4. Conecta al usuario con la red social comunitaria **Fifo Amigos**.
+- `GET /users`: Lista de usuarios disponibles para permitir la conmutación rápida de perfiles en la app.
+- `GET /users/{id}/profile`: Retorna el perfil completo, biografía sintetizada y recuerdos consolidados.
+- `GET /users/{id}/fifo-friends/recommendations`: Recomienda amistades afines basándose en la intersección de etiquetas de intereses compartidos.
+
+---
+
 ## 🚀 Guía de Comandos Rápidos
 
 ```bash
@@ -60,7 +78,8 @@ docker compose down -v && docker compose up -d --build
 
 ---
 
-## 🧭 Reglas de Programación en `backend/`
+## 🧭 Reglas de Arquitectura en `backend/`
+
 1. **Idempotencia en migraciones:** La API en `api/main.py` ejecuta `ensure_schema_migrations()` al arrancar para añadir columnas faltantes sin alterar datos existentes.
-2. **Charset y Collation:** Siempre usar `utf8mb4` y `utf8mb4_es_0900_ai_ci` para tildes en español y emojis.
-3. **Persistencia de sesión:** Las llamadas desde la app Android se sincronizan bidireccionalmente hacia la tabla `users`, `user_memories`, `taste_stories`, `user_reminders` y `user_contacts_relational`.
+2. **Charset y Collation:** Siempre usar `utf8mb4` y `utf8mb4_es_0900_ai_ci` para soporte completo de tildes en español y emojis.
+3. **Persistencia y Sincronización:** Las mutaciones ejecutadas por voz desde el teléfono (recordatorios, gustos, memorias) se reflejan de forma atómica en las tablas relacionales (`users`, `user_memories`, `taste_stories`, `user_reminders` y `user_contacts_relational`).

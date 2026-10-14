@@ -62,7 +62,7 @@ fun MainScreen(
     val prefs = remember { context.getSharedPreferences("fifo_prefs", Context.MODE_PRIVATE) }
     val hasCompletedSetup = remember { prefs.getBoolean("has_completed_setup", false) }
     var currentFlowScreen by remember {
-        mutableStateOf(if (hasCompletedSetup) AppFlowScreen.MAIN_APP else AppFlowScreen.ONBOARDING)
+        mutableStateOf(if (hasCompletedSetup) AppFlowScreen.MAIN_APP else AppFlowScreen.WELCOME)
     }
     var currentTab by remember { mutableStateOf(FifoTab.HOME) }
     val userProfileState by com.fifo.voicepipeline.data.FifoDataRepository.userProfile.collectAsState()
@@ -86,17 +86,34 @@ fun MainScreen(
 
     val coroutineScope = rememberCoroutineScope()
 
+    var pendingGoogleUser by remember { mutableStateOf<com.fifo.voicepipeline.ui.components.GoogleUserData?>(null) }
+
     Box(modifier = Modifier.fillMaxSize()) {
         // ── Flujo de Pantallas Principales ───
         when (currentFlowScreen) {
             AppFlowScreen.WELCOME -> {
                 WelcomeScreen(
-                    onNavigateToOnboarding = { currentFlowScreen = AppFlowScreen.ONBOARDING },
+                    onNavigateToOnboarding = {
+                        pendingGoogleUser = null
+                        currentFlowScreen = AppFlowScreen.ONBOARDING
+                    },
                     onNavigateToLogin = { currentFlowScreen = AppFlowScreen.LOGIN },
-                    onGoogleLoginSuccess = { name ->
-                        userName = name
-                        prefs.edit().putBoolean("has_completed_setup", true).apply()
-                        currentFlowScreen = AppFlowScreen.MAIN_APP
+                    onGoogleSignInSuccess = { googleUser ->
+                        val existingUserId = com.fifo.voicepipeline.data.FifoDataRepository.findUserByEmailOrId(
+                            googleUser.email,
+                            googleUser.googleId
+                        )
+                        if (existingUserId != null) {
+                            coroutineScope.launch {
+                                com.fifo.voicepipeline.data.FifoDataRepository.switchUserProfile(context, existingUserId)
+                            }
+                            userName = googleUser.fullName
+                            prefs.edit().putBoolean("has_completed_setup", true).apply()
+                            currentFlowScreen = AppFlowScreen.MAIN_APP
+                        } else {
+                            pendingGoogleUser = googleUser
+                            currentFlowScreen = AppFlowScreen.ONBOARDING
+                        }
                     }
                 )
             }
@@ -114,11 +131,13 @@ fun MainScreen(
 
             AppFlowScreen.ONBOARDING -> {
                 OnboardingScreen(
-                    onComplete = { name, age, interests, birthDate, birthYear, gender, city, email ->
+                    initialGoogleUser = pendingGoogleUser,
+                    onComplete = { name, username, age, interests, birthDate, birthYear, gender, city, email ->
                         coroutineScope.launch {
                             com.fifo.voicepipeline.data.FifoDataRepository.createProfileAndStart(
                                 context = context,
                                 fullName = name,
+                                username = username,
                                 birthDate = birthDate,
                                 birthYear = birthYear.toIntOrNull(),
                                 estimatedAge = age.toIntOrNull(),
@@ -129,14 +148,13 @@ fun MainScreen(
                             )
                         }
                         userName = name
+                        pendingGoogleUser = null
                         prefs.edit().putBoolean("has_completed_setup", true).apply()
                         currentFlowScreen = AppFlowScreen.MAIN_APP
                     },
-                    onBack = { currentFlowScreen = AppFlowScreen.WELCOME },
-                    onGoogleSuccess = { name ->
-                        userName = name
-                        prefs.edit().putBoolean("has_completed_setup", true).apply()
-                        currentFlowScreen = AppFlowScreen.MAIN_APP
+                    onBack = {
+                        pendingGoogleUser = null
+                        currentFlowScreen = AppFlowScreen.WELCOME
                     }
                 )
             }

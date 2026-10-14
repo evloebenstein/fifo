@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -26,26 +27,33 @@ import androidx.compose.ui.platform.LocalContext
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
+import com.fifo.voicepipeline.data.FifoContentFilter
+import com.fifo.voicepipeline.data.local.FifoDatabaseHelper
 import com.fifo.voicepipeline.service.FifoAccessibilityService
 import com.fifo.voicepipeline.ui.components.BackgroundMicGuideDialog
 import com.fifo.voicepipeline.ui.components.CallAssistantGuideDialog
 import com.fifo.voicepipeline.ui.components.FifoFace
+import com.fifo.voicepipeline.ui.components.GoogleIcon
 import com.fifo.voicepipeline.ui.components.GoogleSignInButton
 import com.fifo.voicepipeline.ui.components.GoogleSignInDialog
+import com.fifo.voicepipeline.ui.components.rememberGoogleSignInLauncher
 import com.fifo.voicepipeline.ui.theme.FifoColors
+import androidx.compose.ui.text.style.TextOverflow
 
 /**
  * Fases del Setup guiado de Fifo:
  * 1. CREATE_ACCOUNT: Crea tu cuenta básica (Nombre, Correo, Contraseña)
- * 2. TURN_ON_FIFO: Mensaje para encender el robot Fifo
- * 3. FIFO_QUESTION_BIRTHDAY: Fifo pregunta año de nacimiento y fecha de cumpleaños
- * 4. FIFO_QUESTION_GENDER: Fifo pregunta cómo se identifica (género)
- * 5. FIFO_QUESTION_CITY: Fifo pregunta ciudad / comuna
- * 6. FIFO_QUESTION_TASTES: Fifo pregunta primeros gustos e intereses
- * 7. FIFO_SETUP_READY: Resumen interactivo completado por Fifo
+ * 2. FIFO_QUESTION_NAME_ID: Recomendación de ID único de Fifo comparando contra usuarios registrados
+ * 3. TURN_ON_FIFO: Mensaje para encender el robot Fifo
+ * 4. FIFO_QUESTION_BIRTHDAY: Fifo pregunta año de nacimiento y fecha de cumpleaños
+ * 5. FIFO_QUESTION_GENDER: Fifo pregunta cómo se identifica (género)
+ * 6. FIFO_QUESTION_CITY: Fifo pregunta ciudad / comuna
+ * 7. FIFO_QUESTION_TASTES: Fifo pregunta primeros gustos e intereses
+ * 8. FIFO_SETUP_READY: Resumen interactivo completado por Fifo
  */
 private enum class SetupPhase {
     CREATE_ACCOUNT,
+    FIFO_QUESTION_NAME_ID,
     TURN_ON_FIFO,
     FIFO_QUESTION_BIRTHDAY,
     FIFO_QUESTION_GENDER,
@@ -60,6 +68,7 @@ private enum class SetupPhase {
 fun OnboardingScreen(
     onComplete: (
         name: String,
+        username: String,
         age: String,
         interests: List<String>,
         birthDate: String,
@@ -69,24 +78,73 @@ fun OnboardingScreen(
         email: String
     ) -> Unit,
     onBack: () -> Unit,
-    onGoogleSuccess: (String) -> Unit = {}
+    initialGoogleUser: com.fifo.voicepipeline.ui.components.GoogleUserData? = null
 ) {
-    var currentPhase by remember { mutableStateOf(SetupPhase.CREATE_ACCOUNT) }
+    val context = LocalContext.current
+    var currentPhase by remember {
+        mutableStateOf(
+            if (initialGoogleUser != null) SetupPhase.FIFO_QUESTION_NAME_ID else SetupPhase.CREATE_ACCOUNT
+        )
+    }
     var showCallGuideDialogInSetup by remember { mutableStateOf(false) }
     var showMicGuideDialogInSetup by remember { mutableStateOf(false) }
-    var showGoogleDialogInSetup by remember { mutableStateOf(false) }
 
     // Datos recopilados en el Setup
-    var fullName by remember { mutableStateOf("Lucía González") }
-    var email by remember { mutableStateOf("lucia.gonzalez@correo.cl") }
-    var password by remember { mutableStateOf("••••••••") }
+    var fullName by remember {
+        val googleName = initialGoogleUser?.fullName?.trim()?.takeIf {
+            it.isNotBlank() && !it.equals("Usuario", ignoreCase = true) && !it.contains("@")
+        }
+        val emailPrefixName = initialGoogleUser?.email?.substringBefore('@')?.let { prefix ->
+            prefix.split(".", "_", "-")
+                .filter { it.isNotBlank() && it.length > 1 }
+                .joinToString(" ") { word ->
+                    word.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                }
+                .takeIf { it.isNotBlank() && !it.equals("Usuario", ignoreCase = true) }
+        }
+        mutableStateOf(googleName ?: emailPrefixName ?: "")
+    }
+    var email by remember { mutableStateOf(initialGoogleUser?.email ?: "") }
+    var usernameHandle by remember {
+        val dbHelper = FifoDatabaseHelper.getInstance(context)
+        val initialRec = if (fullName.isNotBlank()) {
+            dbHelper.recommendAvailableUsernames(fullName, email).firstOrNull()
+        } else null
+        val base = initialGoogleUser?.email?.substringBefore('@')?.filter { it.isLetterOrDigit() || it == '_' }
+            ?: ""
+        mutableStateOf(initialRec ?: if (base.isNotBlank()) "@${base.lowercase()}" else "")
+    }
+    var password by remember { mutableStateOf("") }
 
-    var birthDayMonth by remember { mutableStateOf("14 de Mayo") }
-    var birthYear by remember { mutableStateOf("1958") }
-    var ageCalculated by remember { mutableStateOf("68") }
+    val launchNativeGoogleSignIn = rememberGoogleSignInLauncher(
+        onSuccess = { gUser ->
+            email = gUser.email
+            val parsedName = gUser.fullName.trim().takeIf {
+                it.isNotBlank() && !it.equals("Usuario", ignoreCase = true) && !it.contains("@")
+            } ?: gUser.email.substringBefore('@').split(".", "_", "-")
+                .filter { it.isNotBlank() && it.length > 1 }
+                .joinToString(" ") { word ->
+                    word.lowercase().replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+                }
+                .takeIf { it.isNotBlank() && !it.equals("Usuario", ignoreCase = true) }
+                ?: ""
+            fullName = parsedName
+            val recs = FifoDatabaseHelper.getInstance(context).recommendAvailableUsernames(if (fullName.isNotBlank()) fullName else "amigo", gUser.email)
+            usernameHandle = recs.firstOrNull() ?: ("@" + gUser.email.substringBefore('@').filter { it.isLetterOrDigit() || it == '_' }.lowercase().ifBlank { "amigo" })
+            currentPhase = SetupPhase.FIFO_QUESTION_NAME_ID
+            android.widget.Toast.makeText(context, "¡Cuenta de Google vinculada!", android.widget.Toast.LENGTH_SHORT).show()
+        },
+        onError = { err ->
+            android.widget.Toast.makeText(context, err, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    )
 
-    var gender by remember { mutableStateOf("Mujer") }
-    var city by remember { mutableStateOf("Santiago, Chile") }
+    var birthDayMonth by remember { mutableStateOf("") }
+    var birthYear by remember { mutableStateOf("") }
+    var ageCalculated by remember { mutableStateOf("") }
+
+    var gender by remember { mutableStateOf("") }
+    var city by remember { mutableStateOf("") }
 
     val defaultInterests = listOf(
         "Lectura histórica",
@@ -97,9 +155,7 @@ fun OnboardingScreen(
         "Pintura y arte"
     )
     var selectedInterests by remember {
-        mutableStateOf(
-            setOf("Lectura histórica", "Música clásica", "Paseos en el parque", "Jardinería", "Cocina tradicional")
-        )
+        mutableStateOf(emptySet<String>())
     }
 
     // Actualizar edad estimada cuando cambia el año
@@ -130,7 +186,10 @@ fun OnboardingScreen(
                 modifier = Modifier.clickable {
                     when (currentPhase) {
                         SetupPhase.CREATE_ACCOUNT -> onBack()
-                        SetupPhase.TURN_ON_FIFO -> currentPhase = SetupPhase.CREATE_ACCOUNT
+                        SetupPhase.FIFO_QUESTION_NAME_ID -> {
+                            if (initialGoogleUser != null) onBack() else currentPhase = SetupPhase.CREATE_ACCOUNT
+                        }
+                        SetupPhase.TURN_ON_FIFO -> currentPhase = SetupPhase.FIFO_QUESTION_NAME_ID
                         SetupPhase.FIFO_QUESTION_BIRTHDAY -> currentPhase = SetupPhase.TURN_ON_FIFO
                         SetupPhase.FIFO_QUESTION_GENDER -> currentPhase = SetupPhase.FIFO_QUESTION_BIRTHDAY
                         SetupPhase.FIFO_QUESTION_CITY -> currentPhase = SetupPhase.FIFO_QUESTION_GENDER
@@ -161,13 +220,14 @@ fun OnboardingScreen(
             ) {
                 Text(
                     text = when (currentPhase) {
-                        SetupPhase.CREATE_ACCOUNT -> "Paso 1 de 2 · Cuenta"
-                        SetupPhase.TURN_ON_FIFO -> "Paso 2 de 2 · Conectar"
-                        SetupPhase.FIFO_QUESTION_BIRTHDAY -> "Pregunta 1 de 4"
-                        SetupPhase.FIFO_QUESTION_GENDER -> "Pregunta 2 de 4"
-                        SetupPhase.FIFO_QUESTION_CITY -> "Pregunta 3 de 4"
-                        SetupPhase.FIFO_QUESTION_TASTES -> "Pregunta 4 de 4"
-                        SetupPhase.SETUP_PERMISSIONS -> "Paso 5 de 5 · Permisos"
+                        SetupPhase.CREATE_ACCOUNT -> "Paso 1 · Cuenta"
+                        SetupPhase.FIFO_QUESTION_NAME_ID -> "Pregunta 1 de 5 · Tu Identidad e ID"
+                        SetupPhase.TURN_ON_FIFO -> "Conectar robot Fifo"
+                        SetupPhase.FIFO_QUESTION_BIRTHDAY -> "Pregunta 2 de 5 · Cumpleaños"
+                        SetupPhase.FIFO_QUESTION_GENDER -> "Pregunta 3 de 5 · Identidad"
+                        SetupPhase.FIFO_QUESTION_CITY -> "Pregunta 4 de 5 · Ciudad"
+                        SetupPhase.FIFO_QUESTION_TASTES -> "Pregunta 5 de 5 · Gustos"
+                        SetupPhase.SETUP_PERMISSIONS -> "Permisos del teléfono"
                         SetupPhase.FIFO_SETUP_READY -> "Setup completado"
                     },
                     fontSize = 11.sp,
@@ -230,7 +290,7 @@ fun OnboardingScreen(
             Spacer(modifier = Modifier.height(20.dp))
 
             GoogleSignInButton(
-                onClick = { showGoogleDialogInSetup = true },
+                onClick = launchNativeGoogleSignIn,
                 text = "Registrarme rápido con Google"
             )
 
@@ -258,7 +318,7 @@ fun OnboardingScreen(
             OutlinedTextField(
                 value = fullName,
                 onValueChange = { fullName = it },
-                placeholder = { Text("Ej. Lucía González", color = FifoColors.LightTextMuted) },
+                placeholder = { Text("Ej. María González", color = FifoColors.LightTextMuted) },
                 shape = RoundedCornerShape(16.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = Color.White,
@@ -277,7 +337,7 @@ fun OnboardingScreen(
             OutlinedTextField(
                 value = email,
                 onValueChange = { email = it },
-                placeholder = { Text("lucia@ejemplo.cl", color = FifoColors.LightTextMuted) },
+                placeholder = { Text("tu.correo@ejemplo.cl", color = FifoColors.LightTextMuted) },
                 shape = RoundedCornerShape(16.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedContainerColor = Color.White,
@@ -310,7 +370,26 @@ fun OnboardingScreen(
             Spacer(modifier = Modifier.height(30.dp))
 
             Button(
-                onClick = { currentPhase = SetupPhase.TURN_ON_FIFO },
+                onClick = {
+                    val emailMod = FifoContentFilter.validateEmail(email)
+                    if (!emailMod.isValid) {
+                        android.widget.Toast.makeText(context, emailMod.message ?: "Correo inválido", android.widget.Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    val nameMod = FifoContentFilter.validateFullName(fullName)
+                    if (!nameMod.isValid) {
+                        android.widget.Toast.makeText(context, nameMod.message ?: "Por favor ingresa un nombre y apellido válido", android.widget.Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    val recs = FifoDatabaseHelper.getInstance(context).recommendAvailableUsernames(fullName, email)
+                    if (recs.isNotEmpty()) {
+                        usernameHandle = recs.first()
+                    } else {
+                        val base = email.substringBefore('@').filter { it.isLetterOrDigit() || it == '_' }.lowercase()
+                        usernameHandle = "@" + base.ifBlank { "amigo" }
+                    }
+                    currentPhase = SetupPhase.FIFO_QUESTION_NAME_ID
+                },
                 shape = RoundedCornerShape(22.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = FifoColors.NavyPrimary),
                 modifier = Modifier
@@ -322,7 +401,385 @@ fun OnboardingScreen(
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("Crear cuenta y encender a Fifo", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text("Continuar con este correo", fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
+                }
+            }
+
+            Spacer(modifier = Modifier.height(36.dp))
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // ── PREGUNTA 1 DE FIFO: RECOMENDACIÓN DE @ID ÚNICO EN FIFO ────
+        // ══════════════════════════════════════════════════════════════
+        else if (currentPhase == SetupPhase.FIFO_QUESTION_NAME_ID) {
+            val dbHelper = remember { FifoDatabaseHelper.getInstance(context) }
+            var suggestionBatch by remember { mutableStateOf(0) }
+            val recommendedUsernames = remember(fullName, email, suggestionBatch) {
+                if (fullName.isNotBlank() && !fullName.equals("Usuario", ignoreCase = true)) {
+                    dbHelper.recommendAvailableUsernames(fullName, email, suggestionBatch)
+                } else emptyList()
+            }
+
+            LaunchedEffect(recommendedUsernames) {
+                if (recommendedUsernames.isNotEmpty() && (usernameHandle.isBlank() || usernameHandle == "@" || usernameHandle.equals("@usuario", ignoreCase = true))) {
+                    usernameHandle = recommendedUsernames.first()
+                }
+            }
+
+            val cleanHandle = usernameHandle.trim().removePrefix("@").lowercase()
+            val isHandleTaken = remember(cleanHandle) { dbHelper.isUsernameTaken(cleanHandle) }
+            val firstName = fullName.trim().split("\\s+".toRegex()).firstOrNull()?.replaceFirstChar { it.uppercase() } ?: ""
+
+            val nameModeration = remember(fullName) {
+                if (fullName.isNotBlank()) FifoContentFilter.validateFullName(fullName) else FifoContentFilter.ModerationResult.VALID
+            }
+            val handleModeration = remember(cleanHandle) {
+                if (cleanHandle.isNotBlank()) FifoContentFilter.validateUsername(usernameHandle) else FifoContentFilter.ModerationResult.VALID
+            }
+
+            FifoConversationHeader(
+                questionTitle = "¿Cómo te llamas y cuál será tu @ID?",
+                questionSpeech = when {
+                    !nameModeration.isValid ->
+                        "« Fifo cuida un espacio amigable y seguro para todos. Por favor escribe un nombre o apellido respetuoso para continuar: »"
+                    !handleModeration.isValid ->
+                        "« El @ID ingresado contiene términos reservados o no permitidos. Puedes elegir una de mis sugerencias o escribir otro @ID: »"
+                    firstName.isNotBlank() && !firstName.equals("Usuario", ignoreCase = true) ->
+                        "¡Mucho gusto, $firstName! He revisado los nombres registrados en Fifo y te sugiero este @ID único para que tus familiares y amigos te encuentren. Puedes cambiar tu nombre o tu @ID a tu gusto:"
+                    else ->
+                        "¡Qué alegría conocerte! Escribe tu nombre real para que sepa cómo llamarte y te recomendaré un @ID único para que tus amigos te encuentren:"
+                }
+            )
+
+            // Si se inició sesión con Google, mostrar badge informativo de vinculación
+            if (initialGoogleUser != null && initialGoogleUser.email.isNotBlank()) {
+                Spacer(modifier = Modifier.height(16.dp))
+                Surface(
+                    color = Color(0xFFF0FDF4),
+                    shape = RoundedCornerShape(14.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFBBF7D0)),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        GoogleIcon(modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Cuenta de Google conectada",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF166534)
+                            )
+                            Text(
+                                text = initialGoogleUser.email,
+                                fontSize = 12.sp,
+                                color = Color(0xFF15803D),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // ── Campo 1: Tu Nombre y Apellido (100% editable) ──
+            Text("Tu Nombre y Apellido", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text("Puedes editarlo aquí. Así te llamará Fifo y te reconocerán tus amigos:", fontSize = 11.sp, color = FifoColors.LightTextSecondary)
+            Spacer(modifier = Modifier.height(6.dp))
+            OutlinedTextField(
+                value = fullName,
+                onValueChange = { newName ->
+                    val oldRecs = recommendedUsernames
+                    fullName = newName
+                    val newRecs = if (newName.isNotBlank() && !newName.equals("Usuario", ignoreCase = true)) {
+                        dbHelper.recommendAvailableUsernames(newName, email, suggestionBatch)
+                    } else emptyList()
+                    if (newRecs.isNotEmpty() && (usernameHandle.isBlank() || usernameHandle == "@" || usernameHandle.equals("@usuario", ignoreCase = true) || oldRecs.contains(usernameHandle))) {
+                        usernameHandle = newRecs.first()
+                    }
+                },
+                placeholder = { Text("Ej. María González", color = FifoColors.LightTextMuted) },
+                isError = !nameModeration.isValid && fullName.isNotBlank(),
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.Person,
+                        contentDescription = null,
+                        tint = if (!nameModeration.isValid && fullName.isNotBlank()) Color(0xFFDC2626) else Color(0xFF0284C7)
+                    )
+                },
+                trailingIcon = {
+                    if (fullName.isNotBlank()) {
+                        IconButton(onClick = { fullName = "" }) {
+                            Icon(
+                                Icons.Default.Close,
+                                contentDescription = "Borrar",
+                                tint = Color(0xFF94A3B8),
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(16.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White,
+                    focusedBorderColor = if (!nameModeration.isValid && fullName.isNotBlank()) Color(0xFFDC2626) else FifoColors.BlueAccentDark,
+                    unfocusedBorderColor = if (!nameModeration.isValid && fullName.isNotBlank()) Color(0xFFFCA5A5) else FifoColors.LightCardBorder,
+                    errorBorderColor = Color(0xFFDC2626)
+                ),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
+            if (!nameModeration.isValid && fullName.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = "Aviso de moderación",
+                        tint = Color(0xFFDC2626),
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = nameModeration.message ?: "Nombre no permitido por seguridad o respeto",
+                        fontSize = 11.sp,
+                        color = Color(0xFFDC2626),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(18.dp))
+
+            // ── Campo 2: Tu @ID de usuario en Fifo (100% editable) ──
+            Text("Tu @ID de usuario en Fifo", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = FifoColors.LightTextPrimary)
+            Spacer(modifier = Modifier.height(4.dp))
+            Text("Tus amigos y familiares podrán buscarte escribiendo este @ID", fontSize = 11.sp, color = FifoColors.LightTextSecondary)
+            Spacer(modifier = Modifier.height(6.dp))
+            OutlinedTextField(
+                value = usernameHandle,
+                onValueChange = { newVal ->
+                    val stripped = newVal.removePrefix("@").filter { it.isLetterOrDigit() || it == '_' || it == '.' }.lowercase()
+                    usernameHandle = "@$stripped"
+                },
+                placeholder = {
+                    val pName = if (firstName.isNotBlank() && !firstName.equals("Usuario", ignoreCase = true)) firstName.lowercase() else "amigo"
+                    Text("Ej. @${pName}_real", color = FifoColors.LightTextMuted)
+                },
+                isError = (!handleModeration.isValid || isHandleTaken) && cleanHandle.isNotBlank(),
+                leadingIcon = { Icon(Icons.Default.AlternateEmail, contentDescription = null, tint = Color(0xFF0284C7)) },
+                trailingIcon = {
+                    if (cleanHandle.isNotBlank()) {
+                        if (!handleModeration.isValid) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(end = 12.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Warning,
+                                    contentDescription = "No permitido",
+                                    tint = Color(0xFFDC2626),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "No permitido",
+                                    color = Color(0xFFDC2626),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        } else if (isHandleTaken) {
+                            Text(
+                                text = "Ocupado",
+                                color = Color(0xFFDC2626),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(end = 12.dp)
+                            )
+                        } else {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(end = 12.dp)
+                            ) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = "Disponible",
+                                    tint = Color(0xFF16A34A),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(
+                                    text = "Disponible",
+                                    color = Color(0xFF16A34A),
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                            }
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(16.dp),
+                colors = OutlinedTextFieldDefaults.colors(
+                    focusedContainerColor = Color.White,
+                    unfocusedContainerColor = Color.White,
+                    focusedBorderColor = if (!handleModeration.isValid || isHandleTaken) Color(0xFFDC2626) else FifoColors.BlueAccentDark,
+                    unfocusedBorderColor = if (!handleModeration.isValid || isHandleTaken) Color(0xFFFCA5A5) else FifoColors.LightCardBorder,
+                    errorBorderColor = Color(0xFFDC2626)
+                ),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+
+            if (!handleModeration.isValid && cleanHandle.isNotBlank()) {
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                ) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = "Aviso de ID",
+                        tint = Color(0xFFDC2626),
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text(
+                        text = handleModeration.message ?: "Este @ID no está permitido por seguridad o respeto",
+                        fontSize = 11.sp,
+                        color = Color(0xFFDC2626),
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+
+            // Chips interactivos con las sugerencias diversas de Fifo
+            if (recommendedUsernames.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("✨", fontSize = 14.sp)
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Sugerencias de Fifo según tu nombre:",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = FifoColors.NavyPrimary
+                        )
+                    }
+                    TextButton(
+                        onClick = { suggestionBatch++ },
+                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 0.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AutoAwesome,
+                            contentDescription = "Otras opciones",
+                            tint = FifoColors.NavyPrimary,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = "Ver más",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = FifoColors.NavyPrimary
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    recommendedUsernames.forEach { sug ->
+                        val isSelected = usernameHandle.equals(sug, ignoreCase = true)
+                        Surface(
+                            onClick = { usernameHandle = sug },
+                            shape = RoundedCornerShape(18.dp),
+                            color = if (isSelected) FifoColors.NavyPrimary else Color(0xFFF1F5F9),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.dp,
+                                if (isSelected) FifoColors.NavyPrimary else Color(0xFFCBD5E1)
+                            )
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = sug,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (isSelected) Color.White else FifoColors.LightTextPrimary
+                                )
+                                if (isSelected) {
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(13.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(28.dp))
+
+            Button(
+                onClick = {
+                    val cleanName = fullName.trim()
+                    val clean = usernameHandle.trim().removePrefix("@")
+                    val nameMod = FifoContentFilter.validateFullName(cleanName)
+                    val handleMod = FifoContentFilter.validateUsername(clean)
+
+                    if (cleanName.isBlank() || cleanName.equals("Usuario", ignoreCase = true)) {
+                        android.widget.Toast.makeText(context, "Por favor escribe tu nombre y apellido", android.widget.Toast.LENGTH_SHORT).show()
+                    } else if (!nameMod.isValid) {
+                        android.widget.Toast.makeText(context, nameMod.message ?: "El nombre contiene términos no permitidos", android.widget.Toast.LENGTH_LONG).show()
+                    } else if (clean.isBlank()) {
+                        android.widget.Toast.makeText(context, "Por favor elige un @ID para tu perfil", android.widget.Toast.LENGTH_SHORT).show()
+                    } else if (!handleMod.isValid) {
+                        android.widget.Toast.makeText(context, handleMod.message ?: "El @ID no está permitido por seguridad", android.widget.Toast.LENGTH_LONG).show()
+                    } else if (isHandleTaken) {
+                        android.widget.Toast.makeText(context, "Ese @ID ya está en uso. Por favor elige una de las sugerencias de Fifo.", android.widget.Toast.LENGTH_SHORT).show()
+                    } else {
+                        currentPhase = SetupPhase.TURN_ON_FIFO
+                    }
+                },
+                shape = RoundedCornerShape(22.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = FifoColors.NavyPrimary),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Guardar @ID y continuar", fontSize = 15.sp, fontWeight = FontWeight.Bold)
                     Spacer(modifier = Modifier.width(8.dp))
                     Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(18.dp))
                 }
@@ -489,13 +946,17 @@ fun OnboardingScreen(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "Edad estimada: $ageCalculated años",
+                            text = if (ageCalculated.isNotBlank()) "Edad estimada: $ageCalculated años" else "Ingresa tu año de nacimiento",
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Bold,
                             color = FifoColors.NavyPrimary
                         )
                         Text(
-                            text = "Fifo guardará tu fecha ($birthDayMonth de $birthYear) para saludarte con cariño.",
+                            text = if (birthDayMonth.isNotBlank() && birthYear.isNotBlank()) {
+                                "Fifo guardará tu fecha ($birthDayMonth de $birthYear) para saludarte con cariño."
+                            } else {
+                                "Fifo recordará tu cumpleaños para felicitarte y celebrar contigo."
+                            },
                             fontSize = 11.sp,
                             color = FifoColors.NavyPrimary.copy(alpha = 0.85f)
                         )
@@ -1123,10 +1584,11 @@ fun OnboardingScreen(
                             )
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            SetupSummaryRow(icon = "👤", label = "Nombre:", value = fullName)
-                            SetupSummaryRow(icon = "🎂", label = "Cumpleaños:", value = "$birthDayMonth ($birthYear) · $ageCalculated años")
-                            SetupSummaryRow(icon = "🌸", label = "Identidad:", value = gender)
-                            SetupSummaryRow(icon = "📍", label = "Ciudad:", value = city)
+                            SetupSummaryRow(icon = "👤", label = "Nombre y Apellido:", value = fullName.ifBlank { "No especificado" })
+                            SetupSummaryRow(icon = "🆔", label = "ID en Fifo Amigos:", value = usernameHandle.ifBlank { "@usuario" })
+                            SetupSummaryRow(icon = "🎂", label = "Cumpleaños:", value = if (birthYear.isNotBlank()) "$birthDayMonth ($birthYear) · $ageCalculated años" else "No especificado")
+                            SetupSummaryRow(icon = "🌸", label = "Identidad:", value = gender.ifBlank { "No especificado" })
+                            SetupSummaryRow(icon = "📍", label = "Ciudad:", value = city.ifBlank { "No especificado" })
 
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
@@ -1162,7 +1624,8 @@ fun OnboardingScreen(
                     Button(
                         onClick = {
                             onComplete(
-                                fullName.ifBlank { "Lucía González" },
+                                fullName.ifBlank { email.substringBefore("@").ifBlank { "Usuario" } },
+                                usernameHandle.removePrefix("@").ifBlank { email.substringBefore("@").ifBlank { "usuario" } },
                                 ageCalculated,
                                 selectedInterests.toList(),
                                 "$birthDayMonth ($birthYear)",
@@ -1203,16 +1666,6 @@ fun OnboardingScreen(
         if (showMicGuideDialogInSetup) {
             BackgroundMicGuideDialog(
                 onDismiss = { showMicGuideDialogInSetup = false }
-            )
-        }
-
-        if (showGoogleDialogInSetup) {
-            GoogleSignInDialog(
-                onDismiss = { showGoogleDialogInSetup = false },
-                onSignInSuccess = { gName ->
-                    showGoogleDialogInSetup = false
-                    onGoogleSuccess(gName)
-                }
             )
         }
     }
