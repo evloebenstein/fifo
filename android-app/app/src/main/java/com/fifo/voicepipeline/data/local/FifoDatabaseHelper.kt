@@ -26,7 +26,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
     companion object {
         private const val TAG = "FifoDatabaseHelper"
         private const val DATABASE_NAME = "fifo_local.db"
-        private const val DATABASE_VERSION = 5
+        private const val DATABASE_VERSION = 6
         private val gson = Gson()
 
         @Volatile
@@ -257,6 +257,37 @@ class FifoDatabaseHelper private constructor(context: Context) :
             )
         """.trimIndent())
 
+        // 14. community_activities & activity_participants (Encuentros y actividades comunitarias)
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS community_activities (
+                id TEXT PRIMARY KEY,
+                title TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                spots_label TEXT NOT NULL,
+                spots_max INTEGER NOT NULL DEFAULT 15,
+                spots_taken INTEGER NOT NULL DEFAULT 0,
+                date_label TEXT NOT NULL,
+                location_name TEXT NOT NULL,
+                distance_label TEXT NOT NULL DEFAULT 'Cerca de ti',
+                icon_category TEXT NOT NULL DEFAULT 'book',
+                organizer_id TEXT NOT NULL DEFAULT '',
+                organizer_name TEXT NOT NULL DEFAULT 'Fifo',
+                organizer_type TEXT NOT NULL DEFAULT 'fifo',
+                target_tastes TEXT NOT NULL DEFAULT '[]',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """.trimIndent())
+
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS activity_participants (
+                activity_id TEXT NOT NULL,
+                user_id TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'joined',
+                joined_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (activity_id, user_id)
+            )
+        """.trimIndent())
+
         // Sembrar datos iniciales
         seedInitialData(db)
     }
@@ -337,6 +368,36 @@ class FifoDatabaseHelper private constructor(context: Context) :
                 Log.w(TAG, "Columna username ya existía o error: ${e.message}")
             }
         }
+        if (oldVersion < 6) {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS community_activities (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    description TEXT NOT NULL DEFAULT '',
+                    spots_label TEXT NOT NULL,
+                    spots_max INTEGER NOT NULL DEFAULT 15,
+                    spots_taken INTEGER NOT NULL DEFAULT 0,
+                    date_label TEXT NOT NULL,
+                    location_name TEXT NOT NULL,
+                    distance_label TEXT NOT NULL DEFAULT 'Cerca de ti',
+                    icon_category TEXT NOT NULL DEFAULT 'book',
+                    organizer_id TEXT NOT NULL DEFAULT '',
+                    organizer_name TEXT NOT NULL DEFAULT 'Fifo',
+                    organizer_type TEXT NOT NULL DEFAULT 'fifo',
+                    target_tastes TEXT NOT NULL DEFAULT '[]',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """.trimIndent())
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS activity_participants (
+                    activity_id TEXT NOT NULL,
+                    user_id TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'joined',
+                    joined_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (activity_id, user_id)
+                )
+            """.trimIndent())
+        }
     }
 
     override fun onOpen(db: SQLiteDatabase) {
@@ -401,95 +462,9 @@ class FifoDatabaseHelper private constructor(context: Context) :
 
 
     private fun seedInitialData(db: SQLiteDatabase) {
-        val userId = "usr_lucia_01"
-
-        // Usuario
-        db.execSQL("""
-            INSERT OR REPLACE INTO users (id, full_name, username, email, birth_date, birth_year, estimated_age, gender_identity, city, short_quote)
-            VALUES ('$userId', 'Lucía González', 'lucia_g', 'lucia.gonzalez@fifo.cl', '14 de Mayo, 1958', 1958, 68, 'Mujer', 'Santiago, Chile', 'Disfrutando de las pequeñas alegrías de cada día con mi robot Fifo.')
-        """.trimIndent())
-
-        // Perfil
-        db.execSQL("""
-            INSERT OR REPLACE INTO user_profiles (user_id, bio_ai, emergency_contact_name, emergency_contact_phone, preferred_address, continuous_listening_enabled)
-            VALUES ('$userId', 'Amante de las novelas de historia, la música clásica de piano y las mañanas tranquilas con café. Disfruta compartir con Fifo anécdotas de su familia, preparar recetas caseras y cuidar las orquídeas de su jardín.', 'Carmen (Hija)', '+56987654321', 'Av. Providencia 1234, Depto 402, Santiago', 0)
-        """.trimIndent())
-
-        // Gustos
-        val tastes = listOf(
-            Triple("t_01", "Lectura histórica", "lectura"),
-            Triple("t_02", "Música clásica", "musica"),
-            Triple("t_03", "Paseos en el parque", "bienestar"),
-            Triple("t_04", "Jardinería", "naturaleza"),
-            Triple("t_05", "Cocina tradicional", "cocina")
-        )
-        for ((id, name, cat) in tastes) {
-            db.execSQL("INSERT OR IGNORE INTO tastes (id, user_id, name, category, is_active) VALUES ('$id', '$userId', '$name', '$cat', 1)")
-        }
-
-        // Recordatorios
-        val reminders = listOf(
-            Triple("rem_1", "Tomar pastilla de la presión (Enalapril)", "20:00"),
-            Triple("rem_2", "Llamar a Carmen (Hija)", "17:30"),
-            Triple("rem_3", "Paseo de 15 minutos por la plaza", "11:00")
-        )
-        for ((id, title, time) in reminders) {
-            val completed = if (id == "rem_3") 1 else 0
-            val spoken = "Es hora de su recordatorio: $title"
-            db.execSQL("INSERT OR IGNORE INTO reminders_and_events (id, user_id, title, time_str, is_completed, spoken_text) VALUES ('$id', '$userId', '$title', '$time', $completed, '$spoken')")
-        }
-
-        // Historias de gustos
-        insertSeedStory(db, userId, "t_bday", "Cumpleaños y orígenes familiares", "Nacida el 14 de Mayo de 1958 en Santiago",
-            "Lucía nació en una fresca mañana de otoño en 1958 en el barrio tradicional de Santiago. Siempre recuerda cómo en su familia celebraban con torta de milhojas casera y música de fondo.",
-            listOf("Cumpleaños", "Familia", "Santiago"), "celebration", "Charla inicial con Fifo")
-
-        insertSeedStory(db, userId, "t_gardening", "Cuidado y amor por las orquídeas", "Riego por inmersión y luz filtrada de mañana",
-            "En sus charlas con Fifo, Lucía contó que tiene 4 maceteros en su balcón. Disfruta regarlas los miércoles y limpiar con cuidado sus hojas verdes con un paño húmedo.",
-            listOf("Jardinería", "Plantas", "Paciencia"), "nature", "Charla matutina del 2 de Octubre")
-
-        insertSeedStory(db, userId, "t_music", "Conciertos de piano y música clásica", "Chopin y las tardes tranquilas de otoño",
-            "La música clásica le transmite una paz inmensa. Las melodías de piano de la época romántica son sus predilectas para recordar su juventud.",
-            listOf("Música", "Relajo", "Piano"), "music", "Conversación sobre melodías relajantes")
-
-        // Recuerdos
-        db.execSQL("INSERT OR IGNORE INTO memories (id, user_id, emoji, title, detail, learned_date_label) VALUES ('m1', '$userId', '🌺', 'Flor favorita: Orquídeas blancas', 'Le recuerdan el patio iluminado de su infancia en el sur.', 'Aprendido hace 2 días')")
-        db.execSQL("INSERT OR IGNORE INTO memories (id, user_id, emoji, title, detail, learned_date_label) VALUES ('m2', '$userId', '☕', 'Costumbre de café suave a las 11:00', 'Siempre con poca azúcar y una galleta de avena.', 'Aprendido ayer')")
-        db.execSQL("INSERT OR IGNORE INTO memories (id, user_id, emoji, title, detail, learned_date_label) VALUES ('m3', '$userId', '📻', 'Radio Beethoven por las tardes', 'Le acompaña a descansar mientras teje o lee.', 'Aprendido hoy')")
-
-        // Posts Sociales
-        db.execSQL("INSERT OR IGNORE INTO social_posts (id, user_id, author_name, author_age, category, content, time_ago_label, likes_count, comments_count, accent_color_hex) VALUES ('post_1', '$userId', 'Lucía', 68, 'Jardinería', '¡Qué felicidad! Hoy abrió la primera flor de mi orquídea blanca. Fifo me recordó regarla ayer.', 'Hoy, 10:30', 14, 4, 4279318913)")
-        db.execSQL("INSERT OR IGNORE INTO social_posts (id, user_id, author_name, author_age, category, content, time_ago_label, likes_count, comments_count, accent_color_hex) VALUES ('post_2', '$userId', 'Lucía', 68, 'Música', 'Escuchando los nocturnos de Chopin mientras me tomo un té tibio. Momentos de calma.', 'Ayer', 19, 6, 4287323382)")
-
-        // Dispositivo
-        db.execSQL("INSERT OR IGNORE INTO device_locations (device_id, user_id, is_connected, last_connected_time, last_known_latitude, last_known_longitude, last_known_address, last_known_room) VALUES ('FIFO-S3-ESP32', '$userId', 0, 'Desconectado', -33.4255, -70.6143, 'Av. Providencia 1234, Santiago', 'Cerca del Living / Mesa de noche')")
-
-        // 11. Grafo Social y Contactos Relacionales Iniciales
-        db.execSQL("INSERT OR IGNORE INTO user_contacts_relational (id, user_id, contact_name, phone_number, relationship_role, closeness_score, trust_tier, emotional_valence, contextual_memory, mention_count) VALUES ('ctc_rel_01', '$userId', 'Carmen González', '+56987654321', 'Hija mayor (contacto prioritario de apoyo)', 0.98, 1, 'afectuoso', 'Llama los domingos por la tarde y suele visitarla cada dos semanas. La acompaña a controles médicos.', 14)")
-        db.execSQL("INSERT OR IGNORE INTO user_contacts_relational (id, user_id, contact_name, phone_number, relationship_role, closeness_score, trust_tier, emotional_valence, contextual_memory, mention_count) VALUES ('ctc_rel_02', '$userId', 'Dr. Álvaro Muñoz', '+56922334455', 'Médico geriatra de cabecera', 0.85, 2, 'protector', 'Controla la presión arterial y receta Enalapril. Atiende en el centro médico cercano.', 6)")
-        db.execSQL("INSERT OR IGNORE INTO user_contacts_relational (id, user_id, contact_name, phone_number, relationship_role, closeness_score, trust_tier, emotional_valence, contextual_memory, mention_count) VALUES ('ctc_rel_03', '$userId', 'Rosa Martínez', '+56933445566', 'Vecina de confianza y amiga', 0.78, 3, 'afectuoso', 'Vecina del departamento del frente. Toman té y comparten esquejes de plantas y recetas caseras.', 8)")
-        db.execSQL("INSERT OR IGNORE INTO user_contacts_relational (id, user_id, contact_name, phone_number, relationship_role, closeness_score, trust_tier, emotional_valence, contextual_memory, mention_count) VALUES ('ctc_rel_04', '$userId', 'Tomás', '+56944556677', 'Nieto universitario', 0.92, 2, 'afectuoso', 'Estudia ingeniería y la visita los fines de semana. Le gusta que su abuela le prepare queque de limón.', 5)")
-
-        // 12. Rutinas y Hábitos de Vida Diaria Iniciales
-        db.execSQL("INSERT OR IGNORE INTO user_daily_routines (id, user_id, routine_name, category, time_anchor, typical_time_str, frequency_rule, confidence_score, notes) VALUES ('rtn_01', '$userId', 'Toma de medicamento de la presión (Enalapril)', 'medication', 'morning', '08:30', 'daily', 0.95, 'Tomar junto con el desayuno y un vaso de agua.')")
-        db.execSQL("INSERT OR IGNORE INTO user_daily_routines (id, user_id, routine_name, category, time_anchor, typical_time_str, frequency_rule, confidence_score, notes) VALUES ('rtn_02', '$userId', 'Cuidado y riego de orquídeas en el balcón', 'hobby', 'morning', '10:00', 'weekly', 0.85, 'Riego por inmersión los días miércoles mientras escucha música clásica.')")
-        db.execSQL("INSERT OR IGNORE INTO user_daily_routines (id, user_id, routine_name, category, time_anchor, typical_time_str, frequency_rule, confidence_score, notes) VALUES ('rtn_03', '$userId', 'Caminata suave por la plaza', 'exercise', 'afternoon', '16:30', 'weekdays', 0.80, 'Paseo de 20 a 30 minutos cuando baja el sol.')")
-        db.execSQL("INSERT OR IGNORE INTO user_daily_routines (id, user_id, routine_name, category, time_anchor, typical_time_str, frequency_rule, confidence_score, notes) VALUES ('rtn_04', '$userId', 'Llamada familiar de los domingos', 'social', 'evening', '18:00', 'weekly', 0.90, 'Conversación habitual con su hija Carmen.')")
+        // Base de datos limpia: los datos reales se crean dinámicamente en el onboarding o se sincronizan desde el backend.
     }
 
-    private fun insertSeedStory(db: SQLiteDatabase, userId: String, id: String, title: String, subtitle: String, desc: String, tags: List<String>, icon: String, source: String) {
-        val cv = ContentValues().apply {
-            put("id", id)
-            put("user_id", userId)
-            put("title", title)
-            put("subtitle", subtitle)
-            put("description", desc)
-            put("tags", gson.toJson(tags))
-            put("icon_category", icon)
-            put("learned_from", source)
-        }
-        db.insertWithOnConflict("taste_stories", null, cv, SQLiteDatabase.CONFLICT_IGNORE)
-    }
 
     // ══════════════════════════════════════════════════════════
     //  LECTURAS Y ESCRITURAS DE CONTACTOS RELACIONALES Y RUTINAS
@@ -505,7 +480,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         }
     }
 
-    fun getRelationalContacts(userId: String = "usr_lucia_01"): List<RelationalContact> {
+    fun getRelationalContacts(userId: String): List<RelationalContact> {
         val list = mutableListOf<RelationalContact>()
         readableDatabase.rawQuery(
             "SELECT id, contact_name, phone_number, relationship_role, closeness_score, trust_tier, emotional_valence, contextual_memory, mention_count, last_mentioned_at, linked_conversation_ids FROM user_contacts_relational WHERE user_id = ? ORDER BY closeness_score DESC, mention_count DESC",
@@ -533,7 +508,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         return list
     }
 
-    fun addOrUpdateRelationalContact(userId: String = "usr_lucia_01", contact: RelationalContact) {
+    fun addOrUpdateRelationalContact(userId: String, contact: RelationalContact) {
         val db = writableDatabase
         // 1. Verificar si ya existe por nombre o número telefónico para este usuario
         var existingId: String? = null
@@ -602,7 +577,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
     /**
      * Ingesta o sincroniza por lotes los contactos reales del teléfono en SQLite de forma atómica.
      */
-    fun syncDeviceContactsBatch(userId: String = "usr_lucia_01", contacts: List<RelationalContact>) {
+    fun syncDeviceContactsBatch(userId: String, contacts: List<RelationalContact>) {
         val db = writableDatabase
         db.beginTransaction()
         try {
@@ -617,7 +592,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         }
     }
 
-    fun getDailyRoutines(userId: String = "usr_lucia_01"): List<DailyRoutine> {
+    fun getDailyRoutines(userId: String): List<DailyRoutine> {
         val list = mutableListOf<DailyRoutine>()
         readableDatabase.rawQuery(
             "SELECT id, routine_name, category, time_anchor, typical_time_str, frequency_rule, confidence_score, notes, is_active FROM user_daily_routines WHERE user_id = ? AND is_active = 1 ORDER BY typical_time_str ASC, confidence_score DESC",
@@ -642,7 +617,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         return list
     }
 
-    fun addOrUpdateDailyRoutine(userId: String = "usr_lucia_01", routine: DailyRoutine) {
+    fun addOrUpdateDailyRoutine(userId: String, routine: DailyRoutine) {
         val cv = ContentValues().apply {
             put("id", routine.id.ifBlank { "rtn_${UUID.randomUUID().toString().take(8)}" })
             put("user_id", userId)
@@ -663,7 +638,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
     //  LECTURAS Y ESCRITURAS DE USUARIO
     // ══════════════════════════════════════════════════════════
 
-    fun getUserProfile(userId: String = "usr_lucia_01"): UserProfileData {
+    fun getUserProfile(userId: String): UserProfileData {
         val db = readableDatabase
         val sql = """
             SELECT u.id, u.full_name, u.username, u.birth_date, u.birth_year, u.estimated_age,
@@ -907,7 +882,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
     }
 
     fun updateDemographics(
-        userId: String = "usr_lucia_01",
+        userId: String,
         fullName: String? = null,
         username: String? = null,
         birthDate: String? = null,
@@ -931,7 +906,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         }
     }
 
-    fun updateBio(userId: String = "usr_lucia_01", newBio: String) {
+    fun updateBio(userId: String, newBio: String) {
         val db = writableDatabase
         val cv = ContentValues().apply {
             put("bio_ai", newBio)
@@ -939,7 +914,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         db.update("user_profiles", cv, "user_id = ?", arrayOf(userId))
     }
 
-    fun updateInterestTags(userId: String = "usr_lucia_01", tags: List<String>) {
+    fun updateInterestTags(userId: String, tags: List<String>) {
         val db = writableDatabase
         val cv = ContentValues().apply {
             put("interest_tags", gson.toJson(tags))
@@ -949,7 +924,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
 
     // ── Gustos ───────────────────────────────────────────────
 
-    fun getTastes(userId: String = "usr_lucia_01"): List<String> {
+    fun getTastes(userId: String): List<String> {
         val list = mutableListOf<String>()
         readableDatabase.rawQuery("SELECT name FROM tastes WHERE user_id = ? AND is_active = 1 ORDER BY learned_at ASC", arrayOf(userId)).use { cur ->
             while (cur.moveToNext()) {
@@ -959,7 +934,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         return list
     }
 
-    fun addTaste(userId: String = "usr_lucia_01", name: String, category: String = "general"): Boolean {
+    fun addTaste(userId: String, name: String, category: String = "general"): Boolean {
         val db = writableDatabase
         val cv = ContentValues().apply {
             put("id", "t_${UUID.randomUUID().toString().take(8)}")
@@ -971,7 +946,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         return db.insertWithOnConflict("tastes", null, cv, SQLiteDatabase.CONFLICT_REPLACE) != -1L
     }
 
-    fun removeTaste(userId: String = "usr_lucia_01", name: String): Boolean {
+    fun removeTaste(userId: String, name: String): Boolean {
         val db = writableDatabase
         val cv = ContentValues().apply {
             put("is_active", 0)
@@ -981,7 +956,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
 
     // ── Historias de Gustos ───────────────────────────────────
 
-    fun getTasteStories(userId: String = "usr_lucia_01"): List<FifoTasteStory> {
+    fun getTasteStories(userId: String): List<FifoTasteStory> {
         val list = mutableListOf<FifoTasteStory>()
         readableDatabase.rawQuery("SELECT id, title, subtitle, description, tags, icon_category, learned_from FROM taste_stories WHERE user_id = ? ORDER BY created_at DESC", arrayOf(userId)).use { cur ->
             while (cur.moveToNext()) {
@@ -1007,7 +982,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         return list
     }
 
-    fun addTasteStory(userId: String = "usr_lucia_01", story: FifoTasteStory) {
+    fun addTasteStory(userId: String, story: FifoTasteStory) {
         val db = writableDatabase
         val cv = ContentValues().apply {
             put("id", story.id.ifBlank { "story_${UUID.randomUUID().toString().take(8)}" })
@@ -1022,9 +997,13 @@ class FifoDatabaseHelper private constructor(context: Context) :
         db.insertWithOnConflict("taste_stories", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
+    fun deleteTasteStory(userId: String, storyId: String) {
+        writableDatabase.delete("taste_stories", "user_id = ? AND id = ?", arrayOf(userId, storyId))
+    }
+
     // ── Recordatorios ────────────────────────────────────────
 
-    fun getReminders(userId: String = "usr_lucia_01"): List<FifoReminderItem> {
+    fun getReminders(userId: String): List<FifoReminderItem> {
         val list = mutableListOf<FifoReminderItem>()
         readableDatabase.rawQuery("SELECT id, title, time_str, category, is_completed FROM reminders_and_events WHERE user_id = ? ORDER BY is_completed ASC, time_str ASC", arrayOf(userId)).use { cur ->
             while (cur.moveToNext()) {
@@ -1042,7 +1021,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         return list
     }
 
-    fun addReminder(userId: String = "usr_lucia_01", reminder: FifoReminderItem) {
+    fun addReminder(userId: String, reminder: FifoReminderItem) {
         val db = writableDatabase
         val cv = ContentValues().apply {
             put("id", reminder.id.ifBlank { "rem_${UUID.randomUUID().toString().take(8)}" })
@@ -1056,7 +1035,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         db.insertWithOnConflict("reminders_and_events", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
-    fun completeReminder(userId: String = "usr_lucia_01", reminderId: String, completed: Boolean = true) {
+    fun completeReminder(userId: String, reminderId: String, completed: Boolean = true) {
         val db = writableDatabase
         val cv = ContentValues().apply {
             put("is_completed", if (completed) 1 else 0)
@@ -1064,13 +1043,13 @@ class FifoDatabaseHelper private constructor(context: Context) :
         db.update("reminders_and_events", cv, "user_id = ? AND id = ?", arrayOf(userId, reminderId))
     }
 
-    fun deleteReminder(userId: String = "usr_lucia_01", reminderId: String) {
+    fun deleteReminder(userId: String, reminderId: String) {
         writableDatabase.delete("reminders_and_events", "user_id = ? AND id = ?", arrayOf(userId, reminderId))
     }
 
     // ── Recuerdos ────────────────────────────────────────────
 
-    fun getMemories(userId: String = "usr_lucia_01"): List<FifoMemoryItem> {
+    fun getMemories(userId: String): List<FifoMemoryItem> {
         val list = mutableListOf<FifoMemoryItem>()
         readableDatabase.rawQuery("SELECT id, emoji, title, detail, learned_date_label FROM memories WHERE user_id = ? ORDER BY created_at DESC", arrayOf(userId)).use { cur ->
             while (cur.moveToNext()) {
@@ -1088,7 +1067,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         return list
     }
 
-    fun addMemory(userId: String = "usr_lucia_01", item: FifoMemoryItem) {
+    fun addMemory(userId: String, item: FifoMemoryItem) {
         val db = writableDatabase
         val cv = ContentValues().apply {
             put("id", item.id.ifBlank { "mem_${UUID.randomUUID().toString().take(8)}" })
@@ -1125,7 +1104,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         return list
     }
 
-    fun addSocialPost(post: UserSocialPost, userId: String = "usr_lucia_01") {
+    fun addSocialPost(post: UserSocialPost, userId: String) {
         val db = writableDatabase
         val cv = ContentValues().apply {
             put("id", post.id.ifBlank { "post_${UUID.randomUUID().toString().take(8)}" })
@@ -1140,6 +1119,10 @@ class FifoDatabaseHelper private constructor(context: Context) :
             put("accent_color_hex", post.accentColorHex)
         }
         db.insertWithOnConflict("social_posts", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    fun deleteSocialPost(postId: String) {
+        writableDatabase.delete("social_posts", "id = ?", arrayOf(postId))
     }
 
     // ── Ubicación del Robot ───────────────────────────────────
@@ -1163,7 +1146,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         return FifoDeviceLocation()
     }
 
-    fun updateDeviceLocation(deviceId: String = "FIFO-S3-ESP32", loc: FifoDeviceLocation, userId: String = "usr_lucia_01") {
+    fun updateDeviceLocation(deviceId: String = "FIFO-S3-ESP32", loc: FifoDeviceLocation, userId: String) {
         val db = writableDatabase
         val cv = ContentValues().apply {
             put("device_id", deviceId)
@@ -1182,7 +1165,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
 
     // ── Conversaciones Pasadas ─────────────────────────────────
 
-    fun getPastConversations(userId: String = "usr_lucia_01"): List<PastConversationItem> {
+    fun getPastConversations(userId: String): List<PastConversationItem> {
         val list = mutableListOf<PastConversationItem>()
         readableDatabase.rawQuery(
             "SELECT id, title, date_label, duration_label, summary, topic_tag, icon_name FROM past_conversations WHERE user_id = ? ORDER BY recorded_at DESC",
@@ -1205,7 +1188,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         return list
     }
 
-    fun addPastConversation(userId: String = "usr_lucia_01", item: PastConversationItem) {
+    fun addPastConversation(userId: String, item: PastConversationItem) {
         val db = writableDatabase
         val cv = ContentValues().apply {
             put("id", item.id.ifBlank { "c_${UUID.randomUUID().toString().take(8)}" })
@@ -1220,13 +1203,13 @@ class FifoDatabaseHelper private constructor(context: Context) :
         db.insertWithOnConflict("past_conversations", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
     }
 
-    fun deletePastConversation(userId: String = "usr_lucia_01", id: String) {
+    fun deletePastConversation(userId: String, id: String) {
         writableDatabase.delete("past_conversations", "user_id = ? AND id = ?", arrayOf(userId, id))
     }
 
     // ── Fragmentos de Conversaciones (Doble Capa) ───────────────
 
-    fun getConversationFragments(userId: String = "usr_lucia_01"): List<ConversationFragment> {
+    fun getConversationFragments(userId: String): List<ConversationFragment> {
         val list = mutableListOf<ConversationFragment>()
         readableDatabase.rawQuery(
             "SELECT id, server_conversation_id, key_topics, named_entities, detected_mood, compact_summary, primary_tag, duration_seconds, recorded_at FROM conversation_fragments WHERE user_id = ? ORDER BY recorded_at DESC",
@@ -1263,7 +1246,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         return list
     }
 
-    fun addConversationFragment(userId: String = "usr_lucia_01", fragment: ConversationFragment) {
+    fun addConversationFragment(userId: String, fragment: ConversationFragment) {
         val db = writableDatabase
         val cv = ContentValues().apply {
             put("id", fragment.id.ifBlank { "frag_${UUID.randomUUID().toString().take(8)}" })
@@ -1282,7 +1265,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
 
     // ── Sincronización Remota (MySQL API -> SQLite) ───────────
 
-    fun bulkUpsertSyncBundle(userId: String = "usr_lucia_01", bundle: com.fifo.voicepipeline.network.FifoBackendClient.SyncedUserBundle) {
+    fun bulkUpsertSyncBundle(userId: String, bundle: com.fifo.voicepipeline.network.FifoBackendClient.SyncedUserBundle) {
         val db = writableDatabase
         db.beginTransaction()
         try {
@@ -1368,6 +1351,220 @@ class FifoDatabaseHelper private constructor(context: Context) :
         } finally {
             db.endTransaction()
         }
+    }
 
+    // ═════════════════════════════════════════════════════════════════════
+    //  ENCUENTROS Y ACTIVIDADES COMUNITARIAS
+    // ═════════════════════════════════════════════════════════════════════
+
+    fun getCommunityActivities(userId: String): List<CommunityActivityItem> {
+        val list = mutableListOf<CommunityActivityItem>()
+        val db = readableDatabase
+        val cursor: Cursor? = db.rawQuery(
+            """
+            SELECT a.id, a.title, a.description, a.spots_label, a.spots_max, a.spots_taken,
+                   a.date_label, a.location_name, a.distance_label, a.icon_category,
+                   a.organizer_id, a.organizer_name, a.organizer_type, a.target_tastes,
+                   a.created_at,
+                   (SELECT COUNT(*) FROM activity_participants ap WHERE ap.activity_id = a.id AND ap.user_id = ? AND ap.status = 'joined') as is_user_joined,
+                   (SELECT COUNT(*) FROM activity_participants ap WHERE ap.activity_id = a.id AND ap.status = 'joined') as real_joined_count
+            FROM community_activities a
+            ORDER BY a.created_at DESC
+            """.trimIndent(),
+            arrayOf(userId)
+        )
+        cursor?.use { c ->
+            while (c.moveToNext()) {
+                val tastesJson = c.getString(13) ?: "[]"
+                val tastesList: List<String> = try {
+                    gson.fromJson(tastesJson, object : TypeToken<List<String>>() {}.type) ?: emptyList()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+                val realJoined = c.getInt(16)
+                val baseSpotsTaken = c.getInt(5)
+                val totalTaken = if (realJoined > baseSpotsTaken) realJoined else baseSpotsTaken
+                val maxSpots = c.getInt(4).takeIf { it > 0 } ?: 15
+                val remaining = (maxSpots - totalTaken).coerceAtLeast(0)
+
+                list.add(
+                    CommunityActivityItem(
+                        id = c.getString(0),
+                        title = c.getString(1),
+                        description = c.getString(2) ?: "",
+                        spotsLabel = if (remaining > 0) "Quedan $remaining cupos" else "Cupos completos",
+                        spotsMax = maxSpots,
+                        spotsTaken = totalTaken,
+                        dateLabel = c.getString(6),
+                        locationName = c.getString(7),
+                        distanceLabel = c.getString(8) ?: "Cerca de ti",
+                        iconCategory = c.getString(9) ?: "book",
+                        organizerId = c.getString(10) ?: "",
+                        organizerName = c.getString(11) ?: "Fifo",
+                        organizerType = c.getString(12) ?: "fifo",
+                        targetTastes = tastesList,
+                        isJoined = c.getInt(15) > 0,
+                        createdAt = c.getString(14) ?: ""
+                    )
+                )
+            }
+        }
+        return list
+    }
+
+    fun addCommunityActivity(item: CommunityActivityItem): Boolean {
+        val cv = ContentValues().apply {
+            put("id", item.id)
+            put("title", item.title)
+            put("description", item.description)
+            put("spots_label", item.spotsLabel)
+            put("spots_max", item.spotsMax)
+            put("spots_taken", item.spotsTaken)
+            put("date_label", item.dateLabel)
+            put("location_name", item.locationName)
+            put("distance_label", item.distanceLabel)
+            put("icon_category", item.iconCategory)
+            put("organizer_id", item.organizerId)
+            put("organizer_name", item.organizerName)
+            put("organizer_type", item.organizerType)
+            put("target_tastes", gson.toJson(item.targetTastes))
+            if (item.createdAt.isNotBlank()) {
+                put("created_at", item.createdAt)
+            }
+        }
+        val result = writableDatabase.insertWithOnConflict(
+            "community_activities",
+            null,
+            cv,
+            SQLiteDatabase.CONFLICT_REPLACE
+        )
+        return result != -1L
+    }
+
+    fun joinCommunityActivity(activityId: String, userId: String): Boolean {
+        val cv = ContentValues().apply {
+            put("activity_id", activityId)
+            put("user_id", userId)
+            put("status", "joined")
+        }
+        val res = writableDatabase.insertWithOnConflict(
+            "activity_participants",
+            null,
+            cv,
+            SQLiteDatabase.CONFLICT_REPLACE
+        )
+        if (res != -1L) {
+            writableDatabase.execSQL(
+                "UPDATE community_activities SET spots_taken = spots_taken + 1 WHERE id = ?",
+                arrayOf(activityId)
+            )
+            return true
+        }
+        return false
+    }
+
+    fun leaveCommunityActivity(activityId: String, userId: String): Boolean {
+        val deleted = writableDatabase.delete(
+            "activity_participants",
+            "activity_id = ? AND user_id = ?",
+            arrayOf(activityId, userId)
+        )
+        if (deleted > 0) {
+            writableDatabase.execSQL(
+                "UPDATE community_activities SET spots_taken = MAX(0, spots_taken - 1) WHERE id = ?",
+                arrayOf(activityId)
+            )
+            return true
+        }
+        return false
+    }
+
+    fun deleteCommunityActivity(activityId: String): Boolean {
+        writableDatabase.delete("activity_participants", "activity_id = ?", arrayOf(activityId))
+        val rows = writableDatabase.delete("community_activities", "id = ?", arrayOf(activityId))
+        return rows > 0
+    }
+
+    fun seedDefaultCommunityActivitiesIfEmpty(userId: String) {
+        val count = try {
+            val cursor = readableDatabase.rawQuery("SELECT COUNT(*) FROM community_activities", null)
+            cursor.use { if (it.moveToFirst()) it.getInt(0) else 0 }
+        } catch (e: Exception) {
+            0
+        }
+        if (count == 0) {
+            val initial = listOf(
+                com.fifo.voicepipeline.ui.model.CommunityActivityItem(
+                    id = "act_fifo_01",
+                    title = "Taller de Pintura y Acuarela Botánica",
+                    description = "Un espacio relajado para pintar flores y paisajes en acuarela. Fifo proveerá los materiales y una guía paso a paso para todos los niveles.",
+                    spotsLabel = "Quedan 8 cupos",
+                    spotsMax = 12,
+                    spotsTaken = 4,
+                    dateLabel = "Jueves 16 oct · 16:30",
+                    locationName = "Centro Comunitario El Roble, Sala 3",
+                    distanceLabel = "A 450 m",
+                    iconCategory = "palette",
+                    organizerId = "fifo_official",
+                    organizerName = "Fifo",
+                    organizerType = "fifo",
+                    targetTastes = listOf("Pintura y arte", "Jardinería y plantas", "Manualidades"),
+                    isJoined = false
+                ),
+                com.fifo.voicepipeline.ui.model.CommunityActivityItem(
+                    id = "act_comm_02",
+                    title = "Intercambio de Recetas y Dulces Caseros",
+                    description = "Nos reuniremos a compartir secretos culinarios tradicionales: masas, mermeladas y postres de antaño con una taza de té caliente.",
+                    spotsLabel = "Quedan 8 cupos",
+                    spotsMax = 15,
+                    spotsTaken = 7,
+                    dateLabel = "Sábado 18 oct · 17:00",
+                    locationName = "Café & Taller La Casona",
+                    distanceLabel = "A 1.1 km",
+                    iconCategory = "coffee",
+                    organizerId = "org_casona",
+                    organizerName = "Club Gastronómico Vecinal",
+                    organizerType = "community_group",
+                    targetTastes = listOf("Cocina tradicional", "Historias de vida", "Café y tertulias"),
+                    isJoined = false
+                ),
+                com.fifo.voicepipeline.ui.model.CommunityActivityItem(
+                    id = "act_user_03",
+                    title = "Caminata y Tertulia en el Parque Botánico",
+                    description = "Caminata suave de 30 minutos a paso conversado por los senderos arbolados, terminando con una charla bajo los sauces.",
+                    spotsLabel = "Quedan 5 cupos",
+                    spotsMax = 8,
+                    spotsTaken = 3,
+                    dateLabel = "Domingo 19 oct · 10:30",
+                    locationName = "Acceso Principal Parque Botánico",
+                    distanceLabel = "A 600 m",
+                    iconCategory = "nature",
+                    organizerId = "usr_carmen_g",
+                    organizerName = "Carmen González",
+                    organizerType = "user",
+                    targetTastes = listOf("Paseos al aire libre", "Naturaleza y botánica", "Fotografía"),
+                    isJoined = false
+                ),
+                com.fifo.voicepipeline.ui.model.CommunityActivityItem(
+                    id = "act_comp_04",
+                    title = "Tarde de Boleros y Música Clásica en Vivo",
+                    description = "Ensamble de cuerdas en vivo interpretando clásicos de Lucho Gatica, Violeta Parra y melodías sinfónicas al atardecer.",
+                    spotsLabel = "Quedan 9 cupos",
+                    spotsMax = 20,
+                    spotsTaken = 11,
+                    dateLabel = "Miércoles 22 oct · 18:00",
+                    locationName = "Teatro Municipal de Ñuñoa",
+                    distanceLabel = "A 1.8 km",
+                    iconCategory = "music",
+                    organizerId = "org_teatro_mun",
+                    organizerName = "Corporación Cultural Municipal",
+                    organizerType = "company",
+                    targetTastes = listOf("Música clásica", "Boleros y tango", "Teatro y cultura"),
+                    isJoined = false
+                )
+            )
+            initial.forEach { addCommunityActivity(it) }
+        }
     }
 }
+

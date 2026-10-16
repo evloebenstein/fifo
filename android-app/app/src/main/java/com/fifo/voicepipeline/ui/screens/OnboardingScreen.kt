@@ -674,7 +674,7 @@ fun OnboardingScreen(
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("✨", fontSize = 14.sp)
+                        Icon(Icons.Default.Lightbulb, contentDescription = null, tint = FifoColors.NavyPrimary, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text(
                             text = "Sugerencias de Fifo según tu nombre:",
@@ -846,7 +846,7 @@ fun OnboardingScreen(
                             modifier = Modifier.padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("🤖", fontSize = 24.sp)
+                            Icon(Icons.Default.SmartToy, contentDescription = null, tint = FifoColors.NavyPrimary, modifier = Modifier.size(24.dp))
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
                                 Text(
@@ -942,7 +942,7 @@ fun OnboardingScreen(
                     modifier = Modifier.padding(14.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text("🎂", fontSize = 22.sp)
+                    Icon(Icons.Default.Cake, contentDescription = null, tint = FifoColors.NavyPrimary, modifier = Modifier.size(22.dp))
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
@@ -1364,7 +1364,7 @@ fun OnboardingScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "⚠️ En celulares Xiaomi / POCO: El sistema silencia el micrófono al salir de la app si no configuras «Permitir siempre» e «Inicio automático».",
+                            text = "Aviso para celulares Xiaomi / POCO: El sistema silencia el micrófono al salir de la app si no configuras «Permitir siempre» e «Inicio automático».",
                             fontSize = 11.sp,
                             color = Color(0xFF92400E),
                             lineHeight = 15.sp,
@@ -1496,7 +1496,7 @@ fun OnboardingScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "✓ Fifo podrá asistirte durante cualquier llamada o videollamada.",
+                                text = "Fifo podrá asistirte durante cualquier llamada o videollamada.",
                                 fontSize = 12.sp,
                                 color = Color(0xFF166534),
                                 fontWeight = FontWeight.SemiBold,
@@ -1584,11 +1584,11 @@ fun OnboardingScreen(
                             )
                             Spacer(modifier = Modifier.height(10.dp))
 
-                            SetupSummaryRow(icon = "👤", label = "Nombre y Apellido:", value = fullName.ifBlank { "No especificado" })
-                            SetupSummaryRow(icon = "🆔", label = "ID en Fifo Amigos:", value = usernameHandle.ifBlank { "@usuario" })
-                            SetupSummaryRow(icon = "🎂", label = "Cumpleaños:", value = if (birthYear.isNotBlank()) "$birthDayMonth ($birthYear) · $ageCalculated años" else "No especificado")
-                            SetupSummaryRow(icon = "🌸", label = "Identidad:", value = gender.ifBlank { "No especificado" })
-                            SetupSummaryRow(icon = "📍", label = "Ciudad:", value = city.ifBlank { "No especificado" })
+                            SetupSummaryRow(icon = Icons.Default.Person, label = "Nombre y Apellido:", value = fullName.ifBlank { "No especificado" })
+                            SetupSummaryRow(icon = Icons.Default.AlternateEmail, label = "ID en Fifo Amigos:", value = usernameHandle.ifBlank { "@usuario" })
+                            SetupSummaryRow(icon = Icons.Default.Cake, label = "Cumpleaños:", value = if (birthYear.isNotBlank()) "$birthDayMonth ($birthYear) · $ageCalculated años" else "No especificado")
+                            SetupSummaryRow(icon = Icons.Default.Face, label = "Identidad:", value = gender.ifBlank { "No especificado" })
+                            SetupSummaryRow(icon = Icons.Default.LocationOn, label = "Ciudad:", value = city.ifBlank { "No especificado" })
 
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
@@ -1735,7 +1735,7 @@ private fun FifoConversationHeader(
 
 @Composable
 private fun SetupSummaryRow(
-    icon: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
     label: String,
     value: String
 ) {
@@ -1745,7 +1745,7 @@ private fun SetupSummaryRow(
             .padding(vertical = 3.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Text(icon, fontSize = 14.sp)
+        Icon(icon, contentDescription = null, tint = FifoColors.NavyPrimary, modifier = Modifier.size(15.dp))
         Spacer(modifier = Modifier.width(8.dp))
         Text(
             text = label,

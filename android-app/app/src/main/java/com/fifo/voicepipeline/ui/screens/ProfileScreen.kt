@@ -114,127 +114,28 @@ fun ProfileScreen(
         ?: "Tú"
     val displayAge = userProfileState.estimatedAge.takeIf { it > 0 } ?: (age.toIntOrNull() ?: 0)
 
+    val myName = userProfileState.fullName.ifBlank { currentName }
+    val myPosts = remember(postsState, myName) {
+        if (myName.isBlank()) emptyList()
+        else postsState.filter { it.author.equals(myName, ignoreCase = true) }
+    }
+
     // Publicaciones realizadas por el usuario (se ven en su perfil y en Fifo Amigos)
-    var userPosts by remember(postsState, displayName) {
-        mutableStateOf(
-            if (postsState.isNotEmpty()) {
-                postsState
-            } else {
-                listOf(
-                    UserSocialPost(
-                        id = "p1",
-                        author = displayName,
-                        age = displayAge,
-                        category = "Lectura & Naturaleza",
-                        timeAgo = "Hace 2 horas",
-                        content = "Acabo de terminar un libro maravilloso en el banco del parque bajo los árboles. Me encantaría encontrar a alguien para comentarlo con calma y luego dar un paseo.",
-                        likes = 18,
-                        commentsCount = 6,
-                        accentColorHex = 0xFF38BDF8
-                    ),
-                    UserSocialPost(
-                        id = "p2",
-                        author = displayName,
-                        age = displayAge,
-                        category = "Jardinería & Balcón",
-                        timeAgo = "Ayer",
-                        content = "¡Mis plantas del balcón florecieron esta mañana! Les puse un poquito de agua tibia filtrada como me aconsejó Fifo y están hermosas. ¿Alguien más tiene plantas en su terraza?",
-                        likes = 24,
-                        commentsCount = 8,
-                        accentColorHex = 0xFFF472B6
-                    ),
-                    UserSocialPost(
-                        id = "p3",
-                        author = displayName,
-                        age = displayAge,
-                        category = "Cocina tradicional",
-                        timeAgo = "Hace 3 días",
-                        content = "Hoy preparé una rica receta casera con ingredientes frescos de la feria. Toda la casa huele a almuerzo de domingo. ¡Ojalá pudiera compartir un trozo con ustedes!",
-                        likes = 31,
-                        commentsCount = 12,
-                        accentColorHex = 0xFFFBBF24
-                    )
-                )
-            }
-        )
+    var userPosts by remember(myPosts) {
+        mutableStateOf(myPosts)
     }
 
     // Historias y gustos en detalle curados por Fifo a partir de las charlas cotidianas (sin datos sensibles)
-    var tasteStories by remember(storiesState, userProfileState) {
-        mutableStateOf(
-            if (storiesState.isNotEmpty()) {
-                storiesState
-            } else {
-                listOf(
-                    FifoTasteStory(
-                        id = "t_bday",
-                        title = "Cumpleaños y orígenes familiares",
-                        subtitle = if (userProfileState.birthDate.isNotBlank()) "Nacido(a) el ${userProfileState.birthDate}" else "Fecha de cumpleaños registrada",
-                        description = if (userProfileState.birthDate.isNotBlank()) "Fifo recuerda con mucho cariño tu fecha de nacimiento (${userProfileState.birthDate}). Te gusta celebrar en familia recordando anécdotas de juventud y compartiendo con tus seres queridos." else "Fifo recordará tu cumpleaños para saludarte y celebrar contigo.",
-                        tags = listOf("#Cumpleaños", "#Familia", "#Celebración"),
-                        iconCategory = "heart",
-                        learnedFrom = "Configurado durante el setup inicial con Fifo"
-                    ),
-                    FifoTasteStory(
-                        id = "t1",
-                        title = "Música y melodías clásicas",
-                        subtitle = "Pasión por el piano y las melodías clásicas",
-                        description = "En nuestras conversaciones descubrimos tu gusto por las melodías clásicas. Te evocan momentos de paz y te acompañan con serenidad mientras disfrutas de una taza de té.",
-                        tags = listOf("#MúsicaClásica", "#Piano", "#TardeDeTé", "#Serenidad"),
-                        iconCategory = "music",
-                        learnedFrom = "Extraído de charlas cotidianas · Sin datos sensibles"
-                    ),
-                    FifoTasteStory(
-                        id = "t2",
-                        title = "Cuidado de plantas y naturaleza",
-                        subtitle = "Paciencia y amor por la vida verde",
-                        description = "Fifo aprendió que dedicas tiempo a regar y cuidar tus plantas. Disfrutas ver crecer cada brote nuevo y prefieres la luz matutina indirecta para mantener sus hojas brillantes.",
-                        tags = listOf("#Jardinería", "#Plantas", "#VidaVerde", "#Balcón"),
-                        iconCategory = "gardening",
-                        learnedFrom = "Extraído de charlas cotidianas · Sin datos sensibles"
-                    ),
-                    FifoTasteStory(
-                        id = "t3",
-                        title = "Recetas de cocina casera",
-                        subtitle = "Gastronomía con memoria y tradición familiar",
-                        description = "Un gusto entrañable: cocinar recetas tradicionales con canela fresca y sazón casera. Compartiste con Fifo cómo estos aromas despiertan historias familiares.",
-                        tags = listOf("#CocinaCasera", "#RecetasFamiliares", "#Tradición"),
-                        iconCategory = "cooking",
-                        learnedFrom = "Extraído de charlas cotidianas · Sin datos sensibles"
-                    ),
-                    FifoTasteStory(
-                        id = "t4",
-                        title = "Novelas históricas y biografías",
-                        subtitle = "El placer de viajar a otras épocas",
-                        description = "Prefieres sumergirte en libros que narran vidas extraordinarias y épocas pasadas con detalle. Disfrutas leer un capítulo al aire libre los fines de semana soleados.",
-                        tags = listOf("#Lectura", "#Historia", "#Novelas", "#TiempoLibre"),
-                        iconCategory = "book",
-                        learnedFrom = "Extraído de charlas cotidianas · Sin datos sensibles"
-                    ),
-                    FifoTasteStory(
-                        id = "t5",
-                        title = "Caminatas bajo el sol templado",
-                        subtitle = "Bienestar, aire puro y paso tranquilo",
-                        description = "Nos contaste que caminar a media mañana por el sendero arbolado te llena de energía positiva. Prefieres días despejados sin viento frío para respirar profundo y despejar la mente.",
-                        tags = listOf("#Caminatas", "#Parque", "#Bienestar", "#AireLibre"),
-                        iconCategory = "walk",
-                        learnedFrom = "Extraído de charlas cotidianas · Sin datos sensibles"
-                    )
-                )
-            }
-        )
+    var tasteStories by remember(storiesState) {
+        mutableStateOf(storiesState)
     }
 
-    LaunchedEffect(postsState) {
-        if (postsState.isNotEmpty()) {
-            userPosts = postsState
-        }
+    LaunchedEffect(myPosts) {
+        userPosts = myPosts
     }
 
     LaunchedEffect(storiesState) {
-        if (storiesState.isNotEmpty()) {
-            tasteStories = storiesState
-        }
+        tasteStories = storiesState
     }
 
     // Configuraciones amigables para personas mayores
@@ -340,7 +241,7 @@ fun ProfileScreen(
                             )
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
-                                text = if (isBleConnected) "Robot Conectado ✓" else "Conectar Robot",
+                                text = if (isBleConnected) "Robot Conectado" else "Conectar Robot",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold
                             )
@@ -616,7 +517,7 @@ fun ProfileScreen(
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
                             text = if (isA11yActive)
-                                "✓ Activo · Fifo te escucha y cuelga en llamadas de celular, WhatsApp o WeChat."
+                                "Activo · Fifo te escucha y cuelga en llamadas de celular, WhatsApp o WeChat."
                             else
                                 "Pendiente · Toca aquí para ver los pasos de activación en tu teléfono.",
                             fontSize = 12.sp,
@@ -759,7 +660,11 @@ fun ProfileScreen(
 
                             if (keySavedSuccess) {
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text("✓ Clave guardada con éxito", fontSize = 12.sp, color = FifoColors.StatusListening, fontWeight = FontWeight.Bold)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = FifoColors.StatusListening, modifier = Modifier.size(14.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Clave guardada con éxito", fontSize = 12.sp, color = FifoColors.StatusListening, fontWeight = FontWeight.Bold)
+                                }
                             }
 
                             if (testResultText != null) {
@@ -983,9 +888,10 @@ fun ProfileScreen(
                                 )
                             }
 
+                            val daysTogether = if (displayName != "Tú" && displayName.isNotBlank()) 1 else 0
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = "12",
+                                    text = "$daysTogether",
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = FifoColors.NavyPrimary
@@ -999,7 +905,7 @@ fun ProfileScreen(
 
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = "${tasteStories.size}",
+                                    text = "${interests.size}",
                                     fontSize = 20.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = FifoColors.NavyPrimary
@@ -1089,7 +995,7 @@ fun ProfileScreen(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text("🎂", fontSize = 16.sp)
+                            Icon(Icons.Default.Cake, contentDescription = null, tint = FifoColors.NavyPrimary, modifier = Modifier.size(18.dp))
                             Spacer(modifier = Modifier.width(8.dp))
                             Column {
                                 Text(
@@ -1162,7 +1068,7 @@ fun ProfileScreen(
                             Spacer(modifier = Modifier.height(8.dp))
 
                             Text(
-                                text = "✨ Fifo aprende de cada charla y redacta tu biografía automáticamente.",
+                                text = "Fifo aprende de cada charla y redacta tu biografía automáticamente.",
                                 fontSize = 11.sp,
                                 color = FifoColors.LightTextSecondary,
                                 lineHeight = 15.sp
@@ -1419,7 +1325,12 @@ fun ProfileScreen(
                                     modifier = Modifier.padding(24.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Text("📝", fontSize = 32.sp)
+                                    Icon(
+                                        imageVector = Icons.Default.EditNote,
+                                        contentDescription = null,
+                                        tint = FifoColors.NavyPrimary,
+                                        modifier = Modifier.size(36.dp)
+                                    )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
                                         text = "Aún no tienes publicaciones en tu perfil",
@@ -1645,7 +1556,12 @@ fun ProfileScreen(
                                     modifier = Modifier.padding(24.dp),
                                     horizontalAlignment = Alignment.CenterHorizontally
                                 ) {
-                                    Text("🌱", fontSize = 32.sp)
+                                    Icon(
+                                        imageVector = Icons.Default.Psychology,
+                                        contentDescription = null,
+                                        tint = FifoColors.NavyPrimary,
+                                        modifier = Modifier.size(36.dp)
+                                    )
                                     Spacer(modifier = Modifier.height(8.dp))
                                     Text(
                                         text = "Sin gustos guardados",
@@ -1998,7 +1914,11 @@ fun ProfileScreen(
                             gender = editGender
                             interests = editInterests
                             // Regenerar biografía adaptada
-                            bioText = "Amante de ${editInterests.take(3).joinToString(", ")}. Le gusta conversar con Fifo sobre sus pasatiempos favoritos y compartir anécdotas de su día a día."
+                            bioText = if (editInterests.isNotEmpty()) {
+                                "Amante de ${editInterests.take(3).joinToString(", ")}. Le gusta conversar con Fifo sobre sus pasatiempos favoritos y compartir anécdotas de su día a día."
+                            } else {
+                                "Disfruta conversar con calma con Fifo sobre sus pasatiempos favoritos y su día a día."
+                            }
                             com.fifo.voicepipeline.data.FifoDataRepository.updateDemographics(
                                 fullName = editName,
                                 username = editUsername.removePrefix("@").ifBlank { "usuario" },

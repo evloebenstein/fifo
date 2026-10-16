@@ -198,7 +198,10 @@ fun MainScreen(
                                 FriendsScreen()
                             }
                             FifoTab.ACTIVITIES -> {
-                                ActivitiesScreen(userName = userName)
+                                ActivitiesScreen(
+                                    userName = userName,
+                                    isBleConnected = isBleConnected
+                                )
                             }
                             FifoTab.PROFILE -> {
                                 ProfileScreen(

@@ -6,6 +6,7 @@ import urllib.request
 import urllib.error
 from typing import List, Optional, Any, Dict
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 import mysql.connector
@@ -104,6 +105,42 @@ def ensure_schema_migrations():
             cursor.execute("ALTER TABLE users MODIFY COLUMN email VARCHAR(180) NULL DEFAULT NULL")
         except Exception:
             pass
+
+        # 14. Tablas para Encuentros y Actividades Comunitarias
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS community_activities (
+                id VARCHAR(64) NOT NULL PRIMARY KEY,
+                title VARCHAR(255) NOT NULL,
+                description TEXT NOT NULL,
+                spots_label VARCHAR(64) DEFAULT '10 plazas disponibles',
+                spots_max INT DEFAULT 10,
+                spots_taken INT DEFAULT 0,
+                date_label VARCHAR(128) NOT NULL,
+                location_name VARCHAR(255) NOT NULL,
+                distance_label VARCHAR(64) DEFAULT 'Cerca de tu sector',
+                icon_category VARCHAR(64) DEFAULT 'nature',
+                organizer_id VARCHAR(64) NOT NULL,
+                organizer_name VARCHAR(255) NOT NULL,
+                organizer_type VARCHAR(64) NOT NULL DEFAULT 'user',
+                target_tastes JSON NULL DEFAULT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_comm_org (organizer_id),
+                INDEX idx_comm_type (organizer_type)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_es_0900_ai_ci;
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS activity_participants (
+                id VARCHAR(64) NOT NULL PRIMARY KEY,
+                activity_id VARCHAR(64) NOT NULL,
+                user_id VARCHAR(64) NOT NULL,
+                status VARCHAR(32) NOT NULL DEFAULT 'joined',
+                joined_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uq_act_user (activity_id, user_id),
+                INDEX idx_part_user (user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_es_0900_ai_ci;
+        """)
+
 
         cursor.close()
         conn.close()
@@ -2349,4 +2386,1075 @@ def get_fifo_friends_recommendations(user_id: str):
         "recommendedFriends": recommendations,
         "recommendedPosts": recommended_posts
     }
+
+
+# ==============================================================================
+#  14. Endpoints de Actividades Comunitarias y Encuentros Vecinales
+# ==============================================================================
+
+class CommunityActivityPayload(BaseModel):
+    id: Optional[str] = None
+    title: str
+    description: str
+    spots_label: Optional[str] = "10 plazas disponibles"
+    spots_max: Optional[int] = 10
+    spots_taken: Optional[int] = 0
+    date_label: str
+    location_name: str
+    distance_label: Optional[str] = "Cerca de tu sector"
+    icon_category: Optional[str] = "nature"
+    organizer_id: str
+    organizer_name: str
+    organizer_type: Optional[str] = "user"
+    target_tastes: Optional[List[str]] = []
+
+
+@app.get("/activities")
+def list_activities(user_id: Optional[str] = None):
+    """Retorna las actividades comunitarias registradas con estado de inscripción reactivo."""
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("""
+        SELECT a.id, a.title, a.description, a.spots_label, a.spots_max, a.spots_taken,
+               a.date_label, a.location_name, a.distance_label, a.icon_category,
+               a.organizer_id, a.organizer_name, a.organizer_type, a.target_tastes,
+               a.created_at,
+               (SELECT COUNT(*) FROM activity_participants ap WHERE ap.activity_id = a.id AND ap.user_id = %s AND ap.status = 'joined') AS is_user_joined,
+               (SELECT COUNT(*) FROM activity_participants ap WHERE ap.activity_id = a.id AND ap.status = 'joined') AS real_joined_count
+        FROM community_activities a
+        ORDER BY a.created_at DESC
+    """, (user_id or "",))
+
+    rows = cursor.fetchall()
+    activities = []
+    for r in rows:
+        target_tastes = parse_json_col(r.get("target_tastes"), [])
+        real_joined = r.get("real_joined_count") or 0
+        base_taken = r.get("spots_taken") or 0
+        total_taken = max(real_joined, base_taken)
+        max_spots = r.get("spots_max") or 10
+        remaining = max(0, max_spots - total_taken)
+
+        activities.append({
+            "id": r["id"],
+            "title": r["title"],
+            "description": r["description"],
+            "spotsLabel": f"Quedan {remaining} cupos" if remaining > 0 else "Cupos completos",
+            "spotsMax": max_spots,
+            "spotsTaken": total_taken,
+            "spotsRemaining": remaining,
+            "dateLabel": r["date_label"],
+            "locationName": r["location_name"],
+            "distanceLabel": r["distance_label"] or "Cerca de tu sector",
+            "iconCategory": r["icon_category"] or "nature",
+            "organizerId": r["organizer_id"],
+            "organizerName": r["organizer_name"],
+            "organizerType": r["organizer_type"],
+            "targetTastes": target_tastes,
+            "isJoined": (r.get("is_user_joined") or 0) > 0,
+            "createdAt": str(r["created_at"])
+        })
+
+    cursor.close()
+    conn.close()
+    return activities
+
+
+@app.post("/activities")
+def create_activity(payload: CommunityActivityPayload):
+    """Crea una nueva actividad comunitaria y auto-inscribe al organizador."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    act_id = payload.id or ("act_" + str(uuid.uuid4())[:8])
+    cursor.execute("""
+        INSERT INTO community_activities (
+            id, title, description, spots_label, spots_max, spots_taken,
+            date_label, location_name, distance_label, icon_category,
+            organizer_id, organizer_name, organizer_type, target_tastes
+        ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON DUPLICATE KEY UPDATE
+            title = VALUES(title),
+            description = VALUES(description),
+            spots_max = VALUES(spots_max),
+            date_label = VALUES(date_label),
+            location_name = VALUES(location_name),
+            target_tastes = VALUES(target_tastes)
+    """, (
+        act_id, payload.title, payload.description, payload.spots_label,
+        payload.spots_max, 1, payload.date_label, payload.location_name,
+        payload.distance_label, payload.icon_category, payload.organizer_id,
+        payload.organizer_name, payload.organizer_type, json.dumps(payload.target_tastes, ensure_ascii=False)
+    ))
+
+    # Auto-inscribir al organizador
+    part_id = "part_" + str(uuid.uuid4())[:8]
+    cursor.execute("""
+        INSERT INTO activity_participants (id, activity_id, user_id, status)
+        VALUES (%s, %s, %s, 'joined')
+        ON DUPLICATE KEY UPDATE status = 'joined'
+    """, (part_id, act_id, payload.organizer_id))
+
+    cursor.close()
+    conn.close()
+    return {"status": "success", "activityId": act_id, "message": "Actividad comunitaria creada con éxito"}
+
+
+@app.post("/activities/{activity_id}/join")
+def join_activity(activity_id: str, user_id: str = Query(...)):
+    """Inscribe a un usuario en una actividad comunitaria."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    part_id = "part_" + str(uuid.uuid4())[:8]
+    cursor.execute("""
+        INSERT INTO activity_participants (id, activity_id, user_id, status)
+        VALUES (%s, %s, %s, 'joined')
+        ON DUPLICATE KEY UPDATE status = 'joined'
+    """, (part_id, activity_id, user_id))
+
+    cursor.execute("UPDATE community_activities SET spots_taken = spots_taken + 1 WHERE id = %s", (activity_id,))
+    cursor.close()
+    conn.close()
+    return {"status": "success", "message": "Inscrito con éxito"}
+
+
+@app.delete("/activities/{activity_id}/join")
+def leave_activity(activity_id: str, user_id: str = Query(...)):
+    """Cancela la inscripción de un usuario en una actividad comunitaria."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM activity_participants WHERE activity_id = %s AND user_id = %s", (activity_id, user_id))
+    cursor.execute("UPDATE community_activities SET spots_taken = GREATEST(0, spots_taken - 1) WHERE id = %s", (activity_id,))
+    cursor.close()
+    conn.close()
+    return {"status": "success", "message": "Inscripción cancelada con éxito"}
+
+
+@app.delete("/activities/{activity_id}")
+def delete_activity(activity_id: str):
+    """Elimina una actividad comunitaria y sus participantes."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM activity_participants WHERE activity_id = %s", (activity_id,))
+    cursor.execute("DELETE FROM community_activities WHERE id = %s", (activity_id,))
+    cursor.close()
+    conn.close()
+    return {"status": "success", "message": "Actividad eliminada"}
+
+
+# ==============================================================================
+#  15. Portal Administrativo para Desarrolladores (/admin)
+# ==============================================================================
+
+@app.get("/admin/stats")
+def get_admin_stats():
+    """Retorna métricas del sistema para el portal de administración."""
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+
+    cursor.execute("SELECT COUNT(*) AS total_users FROM users")
+    total_users = cursor.fetchone()["total_users"]
+
+    cursor.execute("SELECT COUNT(*) AS total_activities FROM community_activities")
+    total_activities = cursor.fetchone()["total_activities"]
+
+    cursor.execute("SELECT COUNT(*) AS total_participations FROM activity_participants WHERE status = 'joined'")
+    total_parts = cursor.fetchone()["total_participations"]
+
+    cursor.execute("SELECT COUNT(*) AS total_posts FROM social_posts")
+    total_posts = cursor.fetchone()["total_posts"]
+
+    cursor.execute("SELECT COUNT(*) AS total_tastes FROM tastes WHERE is_active = 1")
+    total_tastes = cursor.fetchone()["total_tastes"]
+
+    cursor.close()
+    conn.close()
+
+    return {
+        "status": "healthy",
+        "totalUsers": total_users,
+        "totalActivities": total_activities,
+        "totalParticipations": total_parts,
+        "totalPosts": total_posts,
+        "totalTastes": total_tastes,
+        "groqConfigured": bool(GROQ_API_KEY),
+        "geminiConfigured": bool(GEMINI_API_KEY)
+    }
+
+
+@app.post("/dev/seed-mock-data")
+def seed_mock_data():
+    """Siembra datos iniciales de prueba (usuarios, perfiles, gustos y actividades)."""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    activities = [
+        ("act_fifo_01", "Taller de Pintura y Acuarela Botánica", "Un espacio relajado para pintar flores y paisajes en acuarela. Fifo proveerá los materiales y una guía paso a paso para todos los niveles.", "Quedan 8 cupos", 12, 4, "Jueves 16 oct · 16:30", "Centro Comunitario El Roble, Sala 3", "A 450 m", "palette", "fifo_official", "Fifo", "fifo", json.dumps(["Pintura y arte", "Jardinería y plantas", "Manualidades"], ensure_ascii=False)),
+        ("act_comm_02", "Intercambio de Recetas y Dulces Caseros", "Nos reuniremos a compartir secretos culinarios tradicionales: masas, mermeladas y postres de antaño con una taza de té caliente.", "Quedan 8 cupos", 15, 7, "Sábado 18 oct · 17:00", "Café & Taller La Casona", "A 1.1 km", "coffee", "org_casona", "Club Gastronómico Vecinal", "community_group", json.dumps(["Cocina tradicional", "Historias de vida", "Café y tertulias"], ensure_ascii=False)),
+        ("act_user_03", "Caminata y Tertulia en el Parque Botánico", "Caminata suave de 30 minutos a paso conversado por los senderos arbolados, terminando con una charla bajo los sauces.", "Quedan 5 cupos", 8, 3, "Domingo 19 oct · 10:30", "Acceso Principal Parque Botánico", "A 600 m", "nature", "usr_carmen_g", "Carmen González", "user", json.dumps(["Paseos al aire libre", "Naturaleza y botánica", "Fotografía"], ensure_ascii=False)),
+        ("act_comp_04", "Tarde de Boleros y Música Clásica en Vivo", "Ensamble de cuerdas en vivo interpretando clásicos de Lucho Gatica, Violeta Parra y melodías sinfónicas al atardecer.", "Quedan 9 cupos", 20, 11, "Miércoles 22 oct · 18:00", "Teatro Municipal de Ñuñoa", "A 1.8 km", "music", "org_teatro_mun", "Corporación Cultural Municipal", "company", json.dumps(["Música clásica", "Boleros y tango", "Teatro y cultura"], ensure_ascii=False))
+    ]
+
+    for a in activities:
+        cursor.execute("""
+            INSERT INTO community_activities (
+                id, title, description, spots_label, spots_max, spots_taken,
+                date_label, location_name, distance_label, icon_category,
+                organizer_id, organizer_name, organizer_type, target_tastes
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE
+                title = VALUES(title),
+                description = VALUES(description)
+        """, a)
+
+    cursor.close()
+    conn.close()
+    return {"status": "success", "message": "Datos de prueba sembrados correctamente"}
+
+
+ADMIN_PORTAL_HTML = """<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fifo Console · Portal de Administración</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-base: #090d16;
+            --bg-surface: #0f172a;
+            --bg-elevated: #1e293b;
+            --border: rgba(255, 255, 255, 0.08);
+            --border-hover: rgba(255, 255, 255, 0.16);
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+            --accent: #38bdf8;
+            --accent-glow: rgba(56, 189, 248, 0.15);
+            --emerald: #34d399;
+            --amber: #fbbf24;
+            --rose: #f43f5e;
+            --radius-sm: 8px;
+            --radius-md: 14px;
+            --radius-lg: 20px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            background-color: var(--bg-base);
+            color: var(--text-primary);
+            line-height: 1.5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top Header */
+        header {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+
+        .brand-container {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .brand-logo {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, #0284c7, #38bdf8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            box-shadow: 0 4px 12px var(--accent-glow);
+        }
+
+        .brand-title {
+            font-size: 18px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .brand-subtitle {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: rgba(52, 211, 153, 0.1);
+            border: 1px solid rgba(52, 211, 153, 0.25);
+            color: var(--emerald);
+            font-size: 12px;
+            font-weight: 600;
+            border-radius: 9999px;
+        }
+
+        .status-dot {
+            width: 7px;
+            height: 7px;
+            background-color: var(--emerald);
+            border-radius: 50%;
+            box-shadow: 0 0 8px var(--emerald);
+        }
+
+        /* Main Container */
+        main {
+            max-width: 1400px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 32px;
+            flex: 1;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+            margin-bottom: 32px;
+        }
+
+        .stat-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            transition: transform 0.2s ease, border-color 0.2s ease;
+        }
+
+        .stat-card:hover {
+            border-color: var(--border-hover);
+            transform: translateY(-2px);
+        }
+
+        .stat-label {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+            color: var(--text-primary);
+            font-variant-numeric: tabular-nums;
+        }
+
+        .stat-sub {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        /* Tabs Nav */
+        .tabs-nav {
+            display: flex;
+            gap: 8px;
+            border-bottom: 1px solid var(--border);
+            margin-bottom: 28px;
+        }
+
+        .tab-btn {
+            background: none;
+            border: none;
+            padding: 12px 20px;
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            border-bottom: 2px solid transparent;
+            transition: all 0.2s ease;
+        }
+
+        .tab-btn:hover {
+            color: var(--text-primary);
+        }
+
+        .tab-btn.active {
+            color: var(--accent);
+            border-bottom-color: var(--accent);
+        }
+
+        /* Content Sections */
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Controls Bar */
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .section-title {
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .actions-row {
+            display: flex;
+            gap: 10px;
+        }
+
+        /* Buttons */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 9px 16px;
+            font-size: 13px;
+            font-weight: 600;
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            border: none;
+            transition: all 0.2s ease;
+        }
+
+        .btn-primary {
+            background: #0284c7;
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #0369a1;
+        }
+
+        .btn-secondary {
+            background: var(--bg-elevated);
+            color: var(--text-primary);
+            border: 1px solid var(--border);
+        }
+
+        .btn-secondary:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--border-hover);
+        }
+
+        .btn-danger {
+            background: rgba(244, 63, 94, 0.12);
+            color: var(--rose);
+            border: 1px solid rgba(244, 63, 94, 0.25);
+        }
+
+        .btn-danger:hover {
+            background: rgba(244, 63, 94, 0.22);
+        }
+
+        /* Data Tables */
+        .table-container {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            background: rgba(255, 255, 255, 0.02);
+            padding: 14px 18px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            border-bottom: 1px solid var(--border);
+        }
+
+        td {
+            padding: 16px 18px;
+            font-size: 13px;
+            border-bottom: 1px solid var(--border);
+            color: var(--text-secondary);
+        }
+
+        tr:last-child td {
+            border-bottom: none;
+        }
+
+        tr:hover td {
+            background: rgba(255, 255, 255, 0.015);
+        }
+
+        .td-title {
+            color: var(--text-primary);
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        /* Organizer Badges */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            padding: 4px 9px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 6px;
+        }
+
+        .badge-fifo {
+            background: rgba(56, 189, 248, 0.12);
+            color: var(--accent);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+        }
+
+        .badge-user {
+            background: rgba(52, 211, 153, 0.12);
+            color: var(--emerald);
+            border: 1px solid rgba(52, 211, 153, 0.25);
+        }
+
+        .badge-community {
+            background: rgba(251, 191, 36, 0.12);
+            color: var(--amber);
+            border: 1px solid rgba(251, 191, 36, 0.25);
+        }
+
+        /* Tag Chips */
+        .tags-cell {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 5px;
+        }
+
+        .tag-chip {
+            padding: 2px 7px;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 11px;
+            color: var(--text-secondary);
+        }
+
+        /* Form Modal */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.7);
+            backdrop-filter: blur(4px);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        .modal-card {
+            background: var(--bg-surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-lg);
+            width: 100%;
+            max-width: 580px;
+            padding: 28px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .form-group {
+            margin-bottom: 16px;
+        }
+
+        .form-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
+
+        .form-input, .form-select, .form-textarea {
+            width: 100%;
+            padding: 10px 14px;
+            background: var(--bg-base);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-size: 13px;
+            outline: none;
+            transition: border-color 0.2s ease;
+        }
+
+        .form-input:focus, .form-select:focus, .form-textarea:focus {
+            border-color: var(--accent);
+        }
+
+        /* Toast feedback */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: var(--bg-elevated);
+            border: 1px solid var(--border);
+            color: var(--text-primary);
+            padding: 12px 20px;
+            border-radius: var(--radius-sm);
+            font-size: 13px;
+            font-weight: 500;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+            display: none;
+            z-index: 1000;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="brand-container">
+            <div class="brand-logo">FIFO</div>
+            <div>
+                <div class="brand-title">Fifo Console</div>
+                <div class="brand-subtitle">Plataforma Administrativa & Pipeline de Voz</div>
+            </div>
+        </div>
+        <div class="header-actions">
+            <span class="status-pill"><span class="status-dot"></span> Backend Activo</span>
+            <button class="btn btn-secondary" onclick="loadAllData()">Actualizar</button>
+        </div>
+    </header>
+
+    <main>
+        <!-- KPIs Overview -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">Usuarios Registrados</div>
+                <div class="stat-value" id="kpi-users">-</div>
+                <div class="stat-sub">Comunidad senior en Santiago</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Encuentros Comunitarios</div>
+                <div class="stat-value" id="kpi-activities">-</div>
+                <div class="stat-sub">Planes activos creados</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Inscripciones Activas</div>
+                <div class="stat-value" id="kpi-participations">-</div>
+                <div class="stat-sub">Personas que asisten a eventos</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">Gustos e Intereses</div>
+                <div class="stat-value" id="kpi-tastes">-</div>
+                <div class="stat-sub">Afinidades categorizadas</div>
+            </div>
+        </div>
+
+        <!-- Navigation Tabs -->
+        <div class="tabs-nav">
+            <button class="tab-btn active" onclick="switchTab('activities')">Encuentros Comunitarios</button>
+            <button class="tab-btn" onclick="switchTab('users')">Directorio de Usuarios</button>
+            <button class="tab-btn" onclick="switchTab('agent')">Simulador Asistente Fifo</button>
+            <button class="tab-btn" onclick="switchTab('tools')">Herramientas BD</button>
+        </div>
+
+        <!-- TAB 1: ACTIVIDADES -->
+        <div id="tab-activities" class="tab-content active">
+            <div class="section-header">
+                <div>
+                    <h2 class="section-title">Actividades Comunitarias</h2>
+                    <p style="font-size: 13px; color: var(--text-secondary);">Encuentros organizados por Fifo, vecinos o talleres comunales.</p>
+                </div>
+                <div class="actions-row">
+                    <button class="btn btn-primary" onclick="openCreateActivityModal()">+ Nuevo Encuentro</button>
+                    <button class="btn btn-secondary" onclick="seedSampleData()">Cargar Ejemplos</button>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Título & Descripción</th>
+                            <th>Organizador</th>
+                            <th>Fecha & Lugar</th>
+                            <th>Gustos Afines</th>
+                            <th>Plazas</th>
+                            <th>Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody id="activities-table-body">
+                        <tr><td colspan="6" style="text-align: center; padding: 28px;">Cargando actividades...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB 2: USUARIOS -->
+        <div id="tab-users" class="tab-content">
+            <div class="section-header">
+                <div>
+                    <h2 class="section-title">Usuarios & Perfiles de Comunidad</h2>
+                    <p style="font-size: 13px; color: var(--text-secondary);">Directorio de adultos mayores vinculados al sistema.</p>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Nombre Completo</th>
+                            <th>Edad & Ciudad</th>
+                            <th>Gustos e Intereses</th>
+                            <th>Bio Generada por Fifo</th>
+                        </tr>
+                    </thead>
+                    <tbody id="users-table-body">
+                        <tr><td colspan="4" style="text-align: center; padding: 28px;">Cargando usuarios...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB 3: SIMULADOR AGENTE -->
+        <div id="tab-agent" class="tab-content">
+            <div class="section-header">
+                <div>
+                    <h2 class="section-title">Simulador Asistente Fifo para Encuentros</h2>
+                    <p style="font-size: 13px; color: var(--text-secondary);">Prueba en vivo cómo Fifo interpreta una idea libre y estructura la ficha comunitaria.</p>
+                </div>
+            </div>
+
+            <div style="background: var(--bg-surface); border: 1px solid var(--border); border-radius: var(--radius-md); padding: 24px; max-width: 700px;">
+                <div class="form-group">
+                    <label class="form-label">Idea libre del usuario</label>
+                    <input type="text" id="ai-prompt-input" class="form-input" placeholder="Ej: Me gustaría organizar una once para compartir recetas antiguas de empanadas" value="Juntarnos a pintar flores en acuarela en el parque botánico">
+                </div>
+                <button class="btn btn-primary" onclick="runAiSimulation()">Planificar con Fifo</button>
+
+                <div id="ai-sim-result" style="margin-top: 20px; display: none; background: var(--bg-base); padding: 16px; border-radius: var(--radius-sm); border: 1px solid var(--border);">
+                    <div style="color: var(--accent); font-weight: 600; font-size: 14px; margin-bottom: 8px;" id="sim-title">-</div>
+                    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 8px;" id="sim-desc">-</p>
+                    <div style="font-size: 12px; color: var(--emerald); font-weight: 500;" id="sim-meta">-</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB 4: HERRAMIENTAS -->
+        <div id="tab-tools" class="tab-content">
+            <div class="section-header">
+                <div>
+                    <h2 class="section-title">Herramientas de Mantenimiento</h2>
+                    <p style="font-size: 13px; color: var(--text-secondary);">Acciones de diagnóstico y datos de prueba.</p>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px;">
+                <div class="stat-card">
+                    <div class="stat-label">Sembrar Datos de Prueba</div>
+                    <p style="font-size: 12px; color: var(--text-secondary);">Restaura los 4 eventos comunitarios de prueba recomendados.</p>
+                    <button class="btn btn-secondary" style="margin-top: 12px;" onclick="seedSampleData()">Sembrar Datos Ahora</button>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Documentación Swagger</div>
+                    <p style="font-size: 12px; color: var(--text-secondary);">Inspecciona todos los endpoints OpenAPI en /docs.</p>
+                    <a href="/docs" target="_blank" class="btn btn-primary" style="margin-top: 12px; text-decoration: none;">Abrir Swagger /docs</a>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Modal Crear Actividad -->
+    <div id="create-modal" class="modal-overlay">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3 style="font-size: 17px; font-weight: 700;">Crear Actividad Comunitaria</h3>
+                <button onclick="closeCreateActivityModal()" style="background: none; border: none; color: var(--text-secondary); font-size: 18px; cursor: pointer;">✕</button>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Título</label>
+                <input type="text" id="form-act-title" class="form-input" placeholder="Nombre de la actividad">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Descripción</label>
+                <textarea id="form-act-desc" class="form-textarea" rows="3" placeholder="Detalles de la reunión"></textarea>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label class="form-label">Tipo de Organizador</label>
+                    <select id="form-act-type" class="form-select">
+                        <option value="fifo">Organizado por Fifo</option>
+                        <option value="community_group">Taller Comunitario</option>
+                        <option value="user">Vecino(a)</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Nombre del Organizador</label>
+                    <input type="text" id="form-act-org" class="form-input" value="Fifo">
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                <div class="form-group">
+                    <label class="form-label">Fecha y Hora</label>
+                    <input type="text" id="form-act-date" class="form-input" value="Sábado 25 oct · 17:00">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">Cupos Máximos</label>
+                    <input type="number" id="form-act-spots" class="form-input" value="12">
+                </div>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Lugar o Punto de Encuentro</label>
+                <input type="text" id="form-act-loc" class="form-input" value="Centro Comunitario El Roble">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Gustos Afines (separados por coma)</label>
+                <input type="text" id="form-act-tastes" class="form-input" value="Pintura y arte, Manualidades">
+            </div>
+            <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+                <button class="btn btn-secondary" onclick="closeCreateActivityModal()">Cancelar</button>
+                <button class="btn btn-primary" onclick="submitCreateActivity()">Guardar y Publicar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast">Acción completada con éxito</div>
+
+    <script>
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.innerText = msg;
+            t.style.display = 'block';
+            setTimeout(() => { t.style.display = 'none'; }, 3000);
+        }
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+            event.target.classList.add('active');
+            document.getElementById('tab-' + tabId).classList.add('active');
+        }
+
+        async function loadAllData() {
+            try {
+                // 1. Stats
+                const statsRes = await fetch('/admin/stats');
+                const stats = await statsRes.json();
+                document.getElementById('kpi-users').innerText = stats.totalUsers || 0;
+                document.getElementById('kpi-activities').innerText = stats.totalActivities || 0;
+                document.getElementById('kpi-participations').innerText = stats.totalParticipations || 0;
+                document.getElementById('kpi-tastes').innerText = stats.totalTastes || 0;
+
+                // 2. Activities
+                const actRes = await fetch('/activities');
+                const activities = await actRes.json();
+                const tbody = document.getElementById('activities-table-body');
+                if (!activities || activities.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align: center; padding: 24px;">No hay actividades registradas aún.</td></tr>';
+                } else {
+                    tbody.innerHTML = activities.map(a => {
+                        let badgeClass = 'badge-user';
+                        let badgeLabel = 'Vecino';
+                        if (a.organizerType === 'fifo') {
+                            badgeClass = 'badge-fifo';
+                            badgeLabel = 'Oficial Fifo';
+                        } else if (a.organizerType === 'community_group' || a.organizerType === 'company') {
+                            badgeClass = 'badge-community';
+                            badgeLabel = a.organizerName;
+                        } else {
+                            badgeLabel = a.organizerName;
+                        }
+
+                        const tagsHtml = (a.targetTastes || []).map(t => `<span class="tag-chip">${t}</span>`).join('');
+                        return `
+                            <tr>
+                                <td>
+                                    <div class="td-title">${a.title}</div>
+                                    <div style="font-size: 12px; color: var(--text-muted); max-width: 380px;">${a.description}</div>
+                                </td>
+                                <td><span class="badge ${badgeClass}">${badgeLabel}</span></td>
+                                <td>
+                                    <div>${a.dateLabel}</div>
+                                    <div style="font-size: 11px; color: var(--text-muted);">${a.locationName}</div>
+                                </td>
+                                <td><div class="tags-cell">${tagsHtml}</div></td>
+                                <td>
+                                    <strong>${a.spotsTaken} / ${a.spotsMax}</strong>
+                                    <div style="font-size: 11px; color: var(--emerald);">${a.spotsRemaining} libres</div>
+                                </td>
+                                <td>
+                                    <button class="btn btn-danger" style="padding: 4px 8px; font-size: 11px;" onclick="deleteActivity('${a.id}')">Eliminar</button>
+                                </td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+
+                // 3. Users
+                const usersRes = await fetch('/admin/users');
+                const users = await usersRes.json();
+                const ubody = document.getElementById('users-table-body');
+                if (users && users.length > 0) {
+                    ubody.innerHTML = users.map(u => {
+                        const tHtml = (u.tastes || []).map(t => `<span class="tag-chip">${t}</span>`).join('');
+                        return `
+                            <tr>
+                                <td>
+                                    <div class="td-title">${u.full_name}</div>
+                                    <div style="font-size: 11px; color: var(--text-muted);">${u.id}</div>
+                                </td>
+                                <td>${u.estimated_age || 70} años · ${u.city || 'Santiago'}</td>
+                                <td><div class="tags-cell">${tHtml}</div></td>
+                                <td style="font-size: 12px; color: var(--text-secondary); max-width: 350px;">${u.bio_ai || 'Sin biografía'}</td>
+                            </tr>
+                        `;
+                    }).join('');
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        async function seedSampleData() {
+            try {
+                const res = await fetch('/dev/seed-mock-data', { method: 'POST' });
+                const data = await res.json();
+                showToast(data.message || 'Datos de prueba sembrados');
+                loadAllData();
+            } catch (e) {
+                showToast('Error al sembrar datos');
+            }
+        }
+
+        async function deleteActivity(id) {
+            if (!confirm('¿Deseas eliminar este encuentro comunitario?')) return;
+            try {
+                await fetch('/activities/' + id, { method: 'DELETE' });
+                showToast('Actividad eliminada');
+                loadAllData();
+            } catch (e) {
+                showToast('Error al eliminar');
+            }
+        }
+
+        function openCreateActivityModal() {
+            document.getElementById('create-modal').style.display = 'flex';
+        }
+
+        function closeCreateActivityModal() {
+            document.getElementById('create-modal').style.display = 'none';
+        }
+
+        async function submitCreateActivity() {
+            const title = document.getElementById('form-act-title').value.trim();
+            const desc = document.getElementById('form-act-desc').value.trim();
+            const orgType = document.getElementById('form-act-type').value;
+            const orgName = document.getElementById('form-act-org').value.trim();
+            const date = document.getElementById('form-act-date').value.trim();
+            const spots = parseInt(document.getElementById('form-act-spots').value) || 10;
+            const loc = document.getElementById('form-act-loc').value.trim();
+            const tastes = document.getElementById('form-act-tastes').value.split(',').map(t => t.trim()).filter(Boolean);
+
+            if (!title) {
+                alert('Ingresa un título');
+                return;
+            }
+
+            try {
+                await fetch('/activities', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: title,
+                        description: desc || 'Encuentro vecinal ameno en la comunidad.',
+                        date_label: date,
+                        location_name: loc,
+                        spots_max: spots,
+                        organizer_id: 'admin_console',
+                        organizer_name: orgName || 'Fifo',
+                        organizer_type: orgType,
+                        target_tastes: tastes
+                    })
+                });
+                closeCreateActivityModal();
+                showToast('Encuentro creado con éxito');
+                loadAllData();
+            } catch (e) {
+                showToast('Error creando actividad');
+            }
+        }
+
+        function runAiSimulation() {
+            const prompt = document.getElementById('ai-prompt-input').value;
+            const resultBox = document.getElementById('ai-sim-result');
+            resultBox.style.display = 'block';
+
+            let category = 'nature';
+            let title = prompt.length > 5 ? prompt : 'Encuentro comunitario ameno';
+            let desc = 'Propuesta de reunión para adultos mayores con intereses compartidos en ' + prompt;
+            let meta = 'Capacidad sugerida: 10 personas · Ubicación: Centro Comunitario o Parque';
+
+            if (prompt.toLowerCase().includes('pint') || prompt.toLowerCase().includes('acuarel')) {
+                category = 'palette';
+                meta = 'Categoría: Pintura y Arte · Cupos: 8 · Sala con buena iluminación natural';
+            } else if (prompt.toLowerCase().includes('recet') || prompt.toLowerCase().includes('cocin')) {
+                category = 'coffee';
+                meta = 'Categoría: Cocina Tradicional · Cupos: 12 · Taller con mesones amplios';
+            }
+
+            document.getElementById('sim-title').innerText = title;
+            document.getElementById('sim-desc').innerText = desc;
+            document.getElementById('sim-meta').innerText = meta;
+        }
+
+        window.onload = loadAllData;
+    </script>
+</body>
+</html>
+"""
+
 

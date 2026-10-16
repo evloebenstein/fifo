@@ -34,6 +34,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.fifo.voicepipeline.data.FifoDataRepository
 import com.fifo.voicepipeline.ui.components.FifoFace
 import com.fifo.voicepipeline.ui.theme.FifoColors
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 data class FriendPost(
@@ -85,142 +86,53 @@ fun FriendsScreen(
     var isSearching by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
 
-    val posts = remember {
-        listOf(
+    val scope = rememberCoroutineScope()
+
+    // Posts del muro: vienen del repositorio real (publicaciones de usuarios reales)
+    val rawSocialPosts by FifoDataRepository.socialPosts.collectAsState()
+    val posts = remember(rawSocialPosts) {
+        rawSocialPosts.map { sp ->
             FriendPost(
-                id = "1",
-                author = "Elena Silva",
-                username = "@elena_s",
-                age = 69,
-                relation = "Amiga cercana · Lectura y paseos",
-                timeAgo = "2 h",
-                content = "Acabo de terminar una novela maravillosa en el parque. Me encantaría encontrar a alguien para comentarla con calma y luego dar un paseo por el jardín.",
-                initialLikes = 18,
-                initialComments = 3
-            ),
-            FriendPost(
-                id = "2",
-                author = "Sofía Morales",
-                username = "@sofia_m",
-                age = 66,
-                relation = "Amiga cercana · Música y tertulia",
-                timeAgo = "5 h",
-                content = "Esta tarde escuché un concierto de piano en el auditorio y me recordó a mis clases de juventud. ¿Alguien quiere hablar de música clásica y compartir recomendaciones?",
-                initialLikes = 24,
-                initialComments = 3
-            ),
-            FriendPost(
-                id = "3",
-                author = "Mateo Valenzuela",
-                username = "@mateo_v",
-                age = 72,
-                relation = "Amigo cercano · Paseos y lectura",
-                timeAgo = "1 d",
-                content = "Ayer descubrí un nuevo sendero cerca del río y me gustaría repetirlo con alguien que disfrute de la naturaleza y la conversación tranquila.",
-                initialLikes = 12,
-                initialComments = 2
+                id = sp.id,
+                author = sp.author.ifBlank { "Usuario Fifo" },
+                username = sp.username.ifBlank { "@usuario" },
+                age = sp.age,
+                relation = sp.category,
+                timeAgo = sp.timeAgo,
+                content = sp.content,
+                initialLikes = sp.likes,
+                initialComments = sp.commentsCount
             )
-        )
+        }
     }
 
-    val searchProfiles = remember {
-        listOf(
-            FriendProfile(
-                id = "1",
-                name = "Sofía Morales",
-                username = "@sofia_m",
-                age = 66,
-                quote = "Un libro y una buena charla, mi plan ideal.",
-                tags = listOf("Música clásica", "Piano", "Lectura", "Café"),
-                avatarBg = Color(0xFFE9D5FF),
-                location = "Providencia, Santiago",
-                bio = "Sofía disfruta profundamente de la música clásica, tocar el piano y compartir tertulias literarias. Fifo la acompaña a diario y recomienda conversar con ella sobre cultura y lecturas amenas.",
-                talksCount = 28,
-                commonInterestsCount = 3,
-                samplePosts = listOf(
-                    "Esta tarde escuché un concierto de piano en el auditorio y me recordó a mis clases de juventud. ¿Alguien quiere hablar de música clásica y compartir recomendaciones?",
-                    "Disfrutando un té verde mientras releo a García Márquez. Qué importante es darse momentos de tranquilidad."
-                )
-            ),
-            FriendProfile(
-                id = "2",
-                name = "Mateo Valenzuela",
-                username = "@mateo_v",
-                age = 72,
-                quote = "Me encanta descubrir rutas y recetas nuevas.",
-                tags = listOf("Paseos", "Cine clásico", "Cocina", "Naturaleza"),
-                avatarBg = Color(0xFFCCFBF1),
-                location = "Las Condes, Santiago",
-                bio = "Mateo es amante de los senderos al aire libre, los árboles nativos y la cocina tradicional. Fifo destaca su calma, buen sentido del humor y disposición a caminar sin prisa.",
-                talksCount = 34,
-                commonInterestsCount = 2,
-                samplePosts = listOf(
-                    "Ayer descubrí un nuevo sendero cerca del río y me gustaría repetirlo con alguien que disfrute de la naturaleza y la conversación tranquila."
-                )
-            ),
-            FriendProfile(
-                id = "3",
-                name = "Elena Silva",
-                username = "@elena_s",
-                age = 69,
-                quote = "Los libros abren mundos y una caminata despeja el corazón.",
-                tags = listOf("Lectura", "Paseos", "Jardinería", "Historia"),
-                avatarBg = Color(0xFFFBCFE8),
-                location = "Ñuñoa, Santiago",
-                bio = "Elena comparte historias de novelas históricas, flores de estación y paseos por parques tranquilos. Su conversación siempre transmite serenidad y cariño.",
-                talksCount = 41,
-                commonInterestsCount = 3,
-                samplePosts = listOf(
-                    "Acabo de terminar una novela maravillosa en el parque. Me encantaría encontrar a alguien para comentarla con calma y luego dar un paseo por el jardín."
-                )
-            ),
-            FriendProfile(
-                id = "4",
-                name = "Valentina Rojas",
-                username = "@vale_rojas",
-                age = 64,
-                quote = "Siempre con una canción o un dibujo en mente.",
-                tags = listOf("Música", "Arte", "Pintura", "Lectura"),
-                avatarBg = Color(0xFFFFEDD5),
-                location = "La Reina, Santiago",
-                bio = "Valentina pinta acuarelas los fines de semana y adora la música folclórica y clásica. Le apasiona descubrir nuevas armonías junto a Fifo.",
-                talksCount = 22,
-                commonInterestsCount = 2,
-                samplePosts = listOf(
-                    "Terminé una pequeña acuarela de buganvilias hoy inspirada en mi patio. ¡Qué lindo es el color de la primavera!"
-                )
-            ),
-            FriendProfile(
-                id = "5",
-                name = "Diego Soto",
-                username = "@diego_soto",
-                age = 70,
-                quote = "Busco compañía para caminar sin prisa.",
-                tags = listOf("Cine", "Fotografía", "Paseos", "Historia"),
-                avatarBg = Color(0xFFFEF08A),
-                location = "Vitacura, Santiago",
-                bio = "Diego es fotógrafo aficionado y cinéfilo clásico. Le gusta recordar las grandes películas de la época de oro y capturar atardeceres en plazas.",
-                talksCount = 19,
-                commonInterestsCount = 2,
-                samplePosts = listOf(
-                    "Ayer volví a ver una película de Hitchcock en blanco y negro. El cine de antes tenía un ritmo que hoy se extraña."
-                )
-            ),
-            FriendProfile(
-                id = "6",
-                name = "Carlos Mendoza",
-                username = "@carlos_m",
-                age = 68,
-                quote = "Disfruto la tecnología, la música clásica y una buena charla.",
-                tags = listOf("Tecnología", "Música clásica", "Paseos", "Lectura"),
-                avatarBg = Color(0xFFBAE6FD),
-                location = "Santiago, Chile",
-                bio = "Carlos es entusiasta de la tecnología amigable, la música clásica y las conversaciones estimulantes. Disfruta interactuar con Fifo a diario.",
-                talksCount = 45,
-                commonInterestsCount = 4,
-                samplePosts = emptyList()
-            )
-        )
+    // Perfiles de búsqueda: vienen del backend (recomendaciones de amigos)
+    var searchProfiles by remember { mutableStateOf<List<FriendProfile>>(emptyList()) }
+    var isLoadingProfiles by remember { mutableStateOf(false) }
+    LaunchedEffect(userProfileState.id) {
+        if (userProfileState.id.isNotBlank()) {
+            isLoadingProfiles = true
+            scope.launch {
+                val recs = com.fifo.voicepipeline.network.FifoBackendClient.fetchFriendRecommendations(userProfileState.id)
+                searchProfiles = recs.map { r ->
+                    FriendProfile(
+                        id = r.friendId,
+                        name = r.fullName,
+                        username = "@${r.fullName.filter { it.isLetterOrDigit() || it == '_' }.lowercase().take(12)}",
+                        age = r.age,
+                        quote = r.quote,
+                        tags = r.sharedTags,
+                        avatarBg = Color(r.avatarBgHex),
+                        location = "Santiago, Chile",
+                        bio = r.bioAi,
+                        talksCount = 0,
+                        commonInterestsCount = r.sharedTags.size,
+                        samplePosts = emptyList()
+                    )
+                }
+                isLoadingProfiles = false
+            }
+        }
     }
 
     var connectedFriends by remember { mutableStateOf(setOf<String>()) }
@@ -235,24 +147,7 @@ fun FriendsScreen(
 
     // Estado reactivo y persistente de Comentarios por post
     var postCommentsMap by remember {
-        mutableStateOf(
-            mapOf(
-                "1" to listOf(
-                    PostComment("c1_1", "Sofía Morales", "@sofia_m", Color(0xFFE9D5FF), "¡Qué maravilla, Elena! Yo también amo leer en la tarde. ¿Qué novela estás leyendo?", "1 h"),
-                    PostComment("c1_2", "Mateo Valenzuela", "@mateo_v", Color(0xFFCCFBF1), "Los parques en esta época del año están preciosos para caminar y leer con tranquilidad.", "45 min"),
-                    PostComment("c1_3", "Diego Soto", "@diego_soto", Color(0xFFFEF08A), "Totalmente de acuerdo, caminar y despejar la mente hace muy bien al espíritu.", "20 min")
-                ),
-                "2" to listOf(
-                    PostComment("c2_1", "Elena Silva", "@elena_s", Color(0xFFFBCFE8), "¡A mí me fascina Chopin y Beethoven! Sería hermoso compartir grabaciones algún día.", "4 h"),
-                    PostComment("c2_2", "Diego Soto", "@diego_soto", Color(0xFFFEF08A), "Qué lindo concierto, Sofía. Yo solía ir los fines de semana al teatro municipal.", "3 h"),
-                    PostComment("c2_3", "Valentina Rojas", "@vale_rojas", Color(0xFFFFEDD5), "La música clásica tiene una paz única. Me alegra mucho que hayas disfrutado el concierto.", "2 h")
-                ),
-                "3" to listOf(
-                    PostComment("c3_1", "Sofía Morales", "@sofia_m", Color(0xFFE9D5FF), "¡Ese sendero junto al río es precioso! Cuenta conmigo para una próxima caminata.", "18 h"),
-                    PostComment("c3_2", "Valentina Rojas", "@vale_rojas", Color(0xFFFFEDD5), "¡Qué linda descripción del río! Hay que aprovechar estos días de sol y aire fresco.", "14 h")
-                )
-            )
-        )
+        mutableStateOf(emptyMap<String, List<PostComment>>())
     }
 
     Column(
@@ -372,7 +267,32 @@ fun FriendsScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 100.dp)
             ) {
-                if (filteredProfiles.isEmpty()) {
+                if (isLoadingProfiles) {
+                    item {
+                        Surface(
+                            color = Color.White,
+                            shape = RoundedCornerShape(20.dp),
+                            border = BorderStroke(1.dp, FifoColors.LightCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(28.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                CircularProgressIndicator(
+                                    color = FifoColors.NavyPrimary,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "Buscando personas afines...",
+                                    fontSize = 14.sp,
+                                    color = FifoColors.LightTextSecondary
+                                )
+                            }
+                        }
+                    }
+                } else if (filteredProfiles.isEmpty()) {
                     item {
                         Surface(
                             color = Color.White,
@@ -384,10 +304,15 @@ fun FriendsScreen(
                                 modifier = Modifier.padding(24.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text("🔍", fontSize = 28.sp)
+                                Icon(
+                                    imageVector = if (cleanQuery.isBlank()) Icons.Default.Groups else Icons.Default.Search,
+                                    contentDescription = null,
+                                    tint = FifoColors.NavyPrimary,
+                                    modifier = Modifier.size(32.dp)
+                                )
                                 Spacer(modifier = Modifier.height(10.dp))
                                 Text(
-                                    text = "No encontramos a nadie con «$searchQuery»",
+                                    text = if (cleanQuery.isBlank()) "Aún no hay recomendaciones disponibles" else "No encontramos a nadie con «$searchQuery»",
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = FifoColors.NavyPrimary,
@@ -395,7 +320,7 @@ fun FriendsScreen(
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 Text(
-                                    text = "Intenta buscar por su nombre real, por su ID con @ (ej: @sofia_m o @carlos_m) o por un gusto compartido.",
+                                    text = if (cleanQuery.isBlank()) "Habla con Fifo para que identifique tus gustos y te conecte con personas afines." else "Intenta buscar por su nombre o gustos compartidos.",
                                     fontSize = 12.sp,
                                     color = FifoColors.LightTextSecondary,
                                     textAlign = TextAlign.Center,
@@ -661,6 +586,45 @@ fun FriendsScreen(
                 modifier = Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(bottom = 100.dp)
             ) {
+                if (posts.isEmpty()) {
+                    item {
+                        Surface(
+                            color = Color.White,
+                            shape = RoundedCornerShape(20.dp),
+                            border = BorderStroke(1.dp, FifoColors.LightCardBorder),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Feed,
+                                    contentDescription = null,
+                                    tint = FifoColors.NavyPrimary,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Text(
+                                    text = "Aún no hay publicaciones en el muro",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = FifoColors.NavyPrimary,
+                                    textAlign = TextAlign.Center
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Cuando tú o personas de la comunidad compartan historias o anécdotas, aparecerán aquí.",
+                                    fontSize = 12.sp,
+                                    color = FifoColors.LightTextSecondary,
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = 16.sp
+                                )
+                            }
+                        }
+                    }
+                }
+
                 items(posts, key = { it.id }) { post ->
                     val isLiked = post.id in likedPostIds
                     val currentLikes = (postLikesMap[post.id] ?: post.initialLikes) + if (isLiked) 1 else 0
@@ -678,12 +642,12 @@ fun FriendsScreen(
                             username = post.username,
                             age = post.age,
                             quote = post.content,
-                            tags = listOf("Lectura", "Paseos", "Música"),
+                            tags = emptyList(),
                             avatarBg = Color(0xFFE0E7FF),
-                            location = "Santiago, Chile",
+                            location = "Chile",
                             bio = "${post.author} es miembro de la comunidad de Fifo Amigos.",
-                            talksCount = 20,
-                            commonInterestsCount = 2,
+                            talksCount = 0,
+                            commonInterestsCount = 0,
                             samplePosts = listOf(post.content)
                         )
                     }
@@ -925,7 +889,7 @@ fun FriendsScreen(
                 Toast.makeText(context, toastMsg, Toast.LENGTH_SHORT).show()
             },
             onSendGreeting = {
-                Toast.makeText(context, "Fifo le envió tu saludo a ${profile.name} ✨", Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, "Fifo le envió tu saludo a ${profile.name}", Toast.LENGTH_SHORT).show()
             },
             onDismiss = { selectedProfileForView = null }
         )
@@ -1091,7 +1055,12 @@ fun FriendProfileDetailDialog(
                                 modifier = Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(text = "💬", fontSize = 18.sp)
+                                Icon(
+                                    imageVector = Icons.Outlined.ChatBubbleOutline,
+                                    contentDescription = null,
+                                    tint = FifoColors.NavyPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = "${profile.talksCount}",
@@ -1117,7 +1086,12 @@ fun FriendProfileDetailDialog(
                                 modifier = Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(text = "✨", fontSize = 18.sp)
+                                Icon(
+                                    imageVector = Icons.Default.Verified,
+                                    contentDescription = null,
+                                    tint = Color(0xFF0284C7),
+                                    modifier = Modifier.size(20.dp)
+                                )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = "${profile.commonInterestsCount} afines",
@@ -1143,7 +1117,12 @@ fun FriendProfileDetailDialog(
                                 modifier = Modifier.padding(vertical = 12.dp, horizontal = 8.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text(text = "🤝", fontSize = 18.sp)
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = if (isConnected) FifoColors.StatusListening else FifoColors.NavyPrimary,
+                                    modifier = Modifier.size(20.dp)
+                                )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
                                     text = if (isConnected) "Amigo" else "Sugerido",
@@ -1211,7 +1190,7 @@ fun FriendProfileDetailDialog(
                                 border = BorderStroke(1.dp, Color(0xFFE2E8F0))
                             ) {
                                 Text(
-                                    text = "✦ $tag",
+                                    text = tag,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
                                     color = FifoColors.LightTextPrimary,
@@ -1392,7 +1371,12 @@ fun PostCommentsDialog(
                                     .padding(vertical = 30.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Text("💬", fontSize = 28.sp)
+                                Icon(
+                                    imageVector = Icons.Outlined.ChatBubbleOutline,
+                                    contentDescription = null,
+                                    tint = FifoColors.NavyPrimary,
+                                    modifier = Modifier.size(32.dp)
+                                )
                                 Spacer(modifier = Modifier.height(8.dp))
                                 Text(
                                     text = "Aún no hay comentarios",

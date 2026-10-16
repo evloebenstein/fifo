@@ -50,6 +50,8 @@ object FifoDataRepository {
                 _relationalContacts.value = helper.getRelationalContacts(activeUserId)
                 _dailyRoutines.value = helper.getDailyRoutines(activeUserId)
                 _deviceLocation.value = helper.getDeviceLocation()
+                helper.seedDefaultCommunityActivitiesIfEmpty(activeUserId)
+                _communityActivities.value = helper.getCommunityActivities(activeUserId)
                 android.util.Log.i("FifoDataRepository", "Base de datos relacional SQLite cargada con éxito en el dispositivo para $activeUserId")
 
                 // Sincronizar libreta de contactos del teléfono celular en segundo plano si hay permiso
@@ -135,6 +137,8 @@ object FifoDataRepository {
         _relationalContacts.value = helper.getRelationalContacts(newUserId)
         _dailyRoutines.value = helper.getDailyRoutines(newUserId)
         _socialPosts.value = helper.getSocialPosts()
+        helper.seedDefaultCommunityActivitiesIfEmpty(newUserId)
+        _communityActivities.value = helper.getCommunityActivities(newUserId)
 
         syncFromBackend(newUserId)
     }
@@ -257,9 +261,9 @@ object FifoDataRepository {
             prefs.edit().putString("active_user_id", newUserId).putBoolean("has_completed_setup", true).apply()
 
             if (result == null && dbHelper != null) {
-                val ageVal = estimatedAge ?: (if (birthYear != null) 2026 - birthYear else 68)
-                val yearVal = birthYear ?: (2026 - ageVal)
-                val dateVal = birthDate ?: "Año $yearVal"
+                val ageVal = estimatedAge ?: (if (birthYear != null) 2026 - birthYear else 0)
+                val yearVal = birthYear ?: (if (ageVal > 0) 2026 - ageVal else 0)
+                val dateVal = birthDate ?: if (yearVal > 0) "Año $yearVal" else ""
                 val cv = android.content.ContentValues().apply {
                     put("id", newUserId)
                     put("full_name", fullName)
@@ -274,7 +278,12 @@ object FifoDataRepository {
                 dbHelper?.writableDatabase?.insertWithOnConflict("users", null, cv, android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE)
                 val cvProf = android.content.ContentValues().apply {
                     put("user_id", newUserId)
-                    put("bio_ai", "Amante de ${initialTastes.take(3).joinToString(", ")}. Disfruta conversar con calma sobre sus pasatiempos favoritos.")
+                    val bio = if (initialTastes.isNotEmpty()) {
+                        "Amante de ${initialTastes.take(3).joinToString(", ")}. Disfruta conversar con calma sobre sus pasatiempos favoritos."
+                    } else {
+                        "Disfruta conversar con calma con Fifo y compartir anécdotas de su día a día."
+                    }
+                    put("bio_ai", bio)
                     put("interest_tags", com.google.gson.Gson().toJson(initialTastes))
                 }
                 dbHelper?.writableDatabase?.insertWithOnConflict("user_profiles", null, cvProf, android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE)
@@ -354,6 +363,10 @@ object FifoDataRepository {
     // ── 9. Rutinas Diarias y Patrones de Actividad ───────────────
     private val _dailyRoutines = MutableStateFlow<List<DailyRoutine>>(emptyList())
     val dailyRoutines: StateFlow<List<DailyRoutine>> = _dailyRoutines.asStateFlow()
+
+    // ── 10. Actividades y Encuentros Comunitarios ────────────────
+    private val _communityActivities = MutableStateFlow<List<CommunityActivityItem>>(emptyList())
+    val communityActivities: StateFlow<List<CommunityActivityItem>> = _communityActivities.asStateFlow()
 
     // ══════════════════════════════════════════════════════════
     //  MUTACIONES (Llamadas por los Skills de Fifo o por la UI)
@@ -638,6 +651,22 @@ object FifoDataRepository {
      */
     fun removeMemory(id: String) {
         _memories.value = _memories.value.filterNot { it.id == id }
+    }
+
+    /**
+     * Elimina una publicación social por id.
+     */
+    fun removeSocialPost(id: String) {
+        _socialPosts.value = _socialPosts.value.filterNot { it.id == id }
+        dbHelper?.deleteSocialPost(id)
+    }
+
+    /**
+     * Elimina una historia de gusto por id.
+     */
+    fun removeTasteStory(id: String) {
+        _tasteStories.value = _tasteStories.value.filterNot { it.id == id }
+        dbHelper?.deleteTasteStory(_userProfile.value.id, id)
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -1254,7 +1283,7 @@ object FifoDataRepository {
             isBeeping = if (!connected) false else current.isBeeping
         )
         _deviceLocation.value = updatedLoc
-        dbHelper?.updateDeviceLocation(loc = updatedLoc)
+        dbHelper?.updateDeviceLocation(loc = updatedLoc, userId = _userProfile.value.id)
 
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.patchDeviceLocation(
@@ -1277,7 +1306,7 @@ object FifoDataRepository {
     fun triggerDeviceBeep(beeping: Boolean) {
         val updatedLoc = _deviceLocation.value.copy(isBeeping = beeping)
         _deviceLocation.value = updatedLoc
-        dbHelper?.updateDeviceLocation(loc = updatedLoc)
+        dbHelper?.updateDeviceLocation(loc = updatedLoc, userId = _userProfile.value.id)
 
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.patchDeviceLocation(
@@ -1353,6 +1382,157 @@ object FifoDataRepository {
             isCharging = isCharging ?: current.isCharging,
             isFlashlightOn = isFlashlightOn ?: current.isFlashlightOn,
             volumePercent = volumePercent ?: current.volumePercent
+        )
+    }
+
+    // ══════════════════════════════════════════════════════════════
+    //  13. Gestión Dinámica de Actividades y Encuentros Comunitarios
+    // ══════════════════════════════════════════════════════════════
+
+    fun toggleJoinActivity(activityId: String) {
+        val helper = dbHelper ?: return
+        val currentUserId = _userProfile.value.id
+        val currentList = _communityActivities.value
+        val target = currentList.find { it.id == activityId } ?: return
+
+        if (target.isJoined) {
+            helper.leaveCommunityActivity(activityId, currentUserId)
+        } else {
+            helper.joinCommunityActivity(activityId, currentUserId)
+        }
+
+        // Refrescar StateFlow desde SQLite inmediatamente
+        _communityActivities.value = helper.getCommunityActivities(currentUserId)
+
+        // Sincronizar en segundo plano con backend si está disponible
+        repositoryScope.launch {
+            try {
+                com.fifo.voicepipeline.network.FifoBackendClient.toggleJoinActivity(
+                    activityId = activityId,
+                    userId = currentUserId,
+                    join = !target.isJoined
+                )
+            } catch (e: Exception) {
+                android.util.Log.d("FifoDataRepository", "Aviso en sync backend toggleJoinActivity: ${e.message}")
+            }
+        }
+    }
+
+    fun createCommunityActivity(
+        title: String,
+        description: String,
+        dateLabel: String,
+        locationName: String,
+        spotsMax: Int = 10,
+        iconCategory: String = "nature",
+        targetTastes: List<String> = emptyList(),
+        organizerType: String = "user",
+        organizerName: String? = null
+    ): String {
+        val helper = dbHelper ?: return ""
+        val currentUserId = _userProfile.value.id
+        val resolvedOrganizerName = organizerName ?: _userProfile.value.fullName.ifBlank { "Vecino de la comunidad" }
+        val newId = "act_" + System.currentTimeMillis().toString().takeLast(6)
+
+        val item = CommunityActivityItem(
+            id = newId,
+            title = title.trim(),
+            description = description.trim(),
+            spotsLabel = "Quedan ${spotsMax - 1} cupos",
+            spotsMax = spotsMax,
+            spotsTaken = 1, // el organizador queda inscrito automáticamente
+            dateLabel = dateLabel.trim(),
+            locationName = locationName.trim(),
+            distanceLabel = "Cerca de tu sector",
+            iconCategory = iconCategory,
+            organizerId = currentUserId,
+            organizerName = resolvedOrganizerName,
+            organizerType = organizerType,
+            targetTastes = targetTastes,
+            isJoined = true
+        )
+
+        helper.addCommunityActivity(item)
+        helper.joinCommunityActivity(newId, currentUserId)
+        _communityActivities.value = helper.getCommunityActivities(currentUserId)
+
+        // Sincronizar con el backend remoto en segundo plano
+        repositoryScope.launch {
+            try {
+                com.fifo.voicepipeline.network.FifoBackendClient.createCommunityActivity(item)
+            } catch (e: Exception) {
+                android.util.Log.d("FifoDataRepository", "Aviso sync backend createCommunityActivity: ${e.message}")
+            }
+        }
+
+        return newId
+    }
+
+    fun deleteCommunityActivity(activityId: String) {
+        val helper = dbHelper ?: return
+        val currentUserId = _userProfile.value.id
+        helper.deleteCommunityActivity(activityId)
+        _communityActivities.value = helper.getCommunityActivities(currentUserId)
+    }
+
+    fun suggestActivityWithFifo(ideaPrompt: String, userTastes: List<String>): CommunityActivityItem {
+        val promptClean = ideaPrompt.trim()
+        val lower = promptClean.lowercase()
+
+        // Determinar categoría e icono acorde al contexto
+        val (category, defaultTitle, defaultLoc) = when {
+            lower.contains("pint") || lower.contains("arte") || lower.contains("dibuj") || lower.contains("acuarel") ->
+                Triple("palette", "Encuentro de dibujo y pintura libre", "Centro Cultural o Plaza de las Esculturas")
+            lower.contains("cocin") || lower.contains("recet") || lower.contains("pan") || lower.contains("comid") || lower.contains("dulc") ->
+                Triple("coffee", "Compartir de cocina y recetas caseras", "Café vecinal o rincón del té")
+            lower.contains("camin") || lower.contains("parque") || lower.contains("plant") || lower.contains("flor") || lower.contains("jard") ->
+                Triple("nature", "Caminata y paseo por las áreas verdes", "Acceso principal del Parque Central")
+            lower.contains("music") || lower.contains("cant") || lower.contains("guitarr") || lower.contains("bolero") ->
+                Triple("music", "Tarde musical y canciones del recuerdo", "Sala de música del centro comunitario")
+            lower.contains("libr") || lower.contains("le") || lower.contains("cuento") || lower.contains("histori") ->
+                Triple("book", "Club de lectura y tertulia de historias", "Biblioteca vecinal")
+            else ->
+                Triple("nature", "Encuentro vecinal para compartir y conversar", "Café o parque cercano")
+        }
+
+        val tastesFound = mutableListOf<String>()
+        if (lower.contains("pint") || lower.contains("arte")) tastesFound.add("Pintura y arte")
+        if (lower.contains("cocin") || lower.contains("recet")) tastesFound.add("Cocina tradicional")
+        if (lower.contains("camin") || lower.contains("parque")) tastesFound.add("Paseos al aire libre")
+        if (lower.contains("music") || lower.contains("bolero")) tastesFound.add("Música clásica")
+        if (lower.contains("libr") || lower.contains("histori")) tastesFound.add("Historias de vida")
+        if (tastesFound.isEmpty() && userTastes.isNotEmpty()) {
+            tastesFound.addAll(userTastes.take(2))
+        }
+
+        val generatedTitle = if (promptClean.length in 8..55) {
+            promptClean.replaceFirstChar { it.uppercase() }
+        } else {
+            defaultTitle
+        }
+
+        val generatedDesc = if (promptClean.length > 20) {
+            "Fifo organizó esta propuesta: $promptClean. Una oportunidad perfecta para compartir con vecinos que aprecian los mismos pasatiempos."
+        } else {
+            "Reunión comunitaria guiada por Fifo para disfrutar de una grata conversación y realizar actividades amenas en conjunto."
+        }
+
+        return CommunityActivityItem(
+            id = "draft_suggested",
+            title = generatedTitle,
+            description = generatedDesc,
+            spotsLabel = "Quedan 7 cupos",
+            spotsMax = 8,
+            spotsTaken = 1,
+            dateLabel = "Próximo sábado · 16:00",
+            locationName = defaultLoc,
+            distanceLabel = "A 500 m",
+            iconCategory = category,
+            organizerId = _userProfile.value.id,
+            organizerName = _userProfile.value.fullName.ifBlank { "Vecino" },
+            organizerType = "user",
+            targetTastes = tastesFound,
+            isJoined = true
         )
     }
 }

@@ -3,6 +3,9 @@ package com.fifo.voicepipeline.ui.components
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Error
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -116,12 +119,20 @@ fun BleProvisioningDialog(
                         Text("Enviando credenciales por Bluetooth...", fontSize = 12.sp, color = FifoColors.StatusListening)
                     }
                     is ProvisioningState.Success -> {
-                        Text("✅ ¡Credenciales guardadas con éxito!", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = FifoColors.StatusListening)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = null, tint = FifoColors.StatusListening, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("¡Credenciales guardadas con éxito!", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = FifoColors.StatusListening)
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text("El ESP32 se está conectando a tu red.", fontSize = 11.sp, color = Color(0xFF94A3B8))
                     }
                     is ProvisioningState.Error -> {
-                        Text("❌ ${provisioningState.message}", fontSize = 12.sp, color = FifoColors.StatusError, textAlign = TextAlign.Center)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Default.Error, contentDescription = null, tint = FifoColors.StatusError, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(provisioningState.message, fontSize = 12.sp, color = FifoColors.StatusError, textAlign = TextAlign.Center)
+                        }
                     }
                     ProvisioningState.Idle -> {}
                 }

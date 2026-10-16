@@ -787,4 +787,45 @@ object FifoBackendClient {
                 false
             }
         }
+
+    suspend fun createCommunityActivity(item: CommunityActivityItem): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val json = JSONObject().apply {
+                put("id", item.id)
+                put("title", item.title)
+                put("description", item.description)
+                put("spots_label", item.spotsLabel)
+                put("spots_max", item.spotsMax)
+                put("spots_taken", item.spotsTaken)
+                put("date_label", item.dateLabel)
+                put("location_name", item.locationName)
+                put("distance_label", item.distanceLabel)
+                put("icon_category", item.iconCategory)
+                put("organizer_id", item.organizerId)
+                put("organizer_name", item.organizerName)
+                put("organizer_type", item.organizerType)
+                put("target_tastes", JSONArray(item.targetTastes))
+            }
+            postOrPatchJson("$baseUrl/activities", "POST", json)
+        } catch (e: Exception) {
+            Log.d(TAG, "Error sync createCommunityActivity: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun toggleJoinActivity(activityId: String, userId: String, join: Boolean): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = "$baseUrl/activities/$activityId/join?user_id=$userId"
+            val req = Request.Builder().url(url)
+            if (join) {
+                req.post(JSONObject().toString().toRequestBody(jsonMediaType))
+            } else {
+                req.delete()
+            }
+            httpClient.newCall(req.build()).execute().use { it.isSuccessful }
+        } catch (e: Exception) {
+            Log.d(TAG, "Error sync toggleJoinActivity: ${e.message}")
+            false
+        }
+    }
 }

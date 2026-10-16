@@ -15,17 +15,15 @@ services:
       - --character-set-server=utf8mb4
       - --collation-server=utf8mb4_es_0900_ai_ci
       - --default-time-zone=-03:00
+      - --performance-schema=OFF
+      - --innodb-buffer-pool-size=32M
+      - --innodb-log-buffer-size=4M
+      - --max-connections=30
       - --innodb-ft-min-token-size=2
       - --ngram-token-size=2
     volumes:
       - fifo_mysql_data:/var/lib/mysql
       - ./init:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p$${MYSQL_ROOT_PASSWORD:-fifo_root_secret_2026}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 15s
     networks:
       - fifo-net
 
@@ -34,8 +32,7 @@ services:
     container_name: fifo-adminer
     restart: unless-stopped
     depends_on:
-      fifo-mysql:
-        condition: service_healthy
+      - fifo-mysql
     environment:
       ADMINER_DEFAULT_SERVER: fifo-mysql
       ADMINER_DESIGN: pepa-linha
@@ -51,8 +48,7 @@ services:
     container_name: fifo-api
     restart: unless-stopped
     depends_on:
-      fifo-mysql:
-        condition: service_healthy
+      - fifo-mysql
     environment:
       DB_HOST: fifo-mysql
       DB_PORT: 3306

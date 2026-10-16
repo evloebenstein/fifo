@@ -495,7 +495,7 @@ fun FifoDeviceFinderDialog(
                             modifier = Modifier.padding(14.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(text = "💡", fontSize = 20.sp)
+                            Icon(Icons.Default.Lightbulb, contentDescription = null, tint = Color(0xFFFBBF24), modifier = Modifier.size(20.dp))
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
                                 text = "Consejo: Revisa sobre la mesa de noche, el velador del dormitorio o cerca del sillón donde sueles descansar.",

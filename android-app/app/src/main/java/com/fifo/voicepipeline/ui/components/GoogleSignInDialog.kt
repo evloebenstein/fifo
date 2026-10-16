@@ -290,7 +290,7 @@ fun GoogleSignInDialog(
                         modifier = Modifier.padding(14.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("🛡️", fontSize = 20.sp)
+                        Icon(androidx.compose.material.icons.Icons.Default.Lock, contentDescription = null, tint = Color(0xFF166534), modifier = Modifier.size(20.dp))
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
                             text = "Sin contraseñas difíciles. Tu perfil y tus recuerdos con Fifo se guardan de forma segura vinculados a Google.",

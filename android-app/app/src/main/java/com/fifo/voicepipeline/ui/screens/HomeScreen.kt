@@ -59,90 +59,8 @@ fun HomeScreen(
     var isFinderOpen by remember { mutableStateOf(false) }
     var selectedHistoryTab by remember { mutableStateOf(0) } // 0: Charlas, 1: Recuerdos
 
-    var conversations by remember {
-        mutableStateOf(
-            listOf(
-                PastConversationItem(
-                    id = "c1",
-                    title = "Receta familiar y tarta de manzana",
-                    date = "Hoy · 10:30 hrs",
-                    duration = "4 minutos con Fifo",
-                    summary = "Fifo te ayudó a recordar la receta de tu abuela Elena para la tarta de manzana con canela y nueces. Guardó tu preferencia de usar manzanas verdes.",
-                    tag = "Cocina y familia",
-                    iconName = "restaurant"
-                ),
-                PastConversationItem(
-                    id = "c2",
-                    title = "Caminata matutina y música clásica",
-                    date = "Ayer · 16:45 hrs",
-                    duration = "6 minutos con Fifo",
-                    summary = "Charlaron sobre cómo estuvo el día en el parque y escucharon una melodía suave de piano de Chopin para relajarse juntos.",
-                    tag = "Bienestar y música",
-                    iconName = "music"
-                ),
-                PastConversationItem(
-                    id = "c3",
-                    title = "Planes para el cumpleaños de Mateo",
-                    date = "Martes · 11:15 hrs",
-                    duration = "5 minutos con Fifo",
-                    summary = "Comentaste ideas de regalo para tu nieto en mayo y Fifo sugirió escribirle una carta con una anécdota especial de la familia.",
-                    tag = "Afectos",
-                    iconName = "heart"
-                ),
-                PastConversationItem(
-                    id = "c4",
-                    title = "Respiración y descanso nocturno",
-                    date = "Domingo · 20:00 hrs",
-                    duration = "3 minutos con Fifo",
-                    summary = "Fifo te acompañó con su ejercicio de respiración guiada de 2 minutos para descansar con la mente tranquila.",
-                    tag = "Relajación",
-                    iconName = "air"
-                )
-            )
-        )
-    }
-
-    var memories by remember {
-        mutableStateOf(
-            listOf(
-                FifoMemoryItem(
-                    id = "1",
-                    emoji = "🎂",
-                    title = "Cumpleaños de tu nieto Mateo",
-                    detail = "Tu nieto Mateo cumple años en mayo y le encantan los libros sobre planetas y astronomía.",
-                    learnedDate = "Aprendido hace 3 días"
-                ),
-                FifoMemoryItem(
-                    id = "2",
-                    emoji = "☕",
-                    title = "Té de manzanilla antes de dormir",
-                    detail = "Prefieres tomar infusión de manzanilla tibia antes de acostarte para descansar plácidamente.",
-                    learnedDate = "Aprendido hace 5 días"
-                ),
-                FifoMemoryItem(
-                    id = "3",
-                    emoji = "🎹",
-                    title = "Música de Chopin para relajarse",
-                    detail = "Te calma escuchar los nocturnos de piano de Frédéric Chopin por la tarde.",
-                    learnedDate = "Aprendido hace 1 semana"
-                ),
-                FifoMemoryItem(
-                    id = "4",
-                    emoji = "🌸",
-                    title = "Cuidado de las orquídeas",
-                    detail = "Riegas y ventilas tus orquídeas del balcón los martes por la mañana.",
-                    learnedDate = "Aprendido hace 2 semanas"
-                ),
-                FifoMemoryItem(
-                    id = "5",
-                    emoji = "🚶‍♀️",
-                    title = "Caminatas cuando no hay viento",
-                    detail = "Sales a caminar al parque cuando el sol está tibio y no hay viento frío.",
-                    learnedDate = "Aprendido hace 2 semanas"
-                )
-            )
-        )
-    }
+    val conversations = liveConversations
+    val memories = liveMemories
 
     Column(
         modifier = modifier
@@ -808,7 +726,11 @@ fun HomeScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         memories.take(3).forEach { mem ->
                             Row(verticalAlignment = Alignment.Top) {
-                                Text(text = mem.emoji, fontSize = 18.sp)
+                                MemoryVectorIcon(
+                                    tagOrEmoji = mem.emoji.ifBlank { mem.title },
+                                    modifier = Modifier.size(20.dp),
+                                    tint = FifoColors.NavyPrimary
+                                )
                                 Spacer(modifier = Modifier.width(10.dp))
                                 Column {
                                     Text(
@@ -1004,7 +926,7 @@ fun HomeScreen(
 
                                                 // Botón accesible para borrar charla
                                                 IconButton(
-                                                    onClick = { conversations = conversations.filterNot { it.id == conv.id } },
+                                                    onClick = { com.fifo.voicepipeline.data.FifoDataRepository.removeConversation(conv.id) },
                                                     modifier = Modifier.size(32.dp)
                                                 ) {
                                                     Icon(
@@ -1099,7 +1021,11 @@ fun HomeScreen(
                                             modifier = Modifier.padding(14.dp),
                                             verticalAlignment = Alignment.Top
                                         ) {
-                                            Text(text = mem.emoji, fontSize = 22.sp)
+                                            MemoryVectorIcon(
+                                                tagOrEmoji = mem.emoji.ifBlank { mem.title },
+                                                modifier = Modifier.size(22.dp),
+                                                tint = FifoColors.NavyPrimary
+                                            )
                                             Spacer(modifier = Modifier.width(10.dp))
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Text(
@@ -1125,7 +1051,7 @@ fun HomeScreen(
 
                                             // Botón accesible para borrar recuerdo
                                             IconButton(
-                                                onClick = { memories = memories.filterNot { it.id == mem.id } },
+                                                onClick = { com.fifo.voicepipeline.data.FifoDataRepository.removeMemory(mem.id) },
                                                 modifier = Modifier.size(32.dp)
                                             ) {
                                                 Icon(
@@ -1241,15 +1167,11 @@ fun HomeScreen(
                         Button(
                             onClick = {
                                 if (newTitle.isNotBlank()) {
-                                    memories = listOf(
-                                        FifoMemoryItem(
-                                            id = System.currentTimeMillis().toString(),
-                                            emoji = "💡",
-                                            title = newTitle.trim(),
-                                            detail = newDetail.trim().ifEmpty { newTitle.trim() },
-                                            learnedDate = "Añadido hoy"
-                                        )
-                                    ) + memories
+                                    com.fifo.voicepipeline.data.FifoDataRepository.addMemory(
+                                        emoji = "idea",
+                                        title = newTitle.trim(),
+                                        detail = newDetail.trim().ifEmpty { newTitle.trim() }
+                                    )
                                     isAddMemoryOpen = false
                                 }
                             },
@@ -1463,4 +1385,32 @@ private fun MoodFaceIcon(
             }
         }
     }
+}
+
+/**
+ * Icono vectorial accesible para recuerdos en lugar de emojis de sistema.
+ */
+@Composable
+private fun MemoryVectorIcon(
+    tagOrEmoji: String,
+    modifier: Modifier = Modifier,
+    tint: Color = FifoColors.NavyPrimary
+) {
+    val low = tagOrEmoji.lowercase()
+    val icon = when {
+        low.contains("jiu") || low.contains("deport") || low.contains("entren") || low.contains("ejercic") || low.contains("🥋") -> Icons.Default.FitnessCenter
+        low.contains("salud") || low.contains("medic") || low.contains("pastill") || low.contains("remedi") || low.contains("💊") -> Icons.Default.MedicalServices
+        low.contains("idea") || low.contains("pensam") || low.contains("💡") -> Icons.Default.Lightbulb
+        low.contains("lugar") || low.contains("ciudad") || low.contains("viaje") || low.contains("📍") -> Icons.Default.LocationOn
+        low.contains("cocin") || low.contains("comid") || low.contains("recet") || low.contains("pan") || low.contains("🥐") -> Icons.Default.Restaurant
+        low.contains("musica") || low.contains("canto") || low.contains("radio") -> Icons.Default.MusicNote
+        low.contains("cumple") || low.contains("fiest") || low.contains("🎂") -> Icons.Default.Cake
+        else -> Icons.Default.BookmarkBorder
+    }
+    Icon(
+        imageVector = icon,
+        contentDescription = null,
+        tint = tint,
+        modifier = modifier
+    )
 }

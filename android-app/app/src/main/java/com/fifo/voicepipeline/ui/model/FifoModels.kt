@@ -304,3 +304,39 @@ data class RoutineAnomaly(
     val detectedAt: String = ""
 )
 
+/**
+ * Encuentro o actividad comunitaria presencial / virtual descubierta o creada
+ * por usuarios, por Fifo o por organizaciones afines.
+ */
+data class CommunityActivityItem(
+    val id: String,
+    val title: String,
+    val description: String = "",
+    val spotsLabel: String = "Cupos disponibles",
+    val spotsMax: Int = 15,
+    val spotsTaken: Int = 0,
+    val dateLabel: String,
+    val locationName: String,
+    val distanceLabel: String = "Cerca de ti",
+    val iconCategory: String = "book", // book, music, park, art, cooking, walk, movie
+    val organizerId: String = "",
+    val organizerName: String = "Fifo",
+    val organizerType: String = "fifo", // "user", "fifo", "company", "community_group"
+    val targetTastes: List<String> = emptyList(),
+    val isJoined: Boolean = false,
+    val createdAt: String = ""
+) {
+    val spotsRemaining: Int
+        get() = (spotsMax - spotsTaken).coerceAtLeast(0)
+
+    val icon: ImageVector
+        get() = when (iconCategory.lowercase()) {
+            "music", "musica" -> Icons.Outlined.MusicNote
+            "park", "parque", "naturaleza" -> Icons.Outlined.Park
+            "cooking", "cocina" -> Icons.Outlined.Restaurant
+            "walk", "paseo", "caminata" -> Icons.Outlined.DirectionsWalk
+            "book", "lectura", "libro" -> Icons.Outlined.MenuBook
+            else -> Icons.Outlined.Event
+        }
+}
+
