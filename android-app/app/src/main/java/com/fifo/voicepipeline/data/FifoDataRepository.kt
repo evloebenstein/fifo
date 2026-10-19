@@ -20,6 +20,17 @@ object FifoDataRepository {
     private var dbHelper: com.fifo.voicepipeline.data.local.FifoDatabaseHelper? = null
     private val repositoryScope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
 
+    // ── Módulos de Dominio Profundo ───────────────────────────────────────
+    val userIdentityModule = com.fifo.voicepipeline.data.modules.UserIdentityModule(
+        com.fifo.voicepipeline.data.modules.SqliteUserStorageAdapter { dbHelper }
+    )
+    val communityModule = com.fifo.voicepipeline.data.modules.CommunityModule(
+        com.fifo.voicepipeline.data.modules.SqliteCommunityStorageAdapter { dbHelper }
+    )
+    val episodicMemoryModule = com.fifo.voicepipeline.data.modules.EpisodicMemoryModule(
+        com.fifo.voicepipeline.data.modules.SqliteMemoryStorageAdapter { dbHelper }
+    )
+
     private val _isBackendConnected = MutableStateFlow(false)
     val isBackendConnected: StateFlow<Boolean> = _isBackendConnected.asStateFlow()
 
@@ -37,21 +48,12 @@ object FifoDataRepository {
 
         if (activeUserId != null) {
             try {
-                // Cargar estado inicial inmediatamente desde SQLite (100% offline, cero latencia)
-                val p = helper.getUserProfile(activeUserId)
-                if (p.id.isNotBlank()) _userProfile.value = p
-                _tastes.value = helper.getTastes(activeUserId)
-                _tasteStories.value = helper.getTasteStories(activeUserId)
-                _socialPosts.value = helper.getSocialPosts()
-                _memories.value = helper.getMemories(activeUserId)
-                _reminders.value = helper.getReminders(activeUserId)
-                _conversations.value = helper.getPastConversations(activeUserId)
-                _conversationFragments.value = helper.getConversationFragments(activeUserId)
-                _relationalContacts.value = helper.getRelationalContacts(activeUserId)
-                _dailyRoutines.value = helper.getDailyRoutines(activeUserId)
-                _deviceLocation.value = helper.getDeviceLocation()
+                // Cargar estado inicial inmediatamente mediante los módulos del dominio
+                userIdentityModule.loadUser(activeUserId)
+                episodicMemoryModule.loadUserData(activeUserId)
                 helper.seedDefaultCommunityActivitiesIfEmpty(activeUserId)
-                _communityActivities.value = helper.getCommunityActivities(activeUserId)
+                communityModule.loadInitialData(activeUserId)
+                _deviceLocation.value = helper.getDeviceLocation()
                 android.util.Log.i("FifoDataRepository", "Base de datos relacional SQLite cargada con éxito en el dispositivo para $activeUserId")
 
                 // Sincronizar libreta de contactos del teléfono celular en segundo plano si hay permiso
@@ -75,9 +77,9 @@ object FifoDataRepository {
 
     /**
      * Sincroniza todos los datos del usuario con el backend Docker (database/api en puerto 8090)
-     * e integra cualquier cambio en SQLite local y en los StateFlows reactivos.
+     * e integra cualquier cambio en SQLite local y en los módulos reactivos.
      */
-    fun syncFromBackend(userId: String = _userProfile.value.id) {
+    fun syncFromBackend(userId: String = userProfile.value.id) {
         repositoryScope.launch {
             if (com.fifo.voicepipeline.network.FifoBackendClient.checkHealth()) {
                 _isBackendConnected.value = true
@@ -86,17 +88,17 @@ object FifoDataRepository {
                     // 1. Persistir el bundle completo en SQLite local
                     dbHelper?.bulkUpsertSyncBundle(userId, bundle)
 
-                    // 2. Notificar a la UI reactiva de Android
-                    _userProfile.value = bundle.userProfile
-                    _tastes.value = bundle.tastes
-                    if (bundle.tasteStories.isNotEmpty()) _tasteStories.value = bundle.tasteStories
-                    if (bundle.socialPosts.isNotEmpty()) _socialPosts.value = bundle.socialPosts
-                    if (bundle.memories.isNotEmpty()) _memories.value = bundle.memories
-                    if (bundle.reminders.isNotEmpty()) _reminders.value = bundle.reminders
-                    if (bundle.pastConversations.isNotEmpty()) _conversations.value = bundle.pastConversations
-                    if (bundle.conversationFragments.isNotEmpty()) _conversationFragments.value = bundle.conversationFragments
-                    bundle.relationalContacts?.let { if (it.isNotEmpty()) _relationalContacts.value = it }
-                    bundle.dailyRoutines?.let { if (it.isNotEmpty()) _dailyRoutines.value = it }
+                    // 2. Notificar a los módulos del dominio
+                    userIdentityModule.setUserProfile(bundle.userProfile)
+                    episodicMemoryModule.setDirectTastes(bundle.tastes)
+                    if (bundle.tasteStories.isNotEmpty()) episodicMemoryModule.setDirectTasteStories(bundle.tasteStories)
+                    if (bundle.socialPosts.isNotEmpty()) communityModule.setPosts(bundle.socialPosts)
+                    if (bundle.memories.isNotEmpty()) episodicMemoryModule.setDirectMemories(bundle.memories)
+                    if (bundle.reminders.isNotEmpty()) episodicMemoryModule.setDirectReminders(bundle.reminders)
+                    if (bundle.pastConversations.isNotEmpty()) episodicMemoryModule.setDirectConversations(bundle.pastConversations)
+                    if (bundle.conversationFragments.isNotEmpty()) episodicMemoryModule.setDirectFragments(bundle.conversationFragments)
+                    bundle.relationalContacts?.let { if (it.isNotEmpty()) episodicMemoryModule.setDirectRelationalContacts(it) }
+                    bundle.dailyRoutines?.let { if (it.isNotEmpty()) episodicMemoryModule.setDirectDailyRoutines(it) }
                     bundle.deviceLocation?.let { _deviceLocation.value = it }
                     android.util.Log.i("FifoDataRepository", "Sincronización remota completada con Docker/MySQL")
                 }
@@ -109,7 +111,7 @@ object FifoDataRepository {
 
     fun getActiveUserId(context: android.content.Context): String {
         val prefs = context.applicationContext.getSharedPreferences("fifo_prefs", android.content.Context.MODE_PRIVATE)
-        return prefs.getString("active_user_id", _userProfile.value.id) ?: _userProfile.value.id
+        return prefs.getString("active_user_id", userProfile.value.id) ?: userProfile.value.id
     }
 
     /**
@@ -121,24 +123,10 @@ object FifoDataRepository {
         val prefs = context.applicationContext.getSharedPreferences("fifo_prefs", android.content.Context.MODE_PRIVATE)
         prefs.edit().putString("active_user_id", newUserId).apply()
 
-        val p = helper.getUserProfile(newUserId)
-        if (p.fullName.isNotBlank()) {
-            _userProfile.value = p
-        } else {
-            _userProfile.value = UserProfileData(id = newUserId)
-        }
-
-        _tastes.value = helper.getTastes(newUserId)
-        _tasteStories.value = helper.getTasteStories(newUserId)
-        _memories.value = helper.getMemories(newUserId)
-        _reminders.value = helper.getReminders(newUserId)
-        _conversations.value = helper.getPastConversations(newUserId)
-        _conversationFragments.value = helper.getConversationFragments(newUserId)
-        _relationalContacts.value = helper.getRelationalContacts(newUserId)
-        _dailyRoutines.value = helper.getDailyRoutines(newUserId)
-        _socialPosts.value = helper.getSocialPosts()
+        userIdentityModule.loadUser(newUserId)
+        episodicMemoryModule.loadUserData(newUserId)
         helper.seedDefaultCommunityActivitiesIfEmpty(newUserId)
-        _communityActivities.value = helper.getCommunityActivities(newUserId)
+        communityModule.loadInitialData(newUserId)
 
         syncFromBackend(newUserId)
     }
@@ -329,44 +317,34 @@ object FifoDataRepository {
     }
 
     // ── 1. Perfil del Usuario ──────────────────────────────────
-    private val _userProfile = MutableStateFlow(UserProfileData())
-    val userProfile: StateFlow<UserProfileData> = _userProfile.asStateFlow()
+    val userProfile: StateFlow<UserProfileData> = userIdentityModule.userProfile
 
     // ── 2. Gustos e Intereses ──────────────────────────────────
-    private val _tastes = MutableStateFlow<List<String>>(emptyList())
-    val tastes: StateFlow<List<String>> = _tastes.asStateFlow()
+    val tastes: StateFlow<List<String>> = episodicMemoryModule.tastes
 
     // ── 3. Historias y Artículos de Blog ("Gustos en detalle") ──
-    private val _tasteStories = MutableStateFlow<List<FifoTasteStory>>(emptyList())
-    val tasteStories: StateFlow<List<FifoTasteStory>> = _tasteStories.asStateFlow()
+    val tasteStories: StateFlow<List<FifoTasteStory>> = episodicMemoryModule.tasteStories
 
     // ── 4. Publicaciones Sociales ("Fifo Amigos") ────
-    private val _socialPosts = MutableStateFlow<List<UserSocialPost>>(emptyList())
-    val socialPosts: StateFlow<List<UserSocialPost>> = _socialPosts.asStateFlow()
+    val socialPosts: StateFlow<List<UserSocialPost>> = communityModule.socialPosts
 
     // ── 5. Recuerdos de Conversaciones ─────────────────────────
-    private val _memories = MutableStateFlow<List<FifoMemoryItem>>(emptyList())
-    val memories: StateFlow<List<FifoMemoryItem>> = _memories.asStateFlow()
+    val memories: StateFlow<List<FifoMemoryItem>> = episodicMemoryModule.memories
 
     // ── 6. Recordatorios y Alarmas del Sistema ──────────────────
-    private val _reminders = MutableStateFlow<List<FifoReminderItem>>(emptyList())
-    val reminders: StateFlow<List<FifoReminderItem>> = _reminders.asStateFlow()
+    val reminders: StateFlow<List<FifoReminderItem>> = episodicMemoryModule.reminders
 
     // ── 7. Conversaciones Pasadas ───────────────────────────────
-    private val _conversations = MutableStateFlow<List<PastConversationItem>>(emptyList())
-    val conversations: StateFlow<List<PastConversationItem>> = _conversations.asStateFlow()
+    val conversations: StateFlow<List<PastConversationItem>> = episodicMemoryModule.conversations
 
     // ── 8. Grafo Relacional de Contactos Cercanos ───────────────
-    private val _relationalContacts = MutableStateFlow<List<RelationalContact>>(emptyList())
-    val relationalContacts: StateFlow<List<RelationalContact>> = _relationalContacts.asStateFlow()
+    val relationalContacts: StateFlow<List<RelationalContact>> = episodicMemoryModule.relationalContacts
 
     // ── 9. Rutinas Diarias y Patrones de Actividad ───────────────
-    private val _dailyRoutines = MutableStateFlow<List<DailyRoutine>>(emptyList())
-    val dailyRoutines: StateFlow<List<DailyRoutine>> = _dailyRoutines.asStateFlow()
+    val dailyRoutines: StateFlow<List<DailyRoutine>> = episodicMemoryModule.dailyRoutines
 
     // ── 10. Actividades y Encuentros Comunitarios ────────────────
-    private val _communityActivities = MutableStateFlow<List<CommunityActivityItem>>(emptyList())
-    val communityActivities: StateFlow<List<CommunityActivityItem>> = _communityActivities.asStateFlow()
+    val communityActivities: StateFlow<List<CommunityActivityItem>> = communityModule.communityActivities
 
     // ══════════════════════════════════════════════════════════
     //  MUTACIONES (Llamadas por los Skills de Fifo o por la UI)
@@ -383,30 +361,15 @@ object FifoDataRepository {
         gender: String? = null,
         city: String? = null
     ) {
-        val current = _userProfile.value
+        val current = userProfile.value
         val newYear = birthYear ?: current.birthYear
-        val newAge = if (birthYear != null) (2026 - birthYear) else current.estimatedAge
         val cleanUsername = username?.trim()?.removePrefix("@")?.filter { it.isLetterOrDigit() || it == '_' }?.lowercase()
 
-        val updated = current.copy(
-            fullName = fullName?.trim()?.ifBlank { current.fullName } ?: current.fullName,
-            username = cleanUsername?.ifBlank { current.username } ?: current.username,
-            birthDate = birthDate?.trim()?.ifBlank { current.birthDate } ?: current.birthDate,
-            birthYear = newYear,
-            estimatedAge = newAge,
-            genderIdentity = gender?.trim()?.ifBlank { current.genderIdentity } ?: current.genderIdentity,
-            city = city?.trim()?.ifBlank { current.city } ?: current.city
-        )
-        _userProfile.value = updated
-
-        // Guardar en SQLite local
-        dbHelper?.updateDemographics(
-            userId = current.id,
+        userIdentityModule.updateDemographics(
             fullName = fullName,
             username = cleanUsername,
             birthDate = birthDate,
             birthYear = newYear,
-            estimatedAge = newAge,
             gender = gender,
             city = city
         )
@@ -430,10 +393,9 @@ object FifoDataRepository {
     fun updateBio(newBio: String) {
         if (newBio.isNotBlank()) {
             val clean = newBio.trim()
-            _userProfile.value = _userProfile.value.copy(bioAi = clean)
-            dbHelper?.updateBio(_userProfile.value.id, clean)
+            userIdentityModule.updateBio(clean)
             repositoryScope.launch {
-                com.fifo.voicepipeline.network.FifoBackendClient.putBio(_userProfile.value.id, clean)
+                com.fifo.voicepipeline.network.FifoBackendClient.putBio(userProfile.value.id, clean)
             }
         }
     }
@@ -444,10 +406,9 @@ object FifoDataRepository {
     fun updateInterestTags(tags: List<String>) {
         if (tags.isNotEmpty()) {
             val cleanTags = tags.map { it.trim() }.filter { it.isNotBlank() }.distinct()
-            _userProfile.value = _userProfile.value.copy(interestTags = cleanTags)
-            dbHelper?.updateInterestTags(_userProfile.value.id, cleanTags)
+            userIdentityModule.updateInterestTags(cleanTags)
             repositoryScope.launch {
-                com.fifo.voicepipeline.network.FifoBackendClient.putInterestTags(_userProfile.value.id, cleanTags)
+                com.fifo.voicepipeline.network.FifoBackendClient.putInterestTags(userProfile.value.id, cleanTags)
             }
         }
     }
@@ -458,16 +419,13 @@ object FifoDataRepository {
     fun addTaste(tasteName: String): Boolean {
         val clean = tasteName.trim()
         if (clean.isBlank()) return false
-        val current = _tastes.value
-        if (!current.any { it.equals(clean, ignoreCase = true) }) {
-            _tastes.value = current + clean
-            dbHelper?.addTaste(_userProfile.value.id, clean)
+        val added = episodicMemoryModule.addTaste(userProfile.value.id, clean)
+        if (added) {
             repositoryScope.launch {
-                com.fifo.voicepipeline.network.FifoBackendClient.postTaste(_userProfile.value.id, "add", clean)
+                com.fifo.voicepipeline.network.FifoBackendClient.postTaste(userProfile.value.id, "add", clean)
             }
-            return true
         }
-        return false
+        return added
     }
 
     /**
@@ -475,27 +433,22 @@ object FifoDataRepository {
      */
     fun removeTaste(tasteName: String): Boolean {
         val clean = tasteName.trim()
-        val current = _tastes.value
-        val filtered = current.filterNot { it.equals(clean, ignoreCase = true) }
-        if (filtered.size != current.size) {
-            _tastes.value = filtered
-            dbHelper?.removeTaste(_userProfile.value.id, clean)
+        val removed = episodicMemoryModule.removeTaste(userProfile.value.id, clean)
+        if (removed) {
             repositoryScope.launch {
-                com.fifo.voicepipeline.network.FifoBackendClient.postTaste(_userProfile.value.id, "remove", clean)
+                com.fifo.voicepipeline.network.FifoBackendClient.postTaste(userProfile.value.id, "remove", clean)
             }
-            return true
         }
-        return false
+        return removed
     }
 
     /**
      * Añade una historia de vida ("Gusto en detalle").
      */
     fun addTasteStory(story: FifoTasteStory) {
-        _tasteStories.value = listOf(story) + _tasteStories.value
-        dbHelper?.addTasteStory(_userProfile.value.id, story)
+        episodicMemoryModule.addTasteStory(userProfile.value.id, story)
         repositoryScope.launch {
-            com.fifo.voicepipeline.network.FifoBackendClient.postTasteStory(_userProfile.value.id, story)
+            com.fifo.voicepipeline.network.FifoBackendClient.postTasteStory(userProfile.value.id, story)
         }
     }
 
@@ -503,20 +456,16 @@ object FifoDataRepository {
      * Publica un mensaje en Fifo Amigos.
      */
     fun addSocialPost(content: String, category: String = "Bienestar"): UserSocialPost {
-        val user = _userProfile.value
-        val newPost = UserSocialPost(
-            id = "post_${UUID.randomUUID()}",
-            author = user.fullName.split(" ").firstOrNull() ?: user.fullName,
-            age = user.estimatedAge,
+        val user = userProfile.value
+        val author = user.fullName.split(" ").firstOrNull() ?: user.fullName
+        val newPost = communityModule.addSocialPost(
+            content = content,
             category = category,
-            timeAgo = "Recién publicado",
-            content = content.trim(),
-            likes = 1,
-            commentsCount = 0,
-            accentColorHex = 0xFF38BDF8
+            author = author,
+            username = user.username,
+            age = user.estimatedAge,
+            userId = user.id
         )
-        _socialPosts.value = listOf(newPost) + _socialPosts.value
-        dbHelper?.addSocialPost(newPost, _userProfile.value.id)
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.postSocialPost(user.id, content.trim(), category)
         }
@@ -527,17 +476,9 @@ object FifoDataRepository {
      * Añade un recuerdo aprendido por Fifo.
      */
     fun addMemory(emoji: String, title: String, detail: String) {
-        val newMem = FifoMemoryItem(
-            id = "m_${UUID.randomUUID()}",
-            emoji = emoji.ifBlank { "⭐" },
-            title = title.trim(),
-            detail = detail.trim(),
-            learnedDate = "Aprendido recién"
-        )
-        _memories.value = listOf(newMem) + _memories.value
-        dbHelper?.addMemory(_userProfile.value.id, newMem)
+        val newMem = episodicMemoryModule.addMemory(userProfile.value.id, emoji, title, detail)
         repositoryScope.launch {
-            com.fifo.voicepipeline.network.FifoBackendClient.postMemory(_userProfile.value.id, newMem.emoji, newMem.title, newMem.detail)
+            com.fifo.voicepipeline.network.FifoBackendClient.postMemory(userProfile.value.id, newMem.emoji, newMem.title, newMem.detail)
         }
     }
 
@@ -545,18 +486,9 @@ object FifoDataRepository {
      * Programa un nuevo recordatorio en el sistema.
      */
     fun addReminder(title: String, timeStr: String, category: String = "medication"): FifoReminderItem {
-        val item = FifoReminderItem(
-            id = "rem_${UUID.randomUUID()}",
-            title = title.trim(),
-            timeStr = timeStr.trim(),
-            category = category,
-            isCompleted = false,
-            createdAt = "Hoy"
-        )
-        _reminders.value = listOf(item) + _reminders.value
-        dbHelper?.addReminder(_userProfile.value.id, item)
+        val item = episodicMemoryModule.addReminder(userProfile.value.id, title, timeStr, category)
         repositoryScope.launch {
-            com.fifo.voicepipeline.network.FifoBackendClient.postReminder(_userProfile.value.id, item.title, item.timeStr, item.category)
+            com.fifo.voicepipeline.network.FifoBackendClient.postReminder(userProfile.value.id, item.title, item.timeStr, item.category)
         }
         return item
     }
@@ -565,10 +497,7 @@ object FifoDataRepository {
      * Marca un recordatorio como completado.
      */
     fun completeReminder(id: String) {
-        _reminders.value = _reminders.value.map {
-            if (it.id == id) it.copy(isCompleted = true) else it
-        }
-        dbHelper?.completeReminder(_userProfile.value.id, id, true)
+        episodicMemoryModule.completeReminder(userProfile.value.id, id)
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.patchReminderComplete(id)
         }
@@ -578,8 +507,7 @@ object FifoDataRepository {
      * Elimina un recordatorio del teléfono y lo sincroniza con el backend.
      */
     fun removeReminder(id: String) {
-        _reminders.value = _reminders.value.filterNot { it.id == id }
-        dbHelper?.deleteReminder(_userProfile.value.id, id)
+        episodicMemoryModule.removeReminder(userProfile.value.id, id)
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.deleteReminder(id)
         }
@@ -590,10 +518,10 @@ object FifoDataRepository {
      * sin disparar llamada HTTP redundante al backend (útil post-consolidación de IA).
      */
     fun addMemoryDirect(item: FifoMemoryItem) {
-        val current = _memories.value
+        val current = memories.value
         if (!current.any { it.title.equals(item.title, ignoreCase = true) }) {
-            _memories.value = listOf(item) + current
-            dbHelper?.addMemory(_userProfile.value.id, item)
+            episodicMemoryModule.setDirectMemories(listOf(item) + current)
+            dbHelper?.addMemory(userProfile.value.id, item)
         }
     }
 
@@ -601,10 +529,10 @@ object FifoDataRepository {
      * Guarda una historia de gusto detallada directamente en la memoria viva y SQLite local.
      */
     fun addTasteStoryDirect(story: FifoTasteStory) {
-        val current = _tasteStories.value
+        val current = tasteStories.value
         if (!current.any { it.title.equals(story.title, ignoreCase = true) }) {
-            _tasteStories.value = listOf(story) + current
-            dbHelper?.addTasteStory(_userProfile.value.id, story)
+            episodicMemoryModule.setDirectTasteStories(listOf(story) + current)
+            dbHelper?.addTasteStory(userProfile.value.id, story)
         }
     }
 
@@ -612,10 +540,10 @@ object FifoDataRepository {
      * Guarda un recordatorio directamente en la memoria viva y SQLite local.
      */
     fun addReminderDirect(reminder: FifoReminderItem) {
-        val current = _reminders.value
+        val current = reminders.value
         if (!current.any { it.title.equals(reminder.title, ignoreCase = true) && it.timeStr == reminder.timeStr }) {
-            _reminders.value = listOf(reminder) + current
-            dbHelper?.addReminder(_userProfile.value.id, reminder)
+            episodicMemoryModule.setDirectReminders(listOf(reminder) + current)
+            dbHelper?.addReminder(userProfile.value.id, reminder)
         }
     }
 
@@ -623,11 +551,10 @@ object FifoDataRepository {
      * Registra una conversación pasada en el historial.
      */
     fun addConversation(item: PastConversationItem) {
-        _conversations.value = listOf(item) + _conversations.value
-        dbHelper?.addPastConversation(_userProfile.value.id, item)
+        episodicMemoryModule.addConversation(userProfile.value.id, item)
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.postConversation(
-                userId = _userProfile.value.id,
+                userId = userProfile.value.id,
                 title = item.title,
                 summary = item.summary,
                 primaryTag = item.tag,
@@ -642,31 +569,28 @@ object FifoDataRepository {
      * Elimina una conversación por id.
      */
     fun removeConversation(id: String) {
-        _conversations.value = _conversations.value.filterNot { it.id == id }
-        dbHelper?.deletePastConversation(_userProfile.value.id, id)
+        episodicMemoryModule.removeConversation(userProfile.value.id, id)
     }
 
     /**
      * Elimina un recuerdo por id.
      */
     fun removeMemory(id: String) {
-        _memories.value = _memories.value.filterNot { it.id == id }
+        episodicMemoryModule.removeMemory(userProfile.value.id, id)
     }
 
     /**
      * Elimina una publicación social por id.
      */
     fun removeSocialPost(id: String) {
-        _socialPosts.value = _socialPosts.value.filterNot { it.id == id }
-        dbHelper?.deleteSocialPost(id)
+        communityModule.removeSocialPost(id)
     }
 
     /**
      * Elimina una historia de gusto por id.
      */
     fun removeTasteStory(id: String) {
-        _tasteStories.value = _tasteStories.value.filterNot { it.id == id }
-        dbHelper?.deleteTasteStory(_userProfile.value.id, id)
+        episodicMemoryModule.removeTasteStory(userProfile.value.id, id)
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -677,20 +601,9 @@ object FifoDataRepository {
      * Agrega o actualiza un contacto en el grafo relacional de vínculos cercanos.
      */
     fun addOrUpdateRelationalContact(contact: RelationalContact) {
-        val current = _relationalContacts.value.toMutableList()
-        val idx = current.indexOfFirst {
-            it.id == contact.id ||
-            (it.contactName.equals(contact.contactName, ignoreCase = true) && it.phoneNumber == contact.phoneNumber)
-        }
-        if (idx >= 0) {
-            current[idx] = contact
-        } else {
-            current.add(contact)
-        }
-        _relationalContacts.value = current.sortedByDescending { it.closenessScore }
-        dbHelper?.addOrUpdateRelationalContact(_userProfile.value.id, contact)
+        episodicMemoryModule.addOrUpdateRelationalContact(userProfile.value.id, contact)
         repositoryScope.launch {
-            com.fifo.voicepipeline.network.FifoBackendClient.postRelationalContact(_userProfile.value.id, contact)
+            com.fifo.voicepipeline.network.FifoBackendClient.postRelationalContact(userProfile.value.id, contact)
         }
     }
 
@@ -703,7 +616,7 @@ object FifoDataRepository {
         val normalizedQ = java.text.Normalizer.normalize(q, java.text.Normalizer.Form.NFD)
             .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
 
-        val list = _relationalContacts.value
+        val list = relationalContacts.value
 
         // 1. Coincidencia exacta de apodo, rol o nombre completo
         list.firstOrNull { c ->
@@ -836,13 +749,13 @@ object FifoDataRepository {
         if (phoneContacts.isEmpty()) return 0
 
         // Merge inteligente preservando memoria y puntuaciones aprendidas
-        val currentList = _relationalContacts.value.toMutableList()
+        val currentList = relationalContacts.value.toMutableList()
         val toSaveInDb = mutableListOf<RelationalContact>()
 
         for (phoneContact in phoneContacts) {
-            val existingIdx = currentList.indexOfFirst {
-                it.contactName.equals(phoneContact.contactName, ignoreCase = true) ||
-                (!it.phoneNumber.isNullOrBlank() && it.phoneNumber == phoneContact.phoneNumber)
+            val existingIdx = currentList.indexOfFirst { c ->
+                c.contactName.equals(phoneContact.contactName, ignoreCase = true) ||
+                (!c.phoneNumber.isNullOrBlank() && c.phoneNumber == phoneContact.phoneNumber)
             }
 
             if (existingIdx >= 0) {
@@ -861,14 +774,14 @@ object FifoDataRepository {
             }
         }
 
-        _relationalContacts.value = currentList.sortedByDescending { it.closenessScore }
+        episodicMemoryModule.setDirectRelationalContacts(currentList.sortedByDescending { it.closenessScore })
 
         // Persistir en SQLite local
-        dbHelper?.syncDeviceContactsBatch(_userProfile.value.id, toSaveInDb)
+        dbHelper?.syncDeviceContactsBatch(userProfile.value.id, toSaveInDb)
 
         // Sincronizar en segundo plano con el Backend MySQL
         repositoryScope.launch {
-            com.fifo.voicepipeline.network.FifoBackendClient.syncRelationalContactsBatch(_userProfile.value.id, toSaveInDb)
+            com.fifo.voicepipeline.network.FifoBackendClient.syncRelationalContactsBatch(userProfile.value.id, toSaveInDb)
         }
 
         android.util.Log.i("FifoDataRepository", "Sincronizados ${phoneContacts.size} contactos del celular al Grafo Relacional de Fifo.")
@@ -886,7 +799,7 @@ object FifoDataRepository {
     fun updateContactsFromSessionMentions(mentions: List<com.fifo.voicepipeline.network.MentionedPersonExtraction>) {
         if (mentions.isEmpty()) return
 
-        val currentList = _relationalContacts.value.toMutableList()
+        val currentList = relationalContacts.value.toMutableList()
         val modifiedOrCreated = mutableListOf<RelationalContact>()
 
         for (mention in mentions) {
@@ -897,9 +810,9 @@ object FifoDataRepository {
             val existingIdx = currentList.indexOfFirst { c ->
                 val cName = c.contactName.lowercase().trim()
                 val mName = mentionName.lowercase()
+                val roleMatch = mention.inferredRole?.let { r -> c.relationshipRole.contains(r, ignoreCase = true) } ?: false
                 cName == mName || cName.contains(mName) || mName.contains(cName) ||
-                (c.alias != null && c.alias.equals(mName, ignoreCase = true)) ||
-                (mention.inferredRole != null && c.relationshipRole.contains(mention.inferredRole, ignoreCase = true))
+                (c.alias != null && c.alias.equals(mName, ignoreCase = true)) || roleMatch
             }
 
             if (existingIdx >= 0) {
@@ -964,13 +877,13 @@ object FifoDataRepository {
             }
         }
 
-        _relationalContacts.value = currentList.sortedByDescending { it.closenessScore }
+        episodicMemoryModule.setDirectRelationalContacts(currentList.sortedByDescending { it.closenessScore })
 
         // Persistir en SQLite y Backend
         for (c in modifiedOrCreated) {
-            dbHelper?.addOrUpdateRelationalContact(_userProfile.value.id, c)
+            dbHelper?.addOrUpdateRelationalContact(userProfile.value.id, c)
             repositoryScope.launch {
-                com.fifo.voicepipeline.network.FifoBackendClient.postRelationalContact(_userProfile.value.id, c)
+                com.fifo.voicepipeline.network.FifoBackendClient.postRelationalContact(userProfile.value.id, c)
             }
         }
     }
@@ -979,17 +892,9 @@ object FifoDataRepository {
      * Agrega o actualiza un patrón o rutina diaria del usuario.
      */
     fun addOrUpdateDailyRoutine(routine: DailyRoutine) {
-        val current = _dailyRoutines.value.toMutableList()
-        val idx = current.indexOfFirst { it.id == routine.id || it.routineName.equals(routine.routineName, ignoreCase = true) }
-        if (idx >= 0) {
-            current[idx] = routine
-        } else {
-            current.add(routine)
-        }
-        _dailyRoutines.value = current
-        dbHelper?.addOrUpdateDailyRoutine(_userProfile.value.id, routine)
+        episodicMemoryModule.addOrUpdateDailyRoutine(userProfile.value.id, routine)
         repositoryScope.launch {
-            com.fifo.voicepipeline.network.FifoBackendClient.postDailyRoutine(_userProfile.value.id, routine)
+            com.fifo.voicepipeline.network.FifoBackendClient.postDailyRoutine(userProfile.value.id, routine)
         }
     }
 
@@ -997,7 +902,7 @@ object FifoDataRepository {
      * Obtiene las rutinas activas para un período del día (morning, noon, afternoon, evening, night).
      */
     fun getRoutinesForCurrentTime(timePeriod: String? = null): List<DailyRoutine> {
-        val currentList = _dailyRoutines.value
+        val currentList = dailyRoutines.value
         if (timePeriod.isNullOrBlank()) return currentList
         return currentList.filter { it.timeAnchor.equals(timePeriod, ignoreCase = true) }
     }
@@ -1025,231 +930,31 @@ object FifoDataRepository {
      * 3. Si necesita más detalle → el skill `recall_past_context` busca la conversación
      *    completa en el servidor y retorna solo los extractos relevantes.
      */
-    private val _conversationFragments = MutableStateFlow<List<ConversationFragment>>(emptyList())
-    val conversationFragments: StateFlow<List<ConversationFragment>> = _conversationFragments.asStateFlow()
+    val conversationFragments: StateFlow<List<ConversationFragment>> = episodicMemoryModule.conversationFragments
 
     /**
      * Registra un nuevo fragmento compacto extraído del final de una conversación.
      * Se llama al cerrar cada sesión de voz con Fifo.
-     *
-     * El servidor almacena la conversación completa de forma independiente;
-     * aquí solo se guarda el fragmento liviano para que Claude tenga
-     * contexto rápido en la próxima sesión sin latencia extra.
      */
     fun addConversationFragment(fragment: ConversationFragment) {
-        _conversationFragments.value = listOf(fragment) + _conversationFragments.value
-        dbHelper?.addConversationFragment(_userProfile.value.id, fragment)
+        episodicMemoryModule.addConversationFragment(userProfile.value.id, fragment)
     }
 
     /**
      * Construye un resumen ultra-compacto (<80 tokens) de la identidad y estado del usuario
      * para el prompt de sistema en vivo, previniendo sobrecosto de tokens y errores 429 en Groq.
-     * Si se necesita memoria profunda o anécdotas pasadas, Fifo invoca 'recall_past_context'.
-     *
-     * @param maxFragments Cantidad máxima de fragmentos recientes a incluir (default 1)
-     * @return String listo para inyectar como contexto previo
+     * Delegado a EpisodicMemoryModule (Capa 1 de memoria).
      */
     fun buildCompactContextWindow(maxFragments: Int = 1): String {
-        val profile = _userProfile.value
-        val tastes = _tastes.value.take(4)
-        val topContacts = _relationalContacts.value.sortedByDescending { it.closenessScore }.take(2)
-        val activeReminders = _reminders.value.filter { !it.isCompleted }.take(2)
-        val fragments = if (maxFragments > 0) _conversationFragments.value.take(maxFragments) else emptyList()
-
-        return buildString {
-            appendLine("=== CONTEXTO DEL USUARIO ===")
-            appendLine("Nombre: ${profile.fullName.ifBlank { "Usuario" }} | Edad: ${profile.estimatedAge} | Ciudad: ${profile.city}")
-            if (tastes.isNotEmpty()) {
-                appendLine("Intereses y gustos: ${tastes.joinToString(", ")}")
-            }
-            if (topContacts.isNotEmpty()) {
-                append("Contactos clave: ")
-                appendLine(topContacts.joinToString("; ") { "${it.contactName} (${it.relationshipRole})" })
-            }
-            if (activeReminders.isNotEmpty()) {
-                append("Recordatorios pendientes: ")
-                appendLine(activeReminders.joinToString("; ") { "${it.timeStr}: ${it.title}" })
-            }
-            if (fragments.isNotEmpty()) {
-                val lastFrag = fragments.first()
-                if (lastFrag.compactSummary.isNotBlank()) {
-                    appendLine("Última charla: ${lastFrag.compactSummary.take(120)}")
-                }
-            }
-        }.trim()
+        return episodicMemoryModule.buildCompactContextWindow(userProfile.value, maxFragments)
     }
 
     /**
-     * Busca contexto profundo en los fragmentos locales por palabra clave.
-     * En producción esto llamará al servidor para obtener la transcripción completa;
-     * por ahora busca en los fragmentos locales como fallback.
-     *
-     * @param query Consulta de búsqueda (tema, persona, lugar)
-     * @return DeepContextResult con extractos relevantes encontrados
+     * Busca contexto profundo en el servidor backend (Docker/MySQL) con fallback local.
+     * Delegado a EpisodicMemoryModule (Capa 2 de memoria profunda).
      */
     fun searchDeepContext(query: String): DeepContextResult {
-        // 1. Intentar consultar contexto profundo en el microservicio Docker / MySQL si está online
-        val serverResult = runCatching {
-            kotlinx.coroutines.runBlocking {
-                com.fifo.voicepipeline.network.FifoBackendClient.queryDeepContextFromServer(
-                    userId = _userProfile.value.id,
-                    query = query
-                )
-            }
-        }.getOrNull()
-
-        if (serverResult != null && serverResult.relevantExcerpts.isNotEmpty()) {
-            return serverResult
-        }
-
-        // 2. Búsqueda profunda multinivel en SQLite (fragmentos, recuerdos, charlas y gustos)
-        val queryLower = query.lowercase().trim()
-        val allFragments = _conversationFragments.value
-        val allMemories = _memories.value
-        val allConversations = _conversations.value
-        val allTastes = _tastes.value
-        val allTasteStories = _tasteStories.value
-        val allReminders = _reminders.value
-
-        val stopWords = setOf(
-            "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "a", "al", "en", "con",
-            "por", "para", "que", "es", "fue", "fui", "como", "hace", "donde", "cual", "mi", "mis",
-            "tu", "tus", "su", "sus", "ese", "esa", "esos", "esas", "este", "esta", "estos", "estas",
-            "quiero", "ir", "nombre", "llama", "llamaba", "local", "lugar", "sitio", "cosa", "algo", "pero"
-        )
-
-        val queryTokens = queryLower
-            .split(Regex("[^a-záéíóúñ0-9]+"))
-            .filter { it.length >= 3 && it !in stopWords }
-
-        val isRecentTemporal = queryLower.contains("ayer") || queryLower.contains("antier") ||
-                queryLower.contains("semana pasada") || queryLower.contains("hace poco") ||
-                queryLower.contains("recien") || queryLower.contains("reciente") || queryLower.contains("último") || queryLower.contains("ultimo")
-
-        val excerpts = mutableListOf<String>()
-        val foundEntities = mutableSetOf<String>()
-
-        // A. Búsqueda en Grafo Relacional de Contactos
-        for (c in _relationalContacts.value) {
-            val contactText = "${c.contactName} ${c.relationshipRole} ${c.alias ?: ""} ${c.contextualMemory}".lowercase()
-            if (queryTokens.any { contactText.contains(it) } || queryLower.contains(c.contactName.lowercase()) || (c.alias != null && queryLower.contains(c.alias.lowercase()))) {
-                excerpts.add("Contacto cercano: ${c.contactName} (${c.relationshipRole}, cercanía ${(c.closenessScore * 100).toInt()}%). Memoria: ${c.contextualMemory}")
-                foundEntities.add(c.contactName)
-                foundEntities.add(c.relationshipRole)
-            }
-        }
-
-        // B. Búsqueda en Rutinas y Hábitos Diarios
-        for (r in _dailyRoutines.value) {
-            val routineText = "${r.routineName} ${r.notes ?: ""} ${r.timeAnchor} ${r.typicalTimeStr ?: ""} ${r.category}".lowercase()
-            if (queryTokens.any { routineText.contains(it) } || queryLower.contains(r.routineName.lowercase())) {
-                excerpts.add("Patrón de rutina diaria: ${r.routineName} a las ${r.typicalTimeStr ?: ""} (${r.timeAnchor}). Detalle: ${r.notes ?: ""}")
-                foundEntities.add(r.routineName)
-            }
-        }
-
-        // C. Búsqueda en Recuerdos Persistentes (memories)
-        for (mem in allMemories) {
-            val memText = "${mem.title} ${mem.detail}".lowercase()
-            val matchesToken = queryTokens.any { memText.contains(it) }
-            val matchesLiteral = queryLower.length >= 4 && memText.contains(queryLower)
-            if (matchesToken || matchesLiteral) {
-                excerpts.add("Recuerdo guardado: ${mem.title} - ${mem.detail}")
-            }
-        }
-
-        // D. Búsqueda en Gustos en Detalle (tasteStories con fragmento corto y descripción completa)
-        for (story in allTasteStories) {
-            val storyText = "${story.title} ${story.subtitle} ${story.description} ${story.tags.joinToString(" ")}".lowercase()
-            val matchesToken = queryTokens.any { storyText.contains(it) }
-            val matchesLiteral = queryLower.length >= 4 && storyText.contains(queryLower)
-            if (matchesToken || matchesLiteral) {
-                excerpts.add("Gusto en detalle (${story.title}): ${story.subtitle}. Detalle completo: ${story.description}")
-                foundEntities.addAll(story.tags)
-            }
-        }
-
-        // E. Búsqueda en Recordatorios (reminders)
-        for (rem in allReminders) {
-            val remText = "${rem.title} ${rem.timeStr}".lowercase()
-            val matchesToken = queryTokens.any { remText.contains(it) }
-            val matchesLiteral = queryLower.length >= 4 && remText.contains(queryLower)
-            if (matchesToken || matchesLiteral) {
-                val status = if (rem.isCompleted) "Completado" else "Pendiente"
-                excerpts.add("Recordatorio ($status): '${rem.title}' para las ${rem.timeStr}")
-            }
-        }
-
-        // F. Búsqueda en Fragmentos de Conversaciones Pasadas (conversationFragments)
-        val scoredFragments = allFragments.mapIndexed { index, frag ->
-            val fragText = "${frag.primaryTag} ${frag.compactSummary} ${frag.keyTopics.joinToString(" ")} ${frag.namedEntities.joinToString(" ")}".lowercase()
-            var score = 0
-            for (token in queryTokens) {
-                if (fragText.contains(token)) score += 2
-            }
-            if (queryLower.length >= 4 && fragText.contains(queryLower)) score += 4
-            // Bonus por temporalidad ("ayer", "última charla")
-            if (isRecentTemporal && index == 0) score += 3
-            if (isRecentTemporal && index == 1) score += 1
-            Pair(frag, score)
-        }.filter { it.second > 0 }.sortedByDescending { it.second }
-
-        for ((frag, _) in scoredFragments.take(3)) {
-            excerpts.add("Charla pasada (${frag.primaryTag}): ${frag.compactSummary}")
-            foundEntities.addAll(frag.namedEntities)
-            foundEntities.addAll(frag.keyTopics)
-        }
-
-        // G. Búsqueda en Charlas Pasadas (past_conversations)
-        for (conv in allConversations) {
-            val convText = "${conv.title} ${conv.summary} ${conv.tag}".lowercase()
-            if (queryTokens.any { convText.contains(it) } || (queryLower.length >= 4 && convText.contains(queryLower))) {
-                if (!excerpts.any { it.contains(conv.title, ignoreCase = true) }) {
-                    excerpts.add("Registro de charla: ${conv.title} - ${conv.summary}")
-                }
-            }
-        }
-
-        // H. Búsqueda en Gustos e Intereses (tastes simples)
-        val matchedTastes = allTastes.filter { taste ->
-            val tLower = taste.lowercase()
-            queryTokens.any { tLower.contains(it) } || queryLower.contains(tLower)
-        }
-        if (matchedTastes.isNotEmpty()) {
-            excerpts.add("Gustos registrados del usuario: ${matchedTastes.joinToString(", ")}")
-        }
-
-        // Si es consulta temporal ("ayer", "dónde fui") y no hubo match exacto por palabra clave, tomar la última charla
-        if (excerpts.isEmpty() && isRecentTemporal && allFragments.isNotEmpty()) {
-            val lastFrag = allFragments.first()
-            excerpts.add("Última conversación registrada (${lastFrag.recordedAt}): ${lastFrag.compactSummary}")
-            foundEntities.addAll(lastFrag.namedEntities)
-            foundEntities.addAll(lastFrag.keyTopics)
-        }
-
-        if (excerpts.isEmpty()) {
-            return DeepContextResult(
-                relevantExcerpts = emptyList(),
-                foundEntities = emptyList(),
-                synthesizedContext = "Revisé la memoria y conversaciones pasadas, pero no encontré registros sobre '$query'.",
-                conversationsSearched = allFragments.size + allMemories.size
-            )
-        }
-
-        val synthesized = buildString {
-            append("En la memoria y registros pasados del usuario: ")
-            excerpts.forEach { append("$it. ") }
-            if (foundEntities.isNotEmpty()) {
-                append("Entidades y lugares relacionados: ${foundEntities.take(5).joinToString(", ")}.")
-            }
-        }.trim()
-
-        return DeepContextResult(
-            relevantExcerpts = excerpts,
-            foundEntities = foundEntities.toList(),
-            synthesizedContext = synthesized,
-            conversationsSearched = allFragments.size + allMemories.size
-        )
+        return episodicMemoryModule.searchDeepContext(userProfile.value.id, query)
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -1283,11 +988,11 @@ object FifoDataRepository {
             isBeeping = if (!connected) false else current.isBeeping
         )
         _deviceLocation.value = updatedLoc
-        dbHelper?.updateDeviceLocation(loc = updatedLoc, userId = _userProfile.value.id)
+        dbHelper?.updateDeviceLocation(loc = updatedLoc, userId = userProfile.value.id)
 
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.patchDeviceLocation(
-                userId = _userProfile.value.id,
+                userId = userProfile.value.id,
                 isConnected = connected,
                 lastConnectedTime = updatedLoc.lastConnectedTime,
                 latitude = latitude,
@@ -1306,11 +1011,11 @@ object FifoDataRepository {
     fun triggerDeviceBeep(beeping: Boolean) {
         val updatedLoc = _deviceLocation.value.copy(isBeeping = beeping)
         _deviceLocation.value = updatedLoc
-        dbHelper?.updateDeviceLocation(loc = updatedLoc, userId = _userProfile.value.id)
+        dbHelper?.updateDeviceLocation(loc = updatedLoc, userId = userProfile.value.id)
 
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.patchDeviceLocation(
-                userId = _userProfile.value.id,
+                userId = userProfile.value.id,
                 isBeeping = beeping
             )
         }
@@ -1390,19 +1095,9 @@ object FifoDataRepository {
     // ══════════════════════════════════════════════════════════════
 
     fun toggleJoinActivity(activityId: String) {
-        val helper = dbHelper ?: return
-        val currentUserId = _userProfile.value.id
-        val currentList = _communityActivities.value
-        val target = currentList.find { it.id == activityId } ?: return
-
-        if (target.isJoined) {
-            helper.leaveCommunityActivity(activityId, currentUserId)
-        } else {
-            helper.joinCommunityActivity(activityId, currentUserId)
-        }
-
-        // Refrescar StateFlow desde SQLite inmediatamente
-        _communityActivities.value = helper.getCommunityActivities(currentUserId)
+        val currentUserId = userProfile.value.id
+        val target = communityActivities.value.find { it.id == activityId } ?: return
+        communityModule.toggleJoinActivity(activityId, currentUserId)
 
         // Sincronizar en segundo plano con backend si está disponible
         repositoryScope.launch {
@@ -1429,9 +1124,8 @@ object FifoDataRepository {
         organizerType: String = "user",
         organizerName: String? = null
     ): String {
-        val helper = dbHelper ?: return ""
-        val currentUserId = _userProfile.value.id
-        val resolvedOrganizerName = organizerName ?: _userProfile.value.fullName.ifBlank { "Vecino de la comunidad" }
+        val currentUserId = userProfile.value.id
+        val resolvedOrganizerName = organizerName ?: userProfile.value.fullName.ifBlank { "Vecino de la comunidad" }
         val newId = "act_" + System.currentTimeMillis().toString().takeLast(6)
 
         val item = CommunityActivityItem(
@@ -1452,9 +1146,8 @@ object FifoDataRepository {
             isJoined = true
         )
 
-        helper.addCommunityActivity(item)
-        helper.joinCommunityActivity(newId, currentUserId)
-        _communityActivities.value = helper.getCommunityActivities(currentUserId)
+        communityModule.createCommunityActivity(item)
+        dbHelper?.joinCommunityActivity(newId, currentUserId)
 
         // Sincronizar con el backend remoto en segundo plano
         repositoryScope.launch {
@@ -1469,10 +1162,7 @@ object FifoDataRepository {
     }
 
     fun deleteCommunityActivity(activityId: String) {
-        val helper = dbHelper ?: return
-        val currentUserId = _userProfile.value.id
-        helper.deleteCommunityActivity(activityId)
-        _communityActivities.value = helper.getCommunityActivities(currentUserId)
+        communityModule.deleteCommunityActivity(activityId)
     }
 
     fun suggestActivityWithFifo(ideaPrompt: String, userTastes: List<String>): CommunityActivityItem {
@@ -1528,8 +1218,8 @@ object FifoDataRepository {
             locationName = defaultLoc,
             distanceLabel = "A 500 m",
             iconCategory = category,
-            organizerId = _userProfile.value.id,
-            organizerName = _userProfile.value.fullName.ifBlank { "Vecino" },
+            organizerId = userProfile.value.id,
+            organizerName = userProfile.value.fullName.ifBlank { "Vecino" },
             organizerType = "user",
             targetTastes = tastesFound,
             isJoined = true
