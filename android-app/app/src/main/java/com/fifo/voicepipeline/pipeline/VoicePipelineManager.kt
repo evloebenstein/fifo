@@ -6,6 +6,7 @@ import com.fifo.voicepipeline.audio.*
 import com.fifo.voicepipeline.network.BleConnectionState
 import com.fifo.voicepipeline.network.BleVoiceClient
 import com.fifo.voicepipeline.network.CloudApiClient
+import com.fifo.voicepipeline.pipeline.session.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -183,6 +184,27 @@ class VoicePipelineManager(
 
     // ── Coroutine scope ─────────────────────────────
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    // ── Módulo profundo de Sesión de Voz (VoiceSession) ──────
+    val voiceSession: VoiceSession by lazy {
+        val client = if (::cloudClient.isInitialized) {
+            cloudClient
+        } else {
+            val effectiveOpenAiKey = if (openAiApiKey.isNotBlank()) openAiApiKey else if (groqApiKey.startsWith("gsk_")) groqApiKey else ""
+            CloudApiClient(
+                groqApiKey = groqApiKey,
+                anthropicApiKey = anthropicApiKey,
+                openAiApiKey = effectiveOpenAiKey,
+                context = context
+            ).also { cloudClient = it }
+        }
+        VoiceSession(
+            scope = scope,
+            outboundAdapter = AndroidAudioHardwareAdapter(context, scope),
+            speechCognition = GroqSpeechCognitionAdapter(client),
+            skillRegistry = skillRegistry
+        )
+    }
 
     /**
      * Inicia el pipeline completo:

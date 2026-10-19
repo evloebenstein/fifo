@@ -105,4 +105,8 @@ dependencies {
 
     // ── Google Play Services Auth ───────────────────
     implementation("com.google.android.gms:play-services-auth:21.0.0")
+
+    // ── Testing ─────────────────────────────────────
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.7.3")
 }

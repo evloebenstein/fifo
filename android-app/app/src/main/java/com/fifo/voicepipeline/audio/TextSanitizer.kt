@@ -29,24 +29,28 @@ object TextSanitizer {
         // 2. Eliminar etiquetas HTML o XML si hubiera (<...>)
         text = text.replace(Regex("<[^>]*>"), " ")
 
+        // 2.1 Eliminar URLs completas (http:// o https://) para que no lea letras sueltas
+        text = text.replace(Regex("https?://\\S+"), " ")
+
         // 3. Eliminar bloques de código markdown
         text = text.replace(Regex("```[\\s\\S]*?```"), " ")
         text = text.replace(Regex("`([^`]+)`"), "$1")
 
-        // 4. Eliminar acotaciones teatrales o escénicas entre asteriscos o corchetes:
+        // 4. Extraer primero texto en negrita markdown (**texto** o __texto__)
+        text = text.replace(Regex("\\*\\*([^*]+)\\*\\*"), "$1")
+        text = text.replace(Regex("__([^_]+)__"), "$1")
+
+        // 5. Eliminar acotaciones teatrales o escénicas entre asteriscos o corchetes:
         // Ej: *sonríe*, *pausa*, *con voz cálida*, [sonrisa], (pausa reflexiva)
         text = text.replace(Regex("\\*[^*]+\\*"), " ")
         text = text.replace(Regex("\\[[^\\]]+\\]"), " ")
         text = text.replace(Regex("\\((?:pausa|sonríe|suspira|risas?|tono\\s+cálido|con\\s+cariño)[^)]*\\)", RegexOption.IGNORE_CASE), " ")
 
-        // 5. Eliminar prefijos de rol de diálogo:
+        // 6. Eliminar prefijos de rol de diálogo:
         // Ej: "Fifo:", "**Fifo:**", "Agente Fifo:", "Respuesta:", "Assistant:"
         text = text.replace(Regex("(?i)^[\\s*#]*\\b(?:fifo|agente fifo|asistente|assistant)\\b[\\s*#]*:?\\s*"), "")
 
-        // 6. Eliminar marcas de formato Markdown (negrita, cursiva, subrayado)
-        text = text.replace(Regex("\\*\\*([^*]+)\\*\\*"), "$1")
-        text = text.replace(Regex("\\*([^*]+)\\*"), "$1")
-        text = text.replace(Regex("__([^_]+)__"), "$1")
+        // 7. Eliminar cursivas y tachados restantes
         text = text.replace(Regex("_([^_]+)_"), "$1")
         text = text.replace(Regex("~~([^~]+)~~"), "$1")
 
