@@ -82,13 +82,11 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
                         )
                     }
 
-                    // 4. Frase cálida, empática y no genérica
-                    val spoken = if (finalRole.isNotBlank() && !finalRole.equals("Contacto", ignoreCase = true)) {
-                        "Contestando la llamada de su $finalRole $finalName en altavoz para que hable con tranquilidad."
-                    } else if (finalName != "la llamada") {
+                    // 4. Fallback conciso para ejecución offline
+                    val spoken = if (finalName != "la llamada" && finalName.isNotBlank()) {
                         "Contestando a $finalName en altavoz."
                     } else {
-                        "Contestando la llamada entrante en altavoz para usted."
+                        "Contestando la llamada en altavoz."
                     }
 
                     SkillResult(
@@ -108,7 +106,7 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
                 } else {
                     SkillResult(
                         success = false,
-                        spokenFeedback = "No hay ninguna llamada sonando en este momento o se contestó desde el teléfono.",
+                        spokenFeedback = "No hay llamadas sonando.",
                         data = mapOf("action" to "answer", "status" to "no_call")
                     )
                 }
@@ -146,11 +144,11 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
                     )
                 }
 
-                // 4. Frase conversacional cálida que previene respuestas secas o enlatadas
+                // 4. Fallback conciso
                 val spoken = if (finalName != "la llamada" && finalName.isNotBlank()) {
-                    "Listo, he colgado la llamada con $finalName. Si desea que le recuerde o anote algún recado de lo que hablaron, con gusto lo guardo."
+                    "Llamada finalizada con $finalName."
                 } else {
-                    "He finalizado la llamada. Avíseme si necesita que registre algún recordatorio o nota de la conversación."
+                    "Llamada finalizada."
                 }
 
                 SkillResult(

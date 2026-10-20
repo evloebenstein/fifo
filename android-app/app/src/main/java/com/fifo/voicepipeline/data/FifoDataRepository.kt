@@ -626,33 +626,21 @@ object FifoDataRepository {
             normalizedQ == cName || normalizedQ == cRole || normalizedQ == cAlias
         }?.let { return it }
 
-        // 2. Coincidencia parcial o semántica ordenada por mayor cercanía emocional y confianza
+        // 2. Coincidencia parcial o por tokens ordenada por mayor cercanía emocional y confianza
         return list.sortedByDescending { it.closenessScore }.firstOrNull { c ->
             val cName = java.text.Normalizer.normalize(c.contactName.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
             val cRole = java.text.Normalizer.normalize(c.relationshipRole.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
             val cAlias = c.alias?.let { java.text.Normalizer.normalize(it.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "") } ?: ""
 
+            val qTokens = normalizedQ.split(" ", "-", "_", ".").filter { it.length > 2 }
+            val cTokens = (cName + " " + cRole + " " + cAlias).split(" ", "-", "_", ".").filter { it.length > 2 }
+
             cName.contains(normalizedQ) || normalizedQ.contains(cName) ||
             cRole.contains(normalizedQ) || normalizedQ.contains(cRole) ||
             (cAlias.isNotBlank() && (cAlias.contains(normalizedQ) || normalizedQ.contains(cAlias))) ||
-            (normalizedQ.contains("hija") && cRole.contains("hija")) ||
-            (normalizedQ.contains("hijo") && cRole.contains("hijo")) ||
-            (normalizedQ.contains("doctor") && (cRole.contains("doctor") || cRole.contains("cardio") || cRole.contains("medico"))) ||
-            (normalizedQ.contains("medico") && (cRole.contains("doctor") || cRole.contains("cardio") || cRole.contains("medico"))) ||
-            (normalizedQ.contains("nieto") && cRole.contains("nieto")) ||
-            (normalizedQ.contains("nieta") && cRole.contains("nieta")) ||
-            (normalizedQ.contains("amiga") && cRole.contains("amiga")) ||
-            (normalizedQ.contains("vecina") && cRole.contains("vecina"))
+            qTokens.any { qt -> cTokens.any { ct -> ct.contains(qt) || qt.contains(ct) } }
         }
     }
-
-    private data class InferredContactAttributes(
-        val role: String,
-        val alias: String?,
-        val initialScore: Float,
-        val tier: Int,
-        val valence: String
-    )
 
     /**
      * Ingesta y sincroniza la libreta real de contactos del teléfono celular en el Grafo Relacional de Fifo.
@@ -697,32 +685,6 @@ object FifoDataRepository {
                     val dedupeKey = name.lowercase()
                     if (!seenKeys.add(dedupeKey)) continue
 
-                    val nameLower = name.lowercase()
-                    val attrs = when {
-                        nameLower.contains("hija") -> InferredContactAttributes("Hija", "hija", 0.95f, 1, "afectuoso_familiar")
-                        nameLower.contains("hijo") -> InferredContactAttributes("Hijo", "hijo", 0.95f, 1, "afectuoso_familiar")
-                        nameLower.contains("mama") || nameLower.contains("mamá") || nameLower.contains("mami") || nameLower.contains("madre") ->
-                            InferredContactAttributes("Madre", "mamá", 0.98f, 1, "afectuoso_familiar")
-                        nameLower.contains("papa") || nameLower.contains("papá") || nameLower.contains("papi") || nameLower.contains("padre") ->
-                            InferredContactAttributes("Padre", "papá", 0.98f, 1, "afectuoso_familiar")
-                        nameLower.contains("nieto") -> InferredContactAttributes("Nieto", "nieto", 0.90f, 1, "afectuoso_familiar")
-                        nameLower.contains("nieta") -> InferredContactAttributes("Nieta", "nieta", 0.90f, 1, "afectuoso_familiar")
-                        nameLower.contains("hermana") -> InferredContactAttributes("Hermana", "hermana", 0.85f, 2, "afectuoso_familiar")
-                        nameLower.contains("hermano") -> InferredContactAttributes("Hermano", "hermano", 0.85f, 2, "afectuoso_familiar")
-                        nameLower.contains("doctor") || nameLower.contains("dr.") || nameLower.contains("dr ") ||
-                        nameLower.contains("médico") || nameLower.contains("medico") || nameLower.contains("dra.") ||
-                        nameLower.contains("dra ") || nameLower.contains("cardio") ->
-                            InferredContactAttributes("Médico de cabecera", "doctor", 0.82f, 2, "respeto_salud")
-                        nameLower.contains("tía") || nameLower.contains("tia") -> InferredContactAttributes("Tía", "tía", 0.78f, 2, "afectuoso")
-                        nameLower.contains("tío") || nameLower.contains("tio") -> InferredContactAttributes("Tío", "tío", 0.78f, 2, "afectuoso")
-                        nameLower.contains("primo") || nameLower.contains("prima") -> InferredContactAttributes("Primo/a", "primo/a", 0.75f, 3, "afectuoso")
-                        nameLower.contains("amiga") -> InferredContactAttributes("Amiga cercana", "amiga", 0.75f, 3, "afectuoso_amigo")
-                        nameLower.contains("amigo") -> InferredContactAttributes("Amigo cercano", "amigo", 0.75f, 3, "afectuoso_amigo")
-                        nameLower.contains("vecina") -> InferredContactAttributes("Vecina", "vecina", 0.70f, 3, "afectuoso_vecindad")
-                        nameLower.contains("vecino") -> InferredContactAttributes("Vecino", "vecino", 0.70f, 3, "afectuoso_vecindad")
-                        else -> InferredContactAttributes("Contacto del teléfono", null, 0.50f, 3, "neutral")
-                    }
-
                     val sanitizedId = "ctc_phone_" + name.replace(Regex("[^a-zA-Z0-9]"), "_").take(20).lowercase() + "_" + cleanPhone.takeLast(4)
 
                     phoneContacts.add(
@@ -730,14 +692,14 @@ object FifoDataRepository {
                             id = sanitizedId,
                             contactName = name,
                             phoneNumber = cleanPhone.ifBlank { null },
-                            relationshipRole = attrs.role,
-                            closenessScore = attrs.initialScore,
-                            trustTier = attrs.tier,
-                            emotionalValence = attrs.valence,
+                            relationshipRole = "Contacto del teléfono",
+                            closenessScore = 0.50f,
+                            trustTier = 3,
+                            emotionalValence = "neutral",
                             contextualMemory = "Contacto guardado en la libreta del celular.",
                             mentionCount = 0,
                             lastMentionedAt = "",
-                            alias = attrs.alias
+                            alias = null
                         )
                     )
                 }

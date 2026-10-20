@@ -109,101 +109,20 @@ class MapsSkill(private val context: Context) : FifoSkill {
                 fullQueryText.contains("opciones") ||
                 fullQueryText.contains("alternativas")
 
-        fun formatDescriptor(name: String, queryCategory: String): String {
-            val lower = name.lowercase()
-            val qLower = queryCategory.lowercase()
-            val cleanName = when {
-                lower.contains("ok market") -> "OXXO (anteriormente OK Market)"
-                else -> name
-            }
-            return when {
-                lower.contains("farmacia") || qLower.contains("farmacia") -> {
-                    if (cleanName.startsWith("farmacia", ignoreCase = true)) "la $cleanName" else "la farmacia $cleanName"
-                }
-                lower.contains("panaderia") || lower.contains("panadería") || qLower.contains("panaderia") -> {
-                    if (cleanName.startsWith("panaderia", ignoreCase = true)) "la $cleanName" else "la panadería $cleanName"
-                }
-                lower.contains("botilleria") || lower.contains("botillería") -> "la $cleanName"
-                lower.contains("cafeteria") || lower.contains("cafetería") -> "la cafetería $cleanName"
-                lower.contains("clinica") || lower.contains("clínica") -> "la clínica $cleanName"
-                lower.contains("plaza") -> "la plaza $cleanName"
-                lower.contains("oxxo") -> "el minimarket OXXO"
-                lower.contains("jumbo") -> "el supermercado Jumbo"
-                lower.contains("lider") || lower.contains("líder") -> "el supermercado Líder"
-                lower.contains("unimarc") -> "el supermercado Unimarc"
-                lower.contains("santa isabel") -> "el supermercado Santa Isabel"
-                lower.contains("supermercado") || qLower.contains("supermercado") -> {
-                    if (cleanName.startsWith("supermercado", ignoreCase = true)) "el $cleanName" else "el supermercado $cleanName"
-                }
-                lower.contains("minimarket") || qLower.contains("minimarket") -> {
-                    if (cleanName.startsWith("minimarket", ignoreCase = true)) "el $cleanName" else "el minimarket $cleanName"
-                }
-                lower.contains("almacen") || lower.contains("almacén") || qLower.contains("almacen") -> "el almacén $cleanName"
-                lower.contains("mercado") || qLower.contains("mercado") -> {
-                    if (cleanName.startsWith("mercado", ignoreCase = true)) "el $cleanName" else "el mercado $cleanName"
-                }
-                lower.contains("banco") -> "el banco $cleanName"
-                lower.contains("hospital") -> "el hospital $cleanName"
-                lower.contains("cesfam") -> "el CESFAM $cleanName"
-                lower.contains("consultorio") -> "el consultorio $cleanName"
-                lower.contains("parque") -> "el parque $cleanName"
-                lower.contains("restaurant") || lower.contains("restaurante") -> "el restaurante $cleanName"
-                else -> "el local $cleanName"
-            }
-        }
-
         val spokenFeedback = if (openScreen) {
-            // Caso 1: El usuario pidió expresamente ver la ubicación en la pantalla del celular
             if (closest != null) {
-                val desc = formatDescriptor(closest.name, placeTypeRaw)
-                val streetOnly = closest.road.ifBlank { closest.fullAddressText }
-                val distText = if (closest.distanceMeters < 1200) "${closest.distanceMeters} metros" else "${String.format(Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)} kilómetros"
-                "El lugar más próximo es $desc en $streetOnly, a unos $distText (${closest.relativeDirection}). Le abrí la ruta en la pantalla de su celular."
+                "${closest.name} en ${closest.road.ifBlank { closest.fullAddressText }}."
             } else {
-                "Le abrí el mapa en su celular con la búsqueda de $displayName."
+                "Búsqueda de $displayName abierta en el mapa."
             }
         } else {
-            // Caso 2: Guía 100% verbal, natural y variada (manos libres)
             if (isPlural && matches.size >= 2) {
-                // Respuesta en plural cuando el usuario consulta por múltiples locales o mercados
-                val topPlaces = matches.take(2)
-                val p1 = topPlaces[0]
-                val p2 = topPlaces[1]
-                val desc1 = formatDescriptor(p1.name, placeTypeRaw)
-                val desc2 = formatDescriptor(p2.name, placeTypeRaw)
-                val dist1 = if (p1.distanceMeters < 1200) "${p1.distanceMeters} metros" else "${String.format(Locale("es", "ES"), "%.1f", p1.distanceMeters / 1000.0)} km"
-                val dist2 = if (p2.distanceMeters < 1200) "${p2.distanceMeters} metros" else "${String.format(Locale("es", "ES"), "%.1f", p2.distanceMeters / 1000.0)} km"
-                val road1 = p1.road.ifBlank { p1.fullAddressText }
-                val road2 = p2.road.ifBlank { p2.fullAddressText }
-
-                val pluralPhrasings = listOf(
-                    "Cerca de aquí tiene varias alternativas: $desc1 a unos $dist1 en $road1 (${p1.relativeDirection}), y $desc2 a unos $dist2 en $road2. ¿Le gustaría que le indique el camino a alguno de ellos?",
-                    "Encontré estas opciones cercanas: primero $desc1 a $dist1 en $road1 (${p1.relativeDirection}), y también $desc2 a $dist2 en $road2. ¿Hacia cuál de ellos prefiere que le guíe?",
-                    "Por la zona cuenta con $desc1 a unas ${p1.blocks} cuadras en $road1, y $desc2 a ${p2.blocks} cuadras en $road2. ¿Desea que le oriente para llegar?"
-                )
-                pluralPhrasings.random()
+                matches.take(3).joinToString("; ") { "${it.name} a ${it.distanceMeters}m" } + "."
             } else if (closest != null) {
-                // Respuesta singular variada y natural con orientación corporal intuitiva
-                val targetDesc = formatDescriptor(closest.name, placeTypeRaw)
                 val streetOnly = closest.road.ifBlank { closest.fullAddressText }
-                val distText = if (closest.distanceMeters < 1200) "${closest.distanceMeters} metros" else "${String.format(Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)} kilómetros"
-                val minsText = "${closest.walkingMinutes} minutos"
-                val blocksText = if (closest.blocks == 1) "1 cuadra" else "${closest.blocks} cuadras"
-                val relative = closest.relativeDirection
-
-                val singularPhrasings = listOf(
-                    "El más próximo es $targetDesc, ubicado en $streetOnly, a unos $distText ($minsText a pie). Según apunta su celular, le queda $relative. ¿Le gustaría que le guíe paso a paso?",
-                    "Tiene muy cerca $targetDesc en $streetOnly, a unos $distText caminando ($relative). ¿Desea que le vaya indicando el camino?",
-                    "A unos $distText ($relative) por $streetOnly, encuentra $targetDesc. ¿Le gustaría que le ayude a llegar?",
-                    "El establecimiento más cercano a su ubicación es $targetDesc, en $streetOnly a unas $blocksText ($relative). ¿Le gustaría que le oriente para ir?"
-                )
-                singularPhrasings.random()
+                "${closest.name} en $streetOnly a ${closest.distanceMeters}m."
             } else {
-                if (currentLoc.isGpsActive) {
-                    "No encontré locales de $displayName cercanos a su ubicación actual. ¿Desea que le busque en un radio más amplio?"
-                } else {
-                    "No alcancé a captar la señal GPS de su teléfono para buscar el local de $displayName. ¿Desea que lo intente nuevamente?"
-                }
+                "No se encontraron locales de $displayName cercanos."
             }
         }
 
@@ -241,7 +160,7 @@ class MapsSkill(private val context: Context) : FifoSkill {
         val topPlacesData = matches.take(3).map {
             mapOf(
                 "name" to it.name,
-                "description" to formatDescriptor(it.name, placeTypeRaw),
+                "description" to it.name,
                 "street" to it.road.ifBlank { it.fullAddressText },
                 "distance_meters" to it.distanceMeters,
                 "walking_minutes" to it.walkingMinutes,

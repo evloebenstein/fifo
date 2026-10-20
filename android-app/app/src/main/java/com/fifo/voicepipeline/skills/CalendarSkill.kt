@@ -67,11 +67,7 @@ class CalendarSkill(private val context: Context) : FifoSkill {
             Log.e(TAG, "Error lanzando intent de calendario: ${e.message}")
         }
 
-        val spoken = if (timeStr.isNotBlank()) {
-            "He anotado en su calendario la cita de $title para las $timeStr. Le dejé la ficha lista en la pantalla."
-        } else {
-            "He preparado la anotación en su calendario para $title. Se lo dejé listo en el teléfono."
-        }
+        val spoken = "Evento de calendario preparado: $title."
 
         return SkillResult(
             success = true,

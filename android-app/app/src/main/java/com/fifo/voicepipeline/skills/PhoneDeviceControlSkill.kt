@@ -81,11 +81,7 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
             cameraManager.setTorchMode(cameraId, turnOn)
             FifoDataRepository.updateHardwareStatus(isFlashlightOn = turnOn)
 
-            val spoken = if (turnOn) {
-                "Listo, ya le encendí la linterna del teléfono para que pueda alumbrar y ver con calma el camino."
-            } else {
-                "He apagado la linterna. Si necesita más luz en cualquier momento, solo avíseme."
-            }
+            val spoken = if (turnOn) "Linterna encendida." else "Linterna apagada."
             SkillResult(
                 success = true,
                 spokenFeedback = spoken,
@@ -95,14 +91,14 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
             Log.e(TAG, "Error controlando linterna: ${e.message}")
             SkillResult(
                 success = false,
-                spokenFeedback = "No pude cambiar el estado de la linterna en este momento."
+                spokenFeedback = "No se pudo cambiar la linterna."
             )
         }
     }
 
     private fun handleVolume(state: String): SkillResult {
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
-            ?: return SkillResult(success = false, spokenFeedback = "No se pudo acceder al control de audio.")
+            ?: return SkillResult(success = false, spokenFeedback = "Control de audio no disponible.")
 
         val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
 
@@ -112,7 +108,7 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
                 FifoDataRepository.updateHardwareStatus(volumePercent = 100)
                 SkillResult(
                     success = true,
-                    spokenFeedback = "He puesto el volumen al máximo para que me escuche con total claridad.",
+                    spokenFeedback = "Volumen al máximo.",
                     data = mapOf("feature" to "volume", "state" to "max", "volumePercent" to 100)
                 )
             }
@@ -122,7 +118,7 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
                 FifoDataRepository.updateHardwareStatus(volumePercent = 25)
                 SkillResult(
                     success = true,
-                    spokenFeedback = "He bajado el volumen a un nivel suave y tranquilo.",
+                    spokenFeedback = "Volumen al mínimo.",
                     data = mapOf("feature" to "volume", "state" to "min", "volumePercent" to 25)
                 )
             }
@@ -133,7 +129,7 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
                 FifoDataRepository.updateHardwareStatus(volumePercent = pct)
                 SkillResult(
                     success = true,
-                    spokenFeedback = "He bajado el volumen para que se sienta más cómodo.",
+                    spokenFeedback = "Volumen bajado.",
                     data = mapOf("feature" to "volume", "state" to "down", "volumePercent" to pct)
                 )
             }
@@ -144,7 +140,7 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
                 FifoDataRepository.updateHardwareStatus(volumePercent = pct)
                 SkillResult(
                     success = true,
-                    spokenFeedback = "He subido un poco el volumen para que me escuche con mayor claridad.",
+                    spokenFeedback = "Volumen subido.",
                     data = mapOf("feature" to "volume", "state" to "up", "volumePercent" to pct)
                 )
             }
@@ -166,11 +162,8 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
             val pct = if (level >= 0 && scale > 0) ((level.toFloat() / scale.toFloat()) * 100).toInt() else 85
             FifoDataRepository.updateHardwareStatus(batteryPercent = pct, isCharging = isCharging)
 
-            val spoken = when {
-                isCharging -> "Tiene un $pct% de carga y actualmente está enchufado cargando con tranquilidad."
-                pct < 20 -> "Le queda un $pct% de batería. Le recomiendo ponerlo a cargar pronto para no quedarse desconectado."
-                else -> "Tiene un $pct% de batería restante, suficiente para acompañarle durante el día."
-            }
+            val chargeTag = if (isCharging) " (cargando)" else ""
+            val spoken = "Batería: $pct%$chargeTag."
 
             SkillResult(
                 success = true,
@@ -181,7 +174,7 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
             Log.e(TAG, "Error obteniendo batería: ${e.message}")
             SkillResult(
                 success = true,
-                spokenFeedback = "El teléfono tiene suficiente batería para acompañarle tranquilamente.",
+                spokenFeedback = "Batería disponible.",
                 data = mapOf("feature" to "battery", "battery_level" to 85)
             )
         }
@@ -192,29 +185,23 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
         val hour24 = calendar.get(Calendar.HOUR_OF_DAY)
         val hour12 = calendar.get(Calendar.HOUR).let { if (it == 0) 12 else it }
         val minute = calendar.get(Calendar.MINUTE)
+        val minuteStr = if (minute < 10) "0$minute" else "$minute"
 
         val period = when (hour24) {
-            in 0..5 -> "de la madrugada"
-            in 6..11 -> "de la mañana"
-            in 12..19 -> "de la tarde"
-            else -> "de la noche"
-        }
-
-        val minuteClause = when (minute) {
-            0 -> "en punto"
-            15 -> "y cuarto"
-            30 -> "y media"
-            else -> "y $minute minutos"
+            in 0..5 -> "madrugada"
+            in 6..11 -> "mañana"
+            in 12..19 -> "tarde"
+            else -> "noche"
         }
 
         val dateFormat = SimpleDateFormat("EEEE d 'de' MMMM", Locale("es", "ES"))
         val dateStr = dateFormat.format(calendar.time)
 
-        val spoken = "Son las $hour12 $minuteClause $period. Hoy es $dateStr."
+        val spoken = "Son las $hour12:$minuteStr de la $period."
         return SkillResult(
             success = true,
             spokenFeedback = spoken,
-            data = mapOf("hour" to hour24, "minute" to minute, "period" to period, "date" to dateStr)
+            data = mapOf("hour" to hour24, "minute" to minute, "period" to period, "date" to dateStr, "time_formatted" to "$hour12:$minuteStr $period")
         )
     }
 }

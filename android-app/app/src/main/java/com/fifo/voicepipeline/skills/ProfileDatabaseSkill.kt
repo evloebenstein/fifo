@@ -99,17 +99,7 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
                     city = city
                 )
 
-                val user = FifoDataRepository.userProfile.value
-                val feedback = buildString {
-                    append("He actualizado sus datos en su perfil. ")
-                    if (birthDate != null || birthYear != null) {
-                        append("Guardé su cumpleaños para el ${user.birthDate}. ")
-                    }
-                    if (city != null) {
-                        append("Registré que vive en ${user.city}. ")
-                    }
-                }
-                SkillResult(success = true, spokenFeedback = feedback.ifBlank { "Datos de perfil actualizados." })
+                SkillResult(success = true, spokenFeedback = "Perfil actualizado.")
             }
 
             "add_taste" -> {
@@ -146,22 +136,14 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
 
                 // Registro positivo exitoso
                 val added = FifoDataRepository.addTaste(taste)
-                val spoken = if (added) {
-                    "¡Qué lindo pasatiempo! Ya agregué $taste a sus gustos en su perfil."
-                } else {
-                    "Ya tenía anotado $taste en sus gustos."
-                }
+                val spoken = if (added) "Gusto guardado: $taste." else "Gusto ya registrado: $taste."
                 SkillResult(success = true, spokenFeedback = spoken)
             }
 
             "remove_taste" -> {
                 val taste = args["taste_name"]?.toString()?.trim() ?: ""
                 val removed = FifoDataRepository.removeTaste(taste)
-                val spoken = if (removed) {
-                    "Listo, quité $taste de sus intereses en la aplicación."
-                } else {
-                    "No encontré $taste en su lista de intereses."
-                }
+                val spoken = if (removed) "Gusto eliminado: $taste." else "No se encontró: $taste."
                 SkillResult(success = true, spokenFeedback = spoken)
             }
 
@@ -203,12 +185,7 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
 
                 // Publicación autorizada
                 FifoDataRepository.addSocialPost(content, category)
-                val feedback = if (isSensitive && hasConsent) {
-                    "He publicado su mensaje en el muro de Fifo Amigos con su autorización y consentimiento expreso."
-                } else {
-                    "He publicado su mensaje en el muro de Fifo Amigos para que sus compañeros puedan leerle y dejarle cariño."
-                }
-                SkillResult(success = true, spokenFeedback = feedback)
+                SkillResult(success = true, spokenFeedback = "Publicación realizada en Fifo Amigos.")
             }
 
             "add_memory" -> {
@@ -240,7 +217,7 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
                 FifoDataRepository.addMemory(icon, title, description)
                 SkillResult(
                     success = true,
-                    spokenFeedback = "He guardado '$title' en tus recuerdos de Fifo para que puedas revisarlo cuando quieras en la app.",
+                    spokenFeedback = "Recuerdo guardado: $title.",
                     data = mapOf("title" to title, "icon" to icon)
                 )
             }
@@ -287,7 +264,7 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
 
                 SkillResult(
                     success = true,
-                    spokenFeedback = "He guardado '$title' con su detalle en tu sección de gustos del perfil.",
+                    spokenFeedback = "Gusto guardado: $title.",
                     data = mapOf("title" to title, "subtitle" to subtitle, "tags" to tags)
                 )
             }

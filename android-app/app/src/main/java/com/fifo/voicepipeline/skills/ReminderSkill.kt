@@ -78,7 +78,7 @@ class ReminderSkill(private val context: Context) : FifoSkill {
                 FifoDataRepository.completeReminder(target.id)
                 return SkillResult(
                     success = true,
-                    spokenFeedback = "¡Listo! He marcado '${target.title}' como completado en tus recordatorios.",
+                    spokenFeedback = "Recordatorio completado: ${target.title}.",
                     data = mapOf("reminder_id" to target.id, "title" to target.title, "completed" to true)
                 )
             }
@@ -101,7 +101,7 @@ class ReminderSkill(private val context: Context) : FifoSkill {
                 FifoDataRepository.removeReminder(target.id)
                 return SkillResult(
                     success = true,
-                    spokenFeedback = "Listo, he eliminado el recordatorio '${target.title}' de tu lista.",
+                    spokenFeedback = "Recordatorio eliminado: ${target.title}.",
                     data = mapOf("reminder_id" to target.id, "deleted" to true)
                 )
             }
@@ -111,7 +111,7 @@ class ReminderSkill(private val context: Context) : FifoSkill {
                 if (active.isEmpty()) {
                     return SkillResult(
                         success = true,
-                        spokenFeedback = "Por ahora no tienes ningún recordatorio pendiente. ¡Todo al día!",
+                        spokenFeedback = "Sin recordatorios pendientes.",
                         data = mapOf("count" to 0)
                     )
                 }
@@ -119,7 +119,7 @@ class ReminderSkill(private val context: Context) : FifoSkill {
                 val listText = active.joinToString(", ") { "${it.title} a las ${it.timeStr}" }
                 return SkillResult(
                     success = true,
-                    spokenFeedback = "Tienes ${active.size} recordatorios pendientes: $listText.",
+                    spokenFeedback = "Recordatorios: $listText.",
                     data = mapOf("count" to active.size, "reminders" to active.map { mapOf("id" to it.id, "title" to it.title, "time" to it.timeStr) })
                 )
             }
@@ -140,11 +140,9 @@ class ReminderSkill(private val context: Context) : FifoSkill {
                 val matchingRoutine = FifoDataRepository.dailyRoutines.value.firstOrNull { routine ->
                     val normRoutine = routine.routineName.lowercase()
                     val normTitle = taskTitle.lowercase()
+                    val titleWords = normTitle.split(" ", "-", "_").filter { it.length > 3 }
                     normTitle.contains(normRoutine) || normRoutine.contains(normTitle) ||
-                    (normTitle.contains("presion") && normRoutine.contains("presion")) ||
-                    (normTitle.contains("orquidea") && normRoutine.contains("orquidea")) ||
-                    (normTitle.contains("caminata") && normRoutine.contains("caminata")) ||
-                    (normTitle.contains("paseo") && normRoutine.contains("caminata"))
+                    titleWords.any { normRoutine.contains(it) }
                 }
 
                 // 3. Guardar en el repositorio central de datos (se refleja en la app de inmediato)
@@ -159,14 +157,7 @@ class ReminderSkill(private val context: Context) : FifoSkill {
                     FifoDataRepository.addOrUpdateDailyRoutine(matchingRoutine.copy(reminderAssociated = true))
                 }
 
-                val routineNote = if (matchingRoutine != null) " como parte de su rutina habitual" else ""
-
-                val spokenText = when (category) {
-                    "medication" -> "Listo, ya le programé el recordatorio para $enrichedTitle a las $timeStr$routineNote. Yo le avisaré con cariño para que no se le pase."
-                    "family" -> "Anotado. A las $timeStr le recordaré $enrichedTitle$routineNote."
-                    "sport", "health" -> "¡Excelente! Le he dejado agendado su recordatorio para $enrichedTitle a las $timeStr$routineNote."
-                    else -> "Perfecto, le dejé programado su recordatorio de $enrichedTitle para las $timeStr$routineNote."
-                }
+                val spokenText = "Recordatorio guardado: $enrichedTitle a las $timeStr."
 
                 return SkillResult(
                     success = true,

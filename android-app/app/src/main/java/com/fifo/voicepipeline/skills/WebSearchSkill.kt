@@ -159,7 +159,7 @@ class WebSearchSkill(private val context: Context) : FifoSkill {
                 val tempInt = if (!temp.isNaN()) temp.toInt() else 20
                 val apparentInt = if (!apparent.isNaN()) apparent.toInt() else tempInt
 
-                val feedback = "En ${currentLoc.city} tenemos actualmente unos $tempInt grados, con sensación térmica de $apparentInt grados y $conditionText."
+                val feedback = "En ${currentLoc.city}: $tempInt°C, sensación $apparentInt°C, $conditionText."
 
                 SkillResult(
                     success = true,
@@ -215,11 +215,7 @@ class WebSearchSkill(private val context: Context) : FifoSkill {
 
                 if (articles.isEmpty()) return null
 
-                val spoken = when (articles.size) {
-                    1 -> "Revisé las noticias sobre $query: ${articles[0]}."
-                    2 -> "Revisé las noticias sobre $query: primero, ${articles[0]}. Además, ${articles[1]}."
-                    else -> "Revisé las noticias sobre $query: ${articles[0]}. Por otra parte, ${articles[1]}."
-                }
+                val spoken = "Noticias sobre $query: ${articles.firstOrNull() ?: ""}."
 
                 SkillResult(
                     success = true,
@@ -273,7 +269,7 @@ class WebSearchSkill(private val context: Context) : FifoSkill {
                 val cleanExtract = cleanHtml(extract)
                 val sentences = cleanExtract.split(Regex("(?<=[.!?])\\s+")).take(2).joinToString(" ")
 
-                val spoken = "Revisé en la enciclopedia sobre $title: $sentences"
+                val spoken = "$title: $sentences"
                 SkillResult(
                     success = true,
                     spokenFeedback = spoken,
@@ -318,11 +314,7 @@ class WebSearchSkill(private val context: Context) : FifoSkill {
 
                 if (snippets.isEmpty()) return null
 
-                val spoken = if (snippets.size == 1) {
-                    "Revisé en la web sobre $query: ${snippets[0]}"
-                } else {
-                    "Revisé en la web sobre $query: ${snippets[0]}. Además, se indica que ${snippets[1]}"
-                }
+                val spoken = "Búsqueda web ($query): ${snippets.firstOrNull() ?: ""}."
 
                 SkillResult(
                     success = true,

@@ -83,11 +83,9 @@ class VoiceIntentRouter(private val context: Context? = null) {
             text.contains("modo conversación") || text.contains("no te duermas") ||
             text.contains("sigue atento")) {
             FifoDataRepository.setContinuousListening(true)
-            val firstName = FifoDataRepository.userProfile.value.fullName.split(" ").firstOrNull { it.isNotBlank() } ?: ""
-            val nameClause = if (firstName.isNotBlank()) " $firstName" else ""
             return SkillResult(
                 success = true,
-                spokenFeedback = "Entendido$nameClause, me quedo escuchándole con atención. Puede hablarme cuando guste sin decir 'Fifo'. Cuando desee que descanse, solo dígame 'Fifo, descansa'."
+                spokenFeedback = "Modo continuo activado."
             )
         }
 
@@ -101,7 +99,7 @@ class VoiceIntentRouter(private val context: Context? = null) {
             FifoDataRepository.setContinuousListening(false)
             return SkillResult(
                 success = true,
-                spokenFeedback = "Entendido, me quedo descansando. Si me necesita, solo diga 'Fifo'.",
+                spokenFeedback = "Fifo descansando.",
                 data = mapOf("go_to_sleep" to true)
             )
         }
@@ -163,18 +161,11 @@ class VoiceIntentRouter(private val context: Context? = null) {
             if (isYes) {
                 val active = FifoNavigationManager.confirmPendingDestination()
                 if (active != null) {
-                    val currentLoc = if (context != null) FifoLocationHelper.getCurrentLocation(context) else CurrentLocationInfo(address = "Santiago Centro", city = "Santiago")
-                    val report = FifoNavigationManager.getGuidanceReport(currentLoc)
-                    val street = report?.streetName ?: active.road.ifBlank { active.fullAddress }
-                    val distMeters = report?.distanceMeters ?: 0
-                    val distText = if (distMeters < 1200) "$distMeters metros" else "${String.format(Locale("es", "ES"), "%.1f", distMeters / 1000.0)} km"
-                    val blocks = if ((report?.blocks ?: 1) <= 1) "1 cuadra" else "${report?.blocks ?: 1} cuadras"
-                    val turn = report?.relativeInstruction ?: "camine hacia el frente"
                     val targetName = active.name
 
                     return SkillResult(
                         success = true,
-                        spokenFeedback = "¡Perfecto, en marcha! Para orientarte: $turn. Avanza $distText (unas $blocks) por $street hacia $targetName. Te acompaño en el camino.",
+                        spokenFeedback = "Ruta iniciada hacia $targetName.",
                         data = mapOf(
                             "destination" to active.name,
                             "started_navigation" to true,
@@ -214,12 +205,11 @@ class VoiceIntentRouter(private val context: Context? = null) {
                 val report = FifoNavigationManager.getGuidanceReport(currentLoc)
                 if (report != null) {
                     val distText = if (report.distanceMeters < 1200) "${report.distanceMeters} metros" else "${String.format(Locale("es", "ES"), "%.1f", report.distanceMeters / 1000.0)} km"
-                    val blocks = if (report.blocks == 1) "1 cuadra" else "${report.blocks} cuadras"
 
                     val spoken = if (report.isArrived) {
-                        "¡Ya llegamos! ${report.destinationName} se encuentra justo a tu lado."
+                        "Llegaste a ${report.destinationName}."
                     } else {
-                        "Seguimos en camino hacia ${report.destinationName}. ${report.relativeInstruction.replaceFirstChar { it.uppercase() }}; te faltan unos $distText ($blocks) por ${report.streetName}."
+                        "${report.relativeInstruction} hacia ${report.destinationName} ($distText)."
                     }
 
                     return SkillResult(

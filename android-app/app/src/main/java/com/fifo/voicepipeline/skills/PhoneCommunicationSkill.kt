@@ -39,16 +39,18 @@ class PhoneCommunicationSkill(private val context: Context) : FifoSkill {
         val lower = target.lowercase()
 
         val profile = FifoDataRepository.userProfile.value
+        val relContact = FifoDataRepository.findContactByRoleOrName(target)
+        val resolvedName = relContact?.contactName ?: profile.emergencyContactName.ifBlank { target }
+
         val phoneNumber = when {
+            relContact != null && !relContact.phoneNumber.isNullOrBlank() -> relContact.phoneNumber
             lower.contains("samu") || lower.contains("ambulancia") || lower.contains("131") -> "131"
             lower.contains("bombero") || lower.contains("132") -> "132"
             lower.contains("carabinero") || lower.contains("policia") || lower.contains("133") -> "133"
-            (profile.emergencyContactName.isNotBlank() && lower.contains(profile.emergencyContactName.lowercase().trim())) ||
-            lower.contains("emergencia") || lower.contains("familiar") || lower.contains("hija") || lower.contains("hijo") || lower.contains("contacto") -> profile.emergencyContactPhone
             else -> profile.emergencyContactPhone
         }
 
-        Log.i(TAG, "Marcando llamada a: '$target' ($phoneNumber)")
+        Log.i(TAG, "Marcando llamada a: '$resolvedName' ($phoneNumber)")
 
         try {
             val callIntent = Intent(Intent.ACTION_DIAL).apply {
@@ -61,15 +63,15 @@ class PhoneCommunicationSkill(private val context: Context) : FifoSkill {
         }
 
         val spoken = if (phoneNumber.length <= 3) {
-            "Conectando de inmediato con el servicio de urgencia $phoneNumber en su teléfono."
+            "Llamando a urgencias ($phoneNumber)."
         } else {
-            "Marcando a su contacto ${profile.emergencyContactName} por teléfono. Ya tiene la llamada lista en pantalla."
+            "Marcando a $resolvedName."
         }
 
         return SkillResult(
             success = true,
             spokenFeedback = spoken,
-            data = mapOf("target" to target, "phone" to phoneNumber)
+            data = mapOf("target" to target, "contact_name" to resolvedName, "phone" to phoneNumber)
         )
     }
 }

@@ -95,7 +95,7 @@ class ContactsSkill(private val context: Context) : FifoSkill {
                 val rolePart = if (relContact.relationshipRole != "Contacto del teléfono") " (${relContact.relationshipRole.lowercase()})" else ""
                 return SkillResult(
                     success = true,
-                    spokenFeedback = "El número de ${relContact.contactName}$rolePart es $spokenPhone. ¿Quieres que le marque por teléfono?",
+                    spokenFeedback = "${relContact.contactName}$rolePart: $spokenPhone.",
                     data = mapOf(
                         "name" to relContact.contactName,
                         "role" to relContact.relationshipRole,
@@ -125,7 +125,7 @@ class ContactsSkill(private val context: Context) : FifoSkill {
                     )
                     return SkillResult(
                         success = true,
-                        spokenFeedback = "Encontré a ${deviceContact.first} en tus contactos con el número $spokenPhone. ¿Deseas que le marque por teléfono?",
+                        spokenFeedback = "${deviceContact.first}: $spokenPhone.",
                         data = mapOf(
                             "name" to deviceContact.first,
                             "phone" to deviceContact.second,
@@ -140,24 +140,20 @@ class ContactsSkill(private val context: Context) : FifoSkill {
             val emergName = profile.emergencyContactName.lowercase().trim()
             val isEmergencyMatch = (emergName.isNotBlank() && query.contains(emergName, ignoreCase = true)) ||
                     query.contains("emergencia", ignoreCase = true) ||
-                    query.contains("apoyo", ignoreCase = true) ||
-                    query.contains("familiar", ignoreCase = true) ||
-                    query.contains("familia", ignoreCase = true) ||
-                    query.contains("hija", ignoreCase = true) ||
-                    query.contains("hijo", ignoreCase = true)
+                    query.contains("apoyo", ignoreCase = true)
 
             if (isEmergencyMatch && profile.emergencyContactPhone.isNotBlank()) {
                 val spokenPhone = formatPhoneNumberForSpeech(profile.emergencyContactPhone)
                 return SkillResult(
                     success = true,
-                    spokenFeedback = "Tengo registrado a tu contacto de apoyo ${profile.emergencyContactName} con el número $spokenPhone. ¿Deseas que le marque?",
+                    spokenFeedback = "${profile.emergencyContactName}: $spokenPhone.",
                     data = mapOf("name" to profile.emergencyContactName, "phone" to profile.emergencyContactPhone)
                 )
             }
 
             return SkillResult(
                 success = false,
-                spokenFeedback = "Busqué en tus contactos del celular y en mi memoria, y no encontré a nadie guardado como '$query'. ¿Quieres que lo busque con otro nombre?",
+                spokenFeedback = "No se encontró a '$query' en contactos.",
                 data = mapOf("query" to query, "found" to false)
             )
         }
@@ -168,13 +164,13 @@ class ContactsSkill(private val context: Context) : FifoSkill {
                 val names = relContacts.take(4).joinToString(", ") { "${it.contactName} (${it.relationshipRole})" }
                 return SkillResult(
                     success = true,
-                    spokenFeedback = "Tengo en mi memoria a sus contactos más cercanos: $names. Para ver toda la libreta del celular necesitaría permiso de contactos.",
+                    spokenFeedback = "Contactos: $names.",
                     data = mapOf("relational_contacts" to relContacts.map { it.contactName })
                 )
             }
             return SkillResult(
                 success = false,
-                spokenFeedback = "Para poder ver todos tus contactos del teléfono, necesito que me concedas el permiso de Contactos en la aplicación.",
+                spokenFeedback = "Permiso de contactos no concedido.",
                 data = mapOf("has_permission" to false)
             )
         }
@@ -183,7 +179,7 @@ class ContactsSkill(private val context: Context) : FifoSkill {
             "check_permission" -> {
                 SkillResult(
                     success = true,
-                    spokenFeedback = "Sí, tengo permiso completo para ver los contactos de tu teléfono y ayudarte a llamar o dictarte a quien necesites.",
+                    spokenFeedback = "Permiso de contactos concedido.",
                     data = mapOf("has_permission" to true)
                 )
             }
@@ -200,11 +196,7 @@ class ContactsSkill(private val context: Context) : FifoSkill {
                     "nadie aún"
                 }
 
-                val spoken = if (totalCount > 0) {
-                    "Puedo ver tus contactos del celular. Tienes $totalCount contactos guardados. Tus más cercanos son $sampleNames. ¿Deseas que llame o te dicte el número de alguien?"
-                } else {
-                    "En tu red cercana tengo a $sampleNames. ¿Deseas que marque o dicte el número de alguno de ellos?"
-                }
+                val spoken = "Contactos ($totalCount): $sampleNames."
 
                 SkillResult(
                     success = true,
