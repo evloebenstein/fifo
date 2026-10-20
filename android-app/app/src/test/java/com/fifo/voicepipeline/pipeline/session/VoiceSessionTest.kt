@@ -252,4 +252,34 @@ class VoiceSessionTest {
         assertEquals(PipelineState.LISTENING, voiceSession.state.value)
         assertTrue(voiceSession.isAwake.value)
     }
+
+    @Test
+    fun testVoiceSession_simulatesSkillExecutionAndCustomResponse() = runTest(testDispatcher) {
+        // Simular que el cerebro de Groq ejecuta una herramienta y devuelve la confirmación hablada
+        inMemoryCognition.simulatedToolSpokenFeedback = "Linterna encendida para ayudarle a ver mejor, don Pedro."
+
+        voiceSession.processUserUtterance("Fifo prende la linterna por favor")
+        testDispatcher.scheduler.runCurrent()
+
+        assertEquals(1, inMemoryCognition.receivedQueries.size)
+        assertEquals("prende la linterna por favor", inMemoryCognition.receivedQueries.first())
+
+        assertEquals(PipelineState.SPEAKING, voiceSession.state.value)
+        assertEquals("Linterna encendida para ayudarle a ver mejor, don Pedro.", voiceSession.aiResponse.value)
+    }
+
+    @Test
+    fun testConversationContextProvider_customContextInjection() {
+        val customProvider = object : ConversationContextProvider {
+            override fun buildContextWindow(): String {
+                return "CONTEXTO FIJADO: Usuario Pedro, Ciudad Santiago, Destino activo Farmacia."
+            }
+        }
+
+        val contextWindow = customProvider.buildContextWindow()
+        assertTrue(contextWindow.contains("Pedro"))
+        assertTrue(contextWindow.contains("Santiago"))
+        assertTrue(contextWindow.contains("Farmacia"))
+    }
 }
+

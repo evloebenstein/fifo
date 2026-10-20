@@ -12,10 +12,10 @@ Raíz del código fuente en Kotlin de la aplicación Android de **FIFO**.
 | [`audio/`](audio/README.md) | Subpaquete | Procesamiento de bajo nivel de señales de audio: VAD (Voice Activity Detection), buffers circulares PCM, reconocimiento nativo de Google y síntesis TTS. |
 | [`data/`](data/README.md) | Subpaquete | Repositorio central de datos reactivo (`FifoDataRepository`), base de datos local SQLite (`local/FifoDatabaseHelper.kt`) y cliente REST móvil (`remote/FifoApiClient.kt`). |
 | [`location/`](location/README.md) | Subpaquete | Asistente de ubicación GPS en tiempo real, brújula digital, geocodificación y navegación paso a paso estilo Waze para personas mayores. |
-| [`network/`](network/README.md) | Subpaquete | Clientes de red: Bluetooth Low Energy (`BleVoiceClient`), cliente de IA en la nube (`CloudApiClient`), sincronización con backend (`FifoBackendClient`) y aprovisionamiento Wi-Fi. |
-| [`pipeline/`](pipeline/README.md) | Subpaquete | **Núcleo del asistente de voz**: `VoicePipelineManager.kt` orquesta la máquina de estados, detección de palabra de activación ("Fifo"), preguntas con follow-up fluido, cancelación de eco y barge-in. |
+| [`network/`](network/README.md) | Subpaquete | Clientes de red: Bluetooth Low Energy (`BleVoiceClient`), cliente de IA en la nube (`CloudApiClient` bajo `SpeechCognitionAdapter`), sincronización con backend (`FifoBackendClient`) y aprovisionamiento Wi-Fi. |
+| [`pipeline/`](pipeline/README.md) | Subpaquete | **Núcleo del asistente de voz**: `VoiceSession` y `VoicePipelineManager` orquestan la máquina de estados, detección de palabra de activación ("Fifo"), preguntas con follow-up fluido, cancelación de eco, barge-in y delegación desacoplada. |
 | [`service/`](service/README.md) | Subpaquete | Servicios en segundo plano: `FifoVoiceService` (mantiene a Fifo vivo y escuchando con la pantalla apagada) y `FifoAccessibilityService` (manos libres en llamadas). |
-| [`skills/`](skills/README.md) | Subpaquete | Catálogo de herramientas y habilidades ejecutables por la IA: recordatorios, llamadas, agenda, navegación GPS, búsqueda web y base de datos relacional. |
+| [`skills/`](skills/README.md) | Subpaquete | Catálogo de herramientas y habilidades ejecutables por la IA: recordatorios, llamadas, agenda, navegación GPS, búsqueda web y control del teléfono. |
 | [`telephony/`](telephony/README.md) | Subpaquete | Gestión de llamadas telefónicas entrantes/salientes y contestador inteligente con Fifo. |
 | [`ui/`](ui/README.md) | Subpaquete | Componentes visuales en Jetpack Compose: pantallas principales, barra de navegación, diálogos flotantes y caritas animadas. |
 
@@ -34,18 +34,18 @@ Raíz del código fuente en Kotlin de la aplicación Android de **FIFO**.
                       +---------+---------+
                                 │ Instancia y sostiene
                                 ▼
-                   +------------------------+
-                   |  VoicePipelineManager  | ◄─── Núcleo de Voz
-                   +---+--------+-------+---+
-                       │        │       │
-       ┌───────────────┘        │       └───────────────┐
-       ▼                        ▼                       ▼
-  +---------+             +-----------+           +-----------+
-  |  audio/ |             | network/  |           |  skills/  |
-  |  - VAD  |             | - Claude  |           | - Llamadas|
-  |  - Mic  |             | - BLE     |           | - Recuerdos|
-  |  - TTS  |             | - Backend |           | - Rutas   |
-  +---------+             +-----+-----+           +-----+-----+
+                    +------------------------+
+                    |  VoicePipelineManager  | ◄─── Núcleo de Voz
+                    +---+--------+-------+---+
+                        │        │       │
+        ┌───────────────┘        │       └───────────────┐
+        ▼                        ▼                       ▼
+   +---------+             +-----------+           +-----------+
+   |  audio/ |             | network/  |           |  skills/  |
+   |  - VAD  |             | - Groq LPU|           | - Llamadas|
+   |  - Mic  |             | - BLE     |           | - Recuerdos|
+   |  - TTS  |             | - Backend |           | - Rutas   |
+   +---------+             +-----+-----+           +-----+-----+
                                 │                       │
                                 ▼                       ▼
                          +-------------+         +-------------+

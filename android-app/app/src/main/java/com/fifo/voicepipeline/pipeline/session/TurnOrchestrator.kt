@@ -127,8 +127,8 @@ class TurnOrchestrator(
         // cortos aislados (≤ 2 tokens) — NO cuando son preposiciones en frases largas
         // como "necesito ayuda para ir al médico" o "busca una ruta para el aeropuerto".
         val tokens = lower.split("\\s+".toRegex()).filter { it.isNotBlank() }
-        if (tokens.size <= 2) {
-            val shortStopWords = listOf("para", "parate", "espera")
+        if (tokens.size <= 3) {
+            val shortStopWords = listOf("para", "parate", "espera", "detente", "alto")
             if (tokens.any { it in shortStopWords }) return true
         }
 

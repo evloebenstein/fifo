@@ -36,12 +36,12 @@ Para vincular la app en Google Cloud Console o Firebase:
 
 ## ⚡ Cerebro de IA en Groq LPU & Presupuesto de Tokens
 
-La app utiliza la infraestructura de baja latencia de **Groq LPU** (`openai/gpt-oss-120b` y `llama-3.3-70b-versatile`):
+La app utiliza la infraestructura de baja latencia de **Groq LPU** (`qwen/qwen3.8-27b` y `whisper-large-v3-turbo`) bajo el diseño desacoplado `SpeechCognitionSeam` (ADR-0006):
 
 - **Control Estricto de Cuota (<1,800 tokens):** El tier gratuito de Groq tiene un límite estricto de 6,000 Tokens Por Minuto (TPM). Para evitar errores HTTP 429:
-  - Las 14 herramientas de Function Calling fueron compactadas de 2,894 tokens a solo 1,070 tokens.
+  - Las herramientas de Function Calling fueron compactadas y optimizadas a nivel de tokens.
   - El prompt del sistema se optimizó a menos de 180 tokens.
-  - Historial rodante de 2 turnos en `FifoChatSession.kt`.
+  - Historial rodante de 2 turnos con reintentos inteligentes ante 429.
 - **Latencia de Inferencia en Vivo:** **~618 ms** por turno conversacional completo.
 - **Memoria Contextual:** Fifo recuerda el contexto previo sin saturar la ventana de contexto (ejemplo: *"¿hay farmacias cerca?"* seguido de *"llévame allá"* activa la navegación a la farmacia consultada).
 
@@ -80,7 +80,7 @@ La aplicación cuenta con 4 pestañas principales y herramientas modales probada
 | [`build.gradle.kts`](build.gradle.kts) | Gradle raíz | Plugins globales (Android App, Kotlin Android, Compose Compiler). |
 | [`settings.gradle.kts`](settings.gradle.kts) | Configuración | Define el proyecto e incluye `:app`. |
 | [`gradle.properties`](gradle.properties) | Propiedades JVM | Memoria JVM, AndroidX y paralelismo de compilación. |
-| [`local.properties.example`](local.properties.example) | Plantilla | Muestra cómo configurar `sdk.dir`, `GROQ_API_KEY` y `ANTHROPIC_API_KEY`. |
+| [`local.properties.example`](local.properties.example) | Plantilla | Muestra cómo configurar `sdk.dir` y `GROQ_API_KEY`. |
 | [`generate_fifo_icon.py`](generate_fifo_icon.py) | Script de diseño | Genera los iconos adaptativos de Fifo en todas las densidades de pantalla. |
 | [`gradlew`](gradlew) / [`gradlew.bat`](gradlew.bat) | Wrapper Gradle | Binarios para compilar en Linux/macOS y Windows. |
 

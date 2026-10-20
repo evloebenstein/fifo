@@ -7,9 +7,9 @@ Asistente robótico interactivo de compañía para adultos mayores con **conexi�
 ##  Características Principales
 
 - **Cerebro de IA en Groq LPU (Ultra-rápido y Gratuito):**
-  - **Motor Principal (LLM):** Inferencia en chips LPU de Groq con modelos de razonamiento de código abierto de última generación (`openai/gpt-oss-120b` y `llama-3.3-70b-versatile`). Respuestas fluidas y empáticas generadas en **~200-350 ms**, sin costo de API para el usuario.
+  - **Motor Principal (LLM):** Inferencia en chips LPU de Groq con modelo `qwen/qwen3.8-27b` bajo arquitectura desacoplada `SpeechCognitionSeam` (ADR-0006). Respuestas fluidas y empáticas generadas en **~200-350 ms**, sin costo de API para el usuario.
   - **Soporte de Function Calling / Skills:** El modelo analiza la conversación del adulto mayor y ejecuta de forma autónoma acciones nativas del teléfono (alarmas de medicamentos, llamadas telefónicas, búsqueda de farmacias en Google Maps, recordatorios en calendario) y actualiza su base de datos local (perfil, gustos, biografía).
-  - **Fallback Multi-Proveedor:** Compatibilidad completa con Anthropic Claude (`claude-haiku-4-5-20251001`) si se prefiere una clave de Anthropic.
+  - **Arquitectura 100% Groq LPU:** Estandarizado exclusivamente sobre Groq LPU (Qwen 27B + Whisper turbo) para máxima velocidad y predictibilidad.
 - **Oídos Inteligentes (STT Dual):**
   - **Groq Whisper (`whisper-large-v3-turbo`):** Transcripción de audio PCM desde el ESP32 con latencia ultra-baja en la nube de Groq.
   - **Google Voice Recognition Nativo:** Reconocimiento de voz local en el teléfono Android (100% gratuito, sin necesidad de claves de API ni consumo de cuotas).

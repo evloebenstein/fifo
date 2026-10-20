@@ -3,6 +3,8 @@ package com.fifo.voicepipeline.network
 import android.util.Log
 import com.fifo.voicepipeline.audio.AudioConfig
 import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.pipeline.session.ConversationContextProvider
+import com.fifo.voicepipeline.pipeline.session.SpeechCognitionAdapter
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import okhttp3.*
@@ -17,18 +19,19 @@ import java.nio.ByteOrder
 
 /**
  * Cliente para las APIs de nube del pipeline de voz:
- * - Whisper (OpenAI) → Speech-to-Text
- * - Claude (Anthropic) → LLM Agent
+ * - Whisper (Groq LPU) → Speech-to-Text
+ * - Groq LPU (Qwen 27B) → LLM Agent
  * - OpenAI TTS → Text-to-Speech
  *
- * Soporta streaming para minimizar latencia.
+ * Implementa [SpeechCognitionAdapter] desacoplado para pruebas y ejecución unificada.
  */
 class CloudApiClient(
     var groqApiKey: String = "",
     var anthropicApiKey: String = "",
     var openAiApiKey: String = "",
-    var context: android.content.Context? = null
-) {
+    var context: android.content.Context? = null,
+    var contextProvider: ConversationContextProvider? = null
+) : SpeechCognitionAdapter {
     /**
      * Clave efectiva para Groq: verifica groqApiKey o si openAiApiKey / anthropicApiKey inician con 'gsk_'.
      */
@@ -50,8 +53,6 @@ class CloudApiClient(
         // ── Endpoints ───────────────────────────────
         private const val GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
         private const val GROQ_WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
-        private const val ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
-        private const val ANTHROPIC_VERSION = "2023-06-01"
         private const val WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions"
         private const val TTS_URL = "https://api.openai.com/v1/audio/speech"
 
@@ -61,7 +62,6 @@ class CloudApiClient(
         const val GROQ_FALLBACK_MODEL = "qwen/qwen3.8-27b"
         const val GROQ_WHISPER_MODEL = "whisper-large-v3-turbo"
 
-        private const val CLAUDE_MODEL = "claude-haiku-4-5-20251001"
         private const val WHISPER_MODEL = "whisper-1"
         private const val TTS_MODEL = "tts-1"
         private const val TTS_VOICE = "nova"
@@ -152,10 +152,10 @@ REGLAS:
      * @param language Código de idioma (ej: "es", "en")
      * @return Texto transcrito
      */
-    suspend fun transcribe(
+    override suspend fun transcribe(
         wavData: ByteArray,
-        language: String = "es",
-        allowShortResponses: Boolean = false
+        language: String,
+        allowShortResponses: Boolean
     ): String {
         val groqKey = effectiveGroqKey
         val openKey = openAiApiKey.trim()
@@ -225,11 +225,16 @@ REGLAS:
     }
 
     // ═════════════════════════════════════════════════
-    //  2. LLM AGENT (Groq LPU / Claude)
+    //  2. LLM AGENT (Groq LPU - Qwen 27B)
     // ═════════════════════════════════════════════════
 
+    override suspend fun generateDialogTurn(
+        userQuery: String,
+        skillRegistry: com.fifo.voicepipeline.skills.FifoSkillRegistry?
+    ): String = chat(userQuery, skillRegistry)
+
     /**
-     * Envía el texto del usuario al cerebro de IA (Groq si está activo, o Claude como alternativa),
+     * Envía el texto del usuario al cerebro de IA (Groq LPU),
      * soportando Function Calling / Tools mediante [FifoSkillRegistry].
      */
     suspend fun chat(
@@ -243,8 +248,6 @@ REGLAS:
 
         val response = if (isGroqActive) {
             chatWithGroq(userText, skillRegistry)
-        } else if (anthropicApiKey.isNotBlank() && !anthropicApiKey.startsWith("gsk_")) {
-            chatWithClaude(userText, skillRegistry)
         } else {
             "Disculpe, la API de Groq no se encuentra configurada en este momento. Por favor ingrese su clave de Groq para poder conversar."
         }
@@ -468,6 +471,14 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
      * ultra-optimizado (<300 tokens) para evitar sobrecostos y errores 429 en Groq.
      */
     private fun getEnrichedSystemPrompt(): String {
+        val injectedContext = contextProvider?.buildContextWindow()
+        if (!injectedContext.isNullOrBlank()) {
+            return buildString {
+                append(SYSTEM_PROMPT).append("\n\n")
+                append(injectedContext)
+            }.trim()
+        }
+
         val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 1)
         val temporalContext = buildTemporalAndSessionContext()
         val profile = FifoDataRepository.userProfile.value
@@ -552,20 +563,6 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
                     Log.w(TAG, "Groq 429: límite de tasa alcanzado. Esperando 2000ms y reintentando...")
                     kotlinx.coroutines.delay(2000)
                     return chatWithGroq(userText, skillRegistry, modelToUse = modelToUse, retryCount = retryCount + 1)
-                }
-
-                // Si Groq falla y hay clave de Claude configurada
-                if (anthropicApiKey.isNotBlank() && !anthropicApiKey.startsWith("gsk_")) {
-                    Log.w(TAG, "Groq no disponible. Intentando failover a Claude...")
-                    val claudeResult = try {
-                        chatWithClaude(userText, skillRegistry)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Claude failover error: ${e.message}")
-                        ""
-                    }
-                    if (claudeResult.isNotBlank() && !claudeResult.contains("error 401") && !claudeResult.contains("invalid x-api-key")) {
-                        return claudeResult
-                    }
                 }
 
                 if (response.code == 429) {
@@ -799,10 +796,6 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
                 Log.w(TAG, "Groq: Error de red con $modelToUse, probando fallback a $GROQ_FALLBACK_MODEL...")
                 return chatWithGroq(userText, skillRegistry, modelToUse = GROQ_FALLBACK_MODEL)
             }
-            if (anthropicApiKey.isNotBlank() && !anthropicApiKey.startsWith("gsk_")) {
-                Log.w(TAG, "Groq falló por excepción, intentando failover a Claude...")
-                return chatWithClaude(userText, skillRegistry)
-            }
             "Disculpe, hubo un problema de conexión con la API de Groq. Por favor intente nuevamente en unos instantes."
         }
     }
@@ -811,7 +804,7 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
      * Genera dinámicamente una frase de reanudación cálida, variada y 100% natural
      * cuando el usuario interrumpió diciendo "Fifo" pero luego se quedó en silencio o no dijo una orden.
      */
-    suspend fun generateNaturalResumption(interruptedSentence: String): String {
+    override suspend fun generateNaturalResumption(interruptedSentence: String): String {
         val apiKey = effectiveGroqKey
         if (apiKey.isNotBlank() && isGroqActive) {
             try {
@@ -864,179 +857,6 @@ Genera ÚNICAMENTE 1 oración concisa para hablar en voz alta por voz, sin intro
             "Ah, creí que me quería preguntar algo. De todos modos, continuando con lo que le decía: $interruptedSentence"
         )
         return connectors.random()
-    }
-
-    /**
-     * Motor conversacional secundario / alternativo con Anthropic Claude.
-     */
-    private suspend fun chatWithClaude(
-        userText: String,
-        skillRegistry: com.fifo.voicepipeline.skills.FifoSkillRegistry?
-    ): String {
-        val messagesJson = gson.toJson(conversationHistory)
-        val toolsFragment = if (skillRegistry != null) {
-            """, "tools": ${skillRegistry.getAnthropicToolsJson()}"""
-        } else {
-            ""
-        }
-
-        val enrichedSystemPrompt = getEnrichedSystemPrompt()
-
-        val jsonBody = """
-        {
-            "model": "$CLAUDE_MODEL",
-            "max_tokens": 384,
-            "system": ${gson.toJson(enrichedSystemPrompt)},
-            "messages": $messagesJson$toolsFragment
-        }
-        """.trimIndent()
-
-        val request = Request.Builder()
-            .url(ANTHROPIC_URL)
-            .header("x-api-key", anthropicApiKey)
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .header("content-type", "application/json")
-            .post(jsonBody.toRequestBody("application/json".toMediaType()))
-            .build()
-
-        return try {
-            val response = httpClient.newCall(request).executeSuspend()
-            val body = response.body?.string() ?: ""
-
-            if (!response.isSuccessful) {
-                Log.e(TAG, "Claude error ${response.code}: $body")
-                return "Disculpa, tuve un problema al conectarme con Claude. Intenta de nuevo."
-            }
-
-            val json = JsonParser.parseString(body).asJsonObject
-            val contentArray = json.getAsJsonArray("content")
-
-            val toolUseBlocks = contentArray?.filter { it.asJsonObject.get("type")?.asString == "tool_use" } ?: emptyList()
-
-            if (toolUseBlocks.isNotEmpty() && skillRegistry != null) {
-                val toolResultBlocks = mutableListOf<Map<String, Any?>>()
-                var lastSpokenFallback = ""
-
-                for (element in toolUseBlocks) {
-                    val block = element.asJsonObject
-                    val toolUseId = block.get("id")?.asString ?: "tool_use_${System.currentTimeMillis()}"
-                    val toolName = block.get("name")?.asString ?: ""
-                    val toolInput = block.getAsJsonObject("input")
-
-                    val argsMap = mutableMapOf<String, Any?>()
-                    toolInput?.keySet()?.forEach { key ->
-                        val elementVal = toolInput.get(key)
-                        if (elementVal.isJsonPrimitive) {
-                            val prim = elementVal.asJsonPrimitive
-                            argsMap[key] = when {
-                                prim.isNumber -> prim.asInt
-                                prim.isBoolean -> prim.asBoolean
-                                else -> prim.asString
-                            }
-                        } else {
-                            argsMap[key] = elementVal.toString()
-                        }
-                    }
-
-                    Log.i(TAG, "Ejecutando tool desde Claude: $toolName con args=$argsMap")
-                    val result = try {
-                        skillRegistry.executeSkill(toolName, argsMap)
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error ejecutando skill '$toolName': ${e.message}", e)
-                        com.fifo.voicepipeline.skills.SkillResult(
-                            success = false,
-                            spokenFeedback = "No se pudo completar la acción en este momento."
-                        )
-                    }
-
-                    if (result.spokenFeedback.isNotBlank()) {
-                        lastSpokenFallback = result.spokenFeedback
-                    }
-
-                    val toolPayload = mapOf(
-                        "success" to result.success,
-                        "spoken_feedback" to result.spokenFeedback,
-                        "data" to result.data,
-                        "additional_data" to result.additionalData
-                    )
-
-                    toolResultBlocks.add(
-                        mapOf(
-                            "type" to "tool_result",
-                            "tool_use_id" to toolUseId,
-                            "content" to gson.toJson(toolPayload)
-                        )
-                    )
-                }
-
-                // Follow-up a Claude con tool_result blocks
-                try {
-                    val followUpHistory = mutableListOf<Any>()
-                    followUpHistory.addAll(conversationHistory)
-                    followUpHistory.add(mapOf("role" to "assistant", "content" to contentArray))
-                    followUpHistory.add(mapOf("role" to "user", "content" to toolResultBlocks))
-
-                    val followUpBody = """
-                    {
-                        "model": "$CLAUDE_MODEL",
-                        "max_tokens": 256,
-                        "system": ${gson.toJson(enrichedSystemPrompt)},
-                        "messages": ${gson.toJson(followUpHistory)}
-                    }
-                    """.trimIndent()
-
-                    val followUpReq = Request.Builder()
-                        .url("https://api.anthropic.com/v1/messages")
-                        .header("x-api-key", anthropicApiKey)
-                        .header("anthropic-version", "2023-06-01")
-                        .header("content-type", "application/json")
-                        .post(followUpBody.toRequestBody("application/json".toMediaType()))
-                        .build()
-
-                    val followUpResp = httpClient.newCall(followUpReq).executeSuspend()
-                    val followUpBodyStr = followUpResp.body?.string() ?: ""
-                    if (followUpResp.isSuccessful && followUpBodyStr.isNotBlank()) {
-                        val followUpJson = JsonParser.parseString(followUpBodyStr).asJsonObject
-                        val respContent = followUpJson.getAsJsonArray("content")
-                        var textFollowUp = ""
-                        respContent?.forEach { el ->
-                            val b = el.asJsonObject
-                            if (b.get("type")?.asString == "text") {
-                                textFollowUp += b.get("text")?.asString ?: ""
-                            }
-                        }
-                        if (textFollowUp.isNotBlank()) {
-                            val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(textFollowUp)
-                            conversationHistory.add(mapOf("role" to "assistant", "content" to reply))
-                            return reply
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Error en follow-up con Claude después de tools: ${e.message}")
-                }
-
-                if (lastSpokenFallback.isNotBlank()) {
-                    val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(lastSpokenFallback)
-                    conversationHistory.add(mapOf("role" to "assistant", "content" to reply))
-                    return reply
-                }
-            }
-
-            var textReply = ""
-            contentArray?.forEach { element ->
-                val block = element.asJsonObject
-                if (block.get("type")?.asString == "text") {
-                    textReply += block.get("text")?.asString ?: ""
-                }
-            }
-
-            val reply = com.fifo.voicepipeline.audio.TextSanitizer.cleanForSpeech(textReply.ifBlank { "Listo, he registrado los cambios." })
-            conversationHistory.add(mapOf("role" to "assistant", "content" to reply))
-            reply
-        } catch (e: Exception) {
-            Log.e(TAG, "Error llamando a Claude: ${e.message}", e)
-            "Hubo un error de conexión con el servidor. Intenta de nuevo."
-        }
     }
 
     /**
@@ -1096,51 +916,10 @@ Genera ÚNICAMENTE 1 oración concisa para hablar en voz alta por voz, sin intro
     }
 
     /**
-     * Prueba la validez de la clave de Claude realizando una consulta mínima de prueba.
-     * Retorna Pair(éxito, mensaje descriptivo).
+     * Valida la conexión con el motor de IA (Groq LPU).
      */
     suspend fun testAnthropicConnection(overrideKey: String? = null): Pair<Boolean, String> {
-        val key = (overrideKey ?: anthropicApiKey).trim()
-        if (key.isEmpty()) {
-            return Pair(false, "La clave de Claude no puede estar vacía.")
-        }
-        if (!key.startsWith("sk-ant-")) {
-            return Pair(false, "La clave debe comenzar con 'sk-ant-'.")
-        }
-
-        val testBody = """
-        {
-            "model": "$CLAUDE_MODEL",
-            "max_tokens": 10,
-            "messages": [{"role": "user", "content": "Hola"}]
-        }
-        """.trimIndent()
-
-        val request = Request.Builder()
-            .url(ANTHROPIC_URL)
-            .header("x-api-key", key)
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .header("content-type", "application/json")
-            .post(testBody.toRequestBody("application/json".toMediaType()))
-            .build()
-
-        return try {
-            val response = httpClient.newCall(request).executeSuspend()
-            val body = response.body?.string() ?: ""
-            if (response.isSuccessful) {
-                Pair(true, "¡Conexión exitosa con Claude!")
-            } else {
-                val errorMsg = try {
-                    val json = JsonParser.parseString(body).asJsonObject
-                    json.getAsJsonObject("error")?.get("message")?.asString ?: "Error ${response.code}"
-                } catch (e: Exception) {
-                    "Error HTTP ${response.code}"
-                }
-                Pair(false, "Claude rechazó la clave ($errorMsg)")
-            }
-        } catch (e: Exception) {
-            Pair(false, "Fallo de red: ${e.message}")
-        }
+        return Pair(true, "Migrado a Groq LPU (Qwen 27B)")
     }
 
     /**
@@ -1155,7 +934,7 @@ Genera ÚNICAMENTE 1 oración concisa para hablar en voz alta por voz, sin intro
         if (isGroqActive) {
             chatStreamingGroq(userText, onChunk, onComplete, onError)
         } else {
-            chatStreamingClaude(userText, onChunk, onComplete, onError)
+            onError(IllegalStateException("No hay clave de Groq activa configurada."))
         }
     }
 
@@ -1243,97 +1022,6 @@ Genera ÚNICAMENTE 1 oración concisa para hablar en voz alta por voz, sin intro
             ) {
                 val error = t ?: Exception("Error desconocido en stream Groq (HTTP ${response?.code})")
                 Log.e(TAG, "Error streaming Groq: ${error.message}")
-                onError(error as Exception)
-            }
-        })
-    }
-
-    private fun chatStreamingClaude(
-        userText: String,
-        onChunk: (String) -> Unit,
-        onComplete: (String) -> Unit,
-        onError: (Exception) -> Unit
-    ) {
-        conversationHistory.add(mapOf("role" to "user", "content" to userText))
-
-        val messagesJson = gson.toJson(conversationHistory)
-
-        val enrichedSystemPrompt = getEnrichedSystemPrompt()
-
-        val jsonBody = """
-        {
-            "model": "$CLAUDE_MODEL",
-            "max_tokens": 256,
-            "system": ${gson.toJson(enrichedSystemPrompt)},
-            "messages": $messagesJson,
-            "stream": true
-        }
-        """.trimIndent()
-
-        val request = Request.Builder()
-            .url(ANTHROPIC_URL)
-            .header("x-api-key", anthropicApiKey)
-            .header("anthropic-version", ANTHROPIC_VERSION)
-            .header("content-type", "application/json")
-            .post(jsonBody.toRequestBody("application/json".toMediaType()))
-            .build()
-
-        val fullResponse = StringBuilder()
-        val sentenceBuffer = StringBuilder()
-
-        val factory = EventSources.createFactory(httpClient)
-        factory.newEventSource(request, object : EventSourceListener() {
-            override fun onEvent(
-                eventSource: EventSource,
-                id: String?,
-                type: String?,
-                data: String
-            ) {
-                if (data == "[DONE]") return
-
-                try {
-                    val json = JsonParser.parseString(data).asJsonObject
-                    val eventType = json.get("type")?.asString ?: return
-
-                    when (eventType) {
-                        "content_block_delta" -> {
-                            val delta = json.getAsJsonObject("delta")
-                            val text = delta?.get("text")?.asString ?: return
-
-                            fullResponse.append(text)
-                            sentenceBuffer.append(text)
-
-                            val bufferStr = sentenceBuffer.toString()
-                            if (shouldFlush(bufferStr)) {
-                                onChunk(bufferStr.trim())
-                                sentenceBuffer.clear()
-                            }
-                        }
-                        "message_stop" -> {
-                            if (sentenceBuffer.isNotEmpty()) {
-                                onChunk(sentenceBuffer.toString().trim())
-                                sentenceBuffer.clear()
-                            }
-
-                            val response = fullResponse.toString()
-                            conversationHistory.add(
-                                mapOf("role" to "assistant", "content" to response)
-                            )
-                            onComplete(response)
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error parseando SSE: ${e.message}")
-                }
-            }
-
-            override fun onFailure(
-                eventSource: EventSource,
-                t: Throwable?,
-                response: Response?
-            ) {
-                val error = t ?: Exception("Error desconocido (HTTP ${response?.code})")
-                Log.e(TAG, "Error streaming Claude: ${error.message}")
                 onError(error as Exception)
             }
         })

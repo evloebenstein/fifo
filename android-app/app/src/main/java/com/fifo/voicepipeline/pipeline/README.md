@@ -15,7 +15,7 @@ Núcleo de la arquitectura de voz de Fifo. Ver **ADR-0001** (`docs/adr/0001-deep
 | [`session/AudioSeam.kt`](session/AudioSeam.kt) | Costura de entrada/salida de audio PCM. Produce `AudioInboundAdapter` y `AudioOutboundAdapter`. |
 | [`session/AndroidAudioHardwareAdapter.kt`](session/AndroidAudioHardwareAdapter.kt) | Adaptador de hardware: TTS del teléfono (producción). |
 | [`session/AndroidAudioHardwareInboundAdapter.kt`](session/AndroidAudioHardwareInboundAdapter.kt) | Adaptador de entrada: multiplexor de micrófono del teléfono y audio BLE del ESP32. |
-| [`session/SpeechCognitionSeam.kt`](session/SpeechCognitionSeam.kt) | Costura de cognición: STT Whisper + LLM Groq. |
+| [`session/SpeechCognitionSeam.kt`](session/SpeechCognitionSeam.kt) | Costura de cognición (ADR-0006): STT Whisper + LLM Groq (Qwen 27B) con tool-calling, `ConversationContextProvider` desacoplado e `InMemorySpeechCognitionAdapter` con simulación de ejecución de skills en JVM. |
 | [`session/SpeechOutboundEngine.kt`](session/SpeechOutboundEngine.kt) | Motor de salida de voz: sanitización y despacho al adaptador de hardware. |
 | [`session/AudioInboundFilter.kt`](session/AudioInboundFilter.kt) | Filtro anti-eco y blindaje contra audio del propio altavoz. |
 
