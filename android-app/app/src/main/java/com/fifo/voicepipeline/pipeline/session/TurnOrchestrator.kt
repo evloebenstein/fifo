@@ -112,12 +112,27 @@ class TurnOrchestrator(
      * Evalúa si una frase dicha por el usuario es una orden explícita de silencio o pausa.
      */
     fun isSilenceCommand(text: String): Boolean {
+        if (text.isBlank()) return false
         val lower = text.lowercase().trim()
-        val silenceKeywords = listOf(
-            "cállate", "callate", "silencio", "para", "basta",
-            "detente", "no hables", "shh", "shhh", "espera", "apágate", "apagate"
+
+        // Palabras de silencio que son inequívocas incluso en frases largas
+        val unambiguousKeywords = listOf(
+            "cállate", "callate", "silencio", "basta", "detente",
+            "no hables", "shh", "shhh", "apágate", "apagate",
+            "fifo para", "para fifo", "para ya", "fifo cállate", "fifo silencio"
         )
-        return silenceKeywords.any { lower.contains(it) }
+        if (unambiguousKeywords.any { lower.contains(it) }) return true
+
+        // "para" y "espera" solo son órdenes de silencio cuando son comandos
+        // cortos aislados (≤ 2 tokens) — NO cuando son preposiciones en frases largas
+        // como "necesito ayuda para ir al médico" o "busca una ruta para el aeropuerto".
+        val tokens = lower.split("\\s+".toRegex()).filter { it.isNotBlank() }
+        if (tokens.size <= 2) {
+            val shortStopWords = listOf("para", "parate", "espera")
+            if (tokens.any { it in shortStopWords }) return true
+        }
+
+        return false
     }
 
     /**
