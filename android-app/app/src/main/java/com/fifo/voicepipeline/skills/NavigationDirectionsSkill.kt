@@ -217,22 +217,34 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
                     } else {
                         com.fifo.voicepipeline.location.FifoNavigationManager.setPendingDestination(closest)
                     }
+                    val userId = FifoDataRepository.userProfile.value.id
+                    val contextIntent = if (userId.isNotBlank()) {
+                        com.fifo.voicepipeline.network.FifoBackendClient.fetchNavigationContextualIntent(
+                            userId = userId,
+                            destination = destInput,
+                            lat = currentLoc.latitude,
+                            lon = currentLoc.longitude
+                        )
+                    } else null
+
+                    val proactiveTip = contextIntent?.proactiveRecommendations?.firstOrNull()?.let { " Recuerde: $it" } ?: ""
+
                     val spoken = if (isRealTime) {
-                        "Para ir a $desc: ${closest.relativeDirection} y camine ${closest.distanceMeters} metros por $street. Voy acompañándote paso a paso en el camino, avísame mientras avanzas."
+                        "Para ir a $desc: ${closest.relativeDirection} y camine ${closest.distanceMeters} metros por $street.$proactiveTip Voy acompañándole paso a paso en el camino, avíseme mientras avanza."
                     } else if (closest.distanceMeters < 1200) {
                         val blocks = (closest.distanceMeters / 100).coerceAtLeast(1)
                         val blocksText = if (blocks == 1) "1 cuadra" else "$blocks cuadras"
                         val phrasings = listOf(
-                            "El más cercano es $desc en ${closest.fullAddressText}, a unos ${closest.distanceMeters} metros (${closest.walkingMinutes} min a pie, ${closest.relativeDirection}). ¿Te gustaría que te guíe hacia allá?",
-                            "Encontré $desc en ${closest.fullAddressText}. Te queda a unos ${closest.distanceMeters} metros, unas $blocksText caminando (${closest.relativeDirection}). ¿Quieres que te acompañe en el camino?",
-                            "Justo cerca tienes $desc en ${closest.road.ifBlank { closest.fullAddressText }}, a ${closest.distanceMeters} metros (${closest.relativeDirection}). ¿Deseas que te guíe paso a paso?"
+                            "El más cercano es $desc en ${closest.fullAddressText}, a unos ${closest.distanceMeters} metros (${closest.walkingMinutes} min a pie, ${closest.relativeDirection}).$proactiveTip ¿Le gustaría que le guíe hacia allá?",
+                            "Encontré $desc en ${closest.fullAddressText}. Le queda a unos ${closest.distanceMeters} metros, unas $blocksText caminando (${closest.relativeDirection}).$proactiveTip ¿Desea que le acompañe en el camino?",
+                            "Justo cerca tiene $desc en ${closest.road.ifBlank { closest.fullAddressText }}, a ${closest.distanceMeters} metros (${closest.relativeDirection}).$proactiveTip ¿Desea que le guíe paso a paso?"
                         )
                         phrasings.random()
                     } else {
                         val km = String.format(java.util.Locale("es", "ES"), "%.1f", closest.distanceMeters / 1000.0)
                         val phrasings = listOf(
-                            "El local más próximo es $desc en ${closest.fullAddressText}, a unos $km kilómetros (${closest.drivingMinutes} min en auto). ¿Deseas que te indique la ruta?",
-                            "Tienes $desc en ${closest.fullAddressText}, a unos $km kilómetros hacia ${closest.cardinalDirection}. ¿Te gustaría que te guíe?"
+                            "El local más próximo es $desc en ${closest.fullAddressText}, a unos $km kilómetros (${closest.drivingMinutes} min en auto).$proactiveTip ¿Desea que le indique la ruta?",
+                            "Tiene $desc en ${closest.fullAddressText}, a unos $km kilómetros hacia ${closest.cardinalDirection}.$proactiveTip ¿Le gustaría que le guíe?"
                         )
                         phrasings.random()
                     }
@@ -246,6 +258,9 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
                             "distance_meters" to closest.distanceMeters,
                             "walking_minutes" to closest.walkingMinutes,
                             "driving_minutes" to closest.drivingMinutes,
+                            "purpose_type" to (contextIntent?.purposeType ?: "general"),
+                            "contextual_notes" to (contextIntent?.contextualNotes ?: emptyList()),
+                            "contextual_recommendations" to (contextIntent?.proactiveRecommendations ?: emptyList()),
                             "screen_opened" to false,
                             "keep_listening" to true
                         )
@@ -263,6 +278,16 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
         }
 
         Log.i(TAG, "Generando guía hablada hacia: '$resolvedDestination' (abrir pantalla: $openScreen)")
+
+        val userId = FifoDataRepository.userProfile.value.id
+        val contextIntent = if (userId.isNotBlank()) {
+            com.fifo.voicepipeline.network.FifoBackendClient.fetchNavigationContextualIntent(
+                userId = userId,
+                destination = resolvedDestination,
+                lat = currentLoc.latitude,
+                lon = currentLoc.longitude
+            )
+        } else null
 
         // 1. Obtener guía hablada con cálculo de distancia, minutos a pie y orientación
         val routeGuidance = FifoLocationHelper.getSpokenRouteGuidance(context, resolvedDestination)
@@ -285,6 +310,9 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
                     "destination" to resolvedDestination,
                     "distance_meters" to routeGuidance.distanceMeters,
                     "walking_minutes" to routeGuidance.walkingMinutes,
+                    "purpose_type" to (contextIntent?.purposeType ?: "general"),
+                    "contextual_notes" to (contextIntent?.contextualNotes ?: emptyList()),
+                    "contextual_recommendations" to (contextIntent?.proactiveRecommendations ?: emptyList()),
                     "app_used" to appUsed,
                     "screen_opened" to true
                 )
@@ -292,13 +320,18 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
         }
 
         // 3. Guía 100% por voz sin obligar a desbloquear ni mirar el celular
+        val proactiveTip = contextIntent?.proactiveRecommendations?.firstOrNull()?.let { " Recuerde: $it" } ?: ""
+        val enrichedSpoken = "${routeGuidance.spokenGuidance}$proactiveTip"
         return SkillResult(
             success = true,
-            spokenFeedback = routeGuidance.spokenGuidance,
+            spokenFeedback = enrichedSpoken,
             data = mapOf(
                 "destination" to resolvedDestination,
                 "distance_meters" to routeGuidance.distanceMeters,
                 "walking_minutes" to routeGuidance.walkingMinutes,
+                "purpose_type" to (contextIntent?.purposeType ?: "general"),
+                "contextual_notes" to (contextIntent?.contextualNotes ?: emptyList()),
+                "contextual_recommendations" to (contextIntent?.proactiveRecommendations ?: emptyList()),
                 "screen_opened" to false
             )
         )

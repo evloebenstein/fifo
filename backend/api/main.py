@@ -116,6 +116,23 @@ def ensure_schema_migrations():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_es_0900_ai_ci;
         """)
 
+        # Migración: tabla de registro y catalogación de eventos de telefonía
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS call_history_log (
+                id VARCHAR(64) NOT NULL PRIMARY KEY,
+                user_id VARCHAR(64) NOT NULL,
+                action VARCHAR(32) NOT NULL,
+                caller_name VARCHAR(160) NOT NULL,
+                phone_number VARCHAR(64) NULL,
+                duration_seconds INT NOT NULL DEFAULT 0,
+                notes TEXT NULL,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_call_user (user_id),
+                INDEX idx_call_phone (phone_number),
+                INDEX idx_call_created (created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_es_0900_ai_ci;
+        """)
+
         # Migración: columna google_id en tabla users para autenticación con Google
         cursor.execute("""
             SELECT COUNT(*) FROM information_schema.COLUMNS
@@ -420,6 +437,26 @@ class ConversationAnalyzeAndConsolidateRequest(BaseModel):
 
 class RecallContextRequest(BaseModel):
     query: str
+
+
+class IdentifyContactRequest(BaseModel):
+    caller_name: Optional[str] = None
+    phone_number: Optional[str] = None
+
+
+class LogCallEventRequest(BaseModel):
+    action: str = Field(description="answer, hangup, incoming, dialed, missed")
+    caller_name: str
+    phone_number: Optional[str] = None
+    duration_seconds: int = 0
+    notes: Optional[str] = None
+
+
+class NavigationContextRequest(BaseModel):
+    destination: str
+    current_lat: Optional[float] = None
+    current_lon: Optional[float] = None
+    hour: Optional[int] = None
 
 
 class DeviceLocationUpdateRequest(BaseModel):
@@ -2530,6 +2567,241 @@ def recall_context_graph_rag(user_id: str, req: RecallContextRequest):
         "foundEntities": list(found_entities),
         "synthesizedContext": synthesized,
         "conversationsSearched": conversations_searched
+    }
+
+
+# -----------------------------------------------------------------------------
+# Telefonía Inteligente: Catalogación de Interlocutores y Registro de Eventos
+# -----------------------------------------------------------------------------
+@app.post("/users/{user_id}/telephony/identify-contact")
+def identify_contact_and_catalog(user_id: str, req: IdentifyContactRequest):
+    """
+    Identifica quién es la persona que llama o a quien se llama.
+    1. Busca en user_contacts_relational y knowledge_nodes (tipo 'person', 'family', 'doctor').
+    2. Si existe: extrae el parentesco, notas contextuales y menciones recientes de charlas pasadas.
+    3. Si no existe: cataloga automáticamente a la persona en knowledge_nodes para que forme parte del grafo.
+    4. Devuelve contexto conversacional enriquecido para que el agente NUNCA dé respuestas genéricas.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    caller_name = (req.caller_name or "").strip()
+    phone_number = (req.phone_number or "").strip()
+
+    matched_contact = None
+    recent_mentions = []
+
+    # 1. Buscar en contactos relacionales
+    if caller_name or phone_number:
+        conditions = []
+        params = [user_id]
+        if caller_name:
+            conditions.append("(LOWER(contact_name) LIKE %s OR LOWER(relationship_role) LIKE %s)")
+            params.extend([f"%{caller_name.lower()}%", f"%{caller_name.lower()}%"])
+        if phone_number and len(phone_number) >= 4:
+            clean_phone = re.sub(r"[^\d+]", "", phone_number)
+            conditions.append("phone_number LIKE %s")
+            params.append(f"%{clean_phone}%")
+
+        if conditions:
+            cursor.execute(f"""
+                SELECT id, contact_name, relationship_role, phone_number, contextual_memory, closeness_level
+                FROM user_contacts_relational
+                WHERE user_id = %s AND ({" OR ".join(conditions)})
+                LIMIT 1
+            """, params)
+            matched_contact = cursor.fetchone()
+
+    # 2. Si no encontró en user_contacts_relational, buscar en knowledge_nodes
+    if not matched_contact and (caller_name or phone_number):
+        c_clause = "user_id = %s AND entity_type IN ('person', 'family', 'doctor', 'friend')"
+        c_params = [user_id]
+        if caller_name:
+            c_clause += " AND LOWER(name) LIKE %s"
+            c_params.append(f"%{caller_name.lower()}%")
+        cursor.execute(f"""
+            SELECT id, name, entity_type, metadata_json, mention_count
+            FROM knowledge_nodes
+            WHERE {c_clause}
+            LIMIT 1
+        """, c_params)
+        knode = cursor.fetchone()
+        if knode:
+            meta = parse_json_col(knode.get("metadata_json"), {})
+            matched_contact = {
+                "id": knode["id"],
+                "contact_name": knode["name"],
+                "relationship_role": meta.get("role", "Conocido"),
+                "phone_number": meta.get("phone", phone_number),
+                "contextual_memory": meta.get("notes", ""),
+                "closeness_level": meta.get("closeness", "medio")
+            }
+
+    # 3. Buscar menciones recientes en charlas
+    if matched_contact:
+        c_id = matched_contact["id"]
+        cursor.execute("""
+            SELECT snippet_text, mentioned_at
+            FROM knowledge_node_mentions
+            WHERE node_id = %s
+            ORDER BY mentioned_at DESC
+            LIMIT 2
+        """, (c_id,))
+        k_mentions = cursor.fetchall()
+        for km in k_mentions:
+            recent_mentions.append(km["snippet_text"])
+
+        if not recent_mentions:
+            cursor.execute("""
+                SELECT snippet_mention, mentioned_at
+                FROM contact_conversation_mentions
+                WHERE contact_id = %s
+                ORDER BY mentioned_at DESC
+                LIMIT 2
+            """, (c_id,))
+            for cm in cursor.fetchall():
+                if cm.get("snippet_mention"):
+                    recent_mentions.append(cm["snippet_mention"])
+
+    # 4. Si el contacto es nuevo pero tiene un nombre legible, catalogarlo en el grafo
+    is_known = matched_contact is not None
+    final_name = matched_contact["contact_name"] if matched_contact else (caller_name if caller_name else (f"Número {phone_number}" if phone_number else "Desconocido"))
+    final_role = matched_contact["relationship_role"] if matched_contact else "Contacto telefónico"
+    final_notes = matched_contact.get("contextual_memory", "") if matched_contact else ""
+
+    if not is_known and caller_name and caller_name.lower() not in ["desconocido", "privado", "spam", "llamada", "la llamada"]:
+        new_node_id = f"knode_{uuid.uuid4().hex[:12]}"
+        meta_json = json.dumps({"phone": phone_number, "role": "Contacto catalogado", "cataloged_via": "telephony"})
+        cursor.execute("""
+            INSERT INTO knowledge_nodes (id, user_id, name, entity_type, metadata_json, mention_count)
+            VALUES (%s, %s, %s, 'person', %s, 1)
+        """, (new_node_id, user_id, caller_name, meta_json))
+        final_role = "Contacto nuevo catalogado"
+
+    recent_summary = " | ".join(recent_mentions) if recent_mentions else (final_notes or "Sin charlas previas registradas")
+
+    # Sugerencias conversacionales empáticas para evitar frases robóticas
+    greeting_hint = f"Llama {final_name} ({final_role})." if is_known else f"Llama {final_name}."
+    followup_hint = f"Preguntar si desea anotar un recado o recordatorio sobre lo hablado con {final_name}."
+
+    cursor.close()
+    conn.close()
+
+    return {
+        "isKnown": is_known,
+        "contactName": final_name,
+        "relationshipRole": final_role,
+        "phoneNumber": phone_number or (matched_contact.get("phone_number") if matched_contact else ""),
+        "contextualNotes": final_notes,
+        "recentTopics": recent_summary,
+        "suggestedGreeting": greeting_hint,
+        "suggestedFollowup": followup_hint
+    }
+
+
+@app.post("/users/{user_id}/telephony/log-call-event")
+def log_telephony_event(user_id: str, req: LogCallEventRequest):
+    """
+    Registra un evento de llamada (answer, hangup, incoming, dialed, missed) y lo vincula al grafo.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    event_id = f"call_{uuid.uuid4().hex[:12]}"
+
+    cursor.execute("""
+        INSERT INTO call_history_log (id, user_id, action, caller_name, phone_number, duration_seconds, notes)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+    """, (event_id, user_id, req.action, req.caller_name, req.phone_number, req.duration_seconds, req.notes))
+
+    # Actualizar o incrementar menciones en knowledge_nodes si existe la persona
+    cursor.execute("""
+        UPDATE knowledge_nodes
+        SET mention_count = mention_count + 1
+        WHERE user_id = %s AND LOWER(name) = LOWER(%s)
+    """, (user_id, req.caller_name))
+
+    cursor.close()
+    conn.close()
+
+    return {
+        "status": "logged",
+        "eventId": event_id,
+        "action": req.action,
+        "callerName": req.caller_name
+    }
+
+
+# -----------------------------------------------------------------------------
+# Navegación y Destinos: Comprensión Contextual de Necesidades y Recomendaciones
+# -----------------------------------------------------------------------------
+@app.post("/users/{user_id}/navigation/contextual-intent")
+def get_navigation_contextual_intent(user_id: str, req: NavigationContextRequest):
+    """
+    Analiza la necesidad profunda del destino solicitado (salud, comida, compras, paseo)
+    cruzándola con el perfil, recetas médicas, gustos y hábitos del usuario para prevenir
+    respuestas genéricas y ofrecer sugerencias proactivas.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    dest_lower = req.destination.lower()
+
+    purpose_type = "general"
+    contextual_notes = []
+    recommendations = []
+    safety_alerts = None
+
+    # 1. Caso Salud / Farmacia / Médico
+    if any(k in dest_lower for k in ["farmacia", "ahumada", "cruz verde", "salcobrand", "doctor", "doctora", "médico", "medico", "hospital", "cesfam", "clínica", "clinica"]):
+        purpose_type = "health"
+        cursor.execute("""
+            SELECT title, detail FROM memories
+            WHERE user_id = %s AND (LOWER(title) LIKE '%receta%' OR LOWER(title) LIKE '%doctor%' OR LOWER(detail) LIKE '%remedio%' OR LOWER(detail) LIKE '%pastilla%')
+            ORDER BY created_at DESC LIMIT 2
+        """, (user_id,))
+        for m in cursor.fetchall():
+            contextual_notes.append(f"Nota médica previa: {m['title']} - {m['detail']}")
+
+        cursor.execute("""
+            SELECT title, time_str, spoken_text FROM reminders
+            WHERE user_id = %s AND category = 'medication' AND is_completed = 0
+            LIMIT 2
+        """, (user_id,))
+        for r in cursor.fetchall():
+            contextual_notes.append(f"Medicamento pendiente: {r['title']} ({r['time_str']})")
+
+        recommendations.append("Llevar la cédula de identidad y la receta médica si va a retirar medicamentos.")
+        recommendations.append("Verificar si el establecimiento cuenta con atención preferencial.")
+
+    # 2. Caso Comida / Restaurante / Cafetería
+    elif any(k in dest_lower for k in ["restaurante", "restaurant", "almuerzo", "café", "cafe", "pastas", "comida", "panaderia", "panadería"]):
+        purpose_type = "food"
+        cursor.execute("SELECT taste_name, category FROM user_tastes WHERE user_id = %s LIMIT 4", (user_id,))
+        tastes = [f"{t['taste_name']} ({t['category']})" for t in cursor.fetchall()]
+        if tastes:
+            contextual_notes.append(f"Gustos favoritos del usuario: {', '.join(tastes)}")
+            recommendations.append(f"Basado en sus preferencias por {tastes[0]}, es una muy buena elección.")
+
+        cursor.execute("""
+            SELECT name, metadata_json FROM knowledge_nodes
+            WHERE user_id = %s AND entity_type = 'place'
+            ORDER BY mention_count DESC LIMIT 2
+        """, (user_id,))
+        for p in cursor.fetchall():
+            contextual_notes.append(f"Lugar previo recurrente: {p['name']}")
+
+    # 3. Caso Supermercado / Compras
+    elif any(k in dest_lower for k in ["supermercado", "lider", "jumbo", "unimarc", "santa isabel", "oxxo", "minimarket"]):
+        purpose_type = "shopping"
+        recommendations.append("Llevar bolsa reutilizable para mayor comodidad.")
+
+    cursor.close()
+    conn.close()
+
+    return {
+        "destination": req.destination,
+        "purposeType": purpose_type,
+        "contextualNotes": contextual_notes,
+        "proactiveRecommendations": recommendations,
+        "safetyAlerts": safety_alerts
     }
 
 

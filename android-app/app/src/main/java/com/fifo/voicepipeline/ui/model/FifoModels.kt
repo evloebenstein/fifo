@@ -157,6 +157,31 @@ data class DeepContextResult(
 )
 
 /**
+ * Identidad contextual de un interlocutor telefónico obtenida del Grafo de Conocimiento del backend.
+ */
+data class ContactIdentityResult(
+    val isKnown: Boolean,
+    val contactName: String,
+    val relationshipRole: String,
+    val phoneNumber: String = "",
+    val contextualNotes: String = "",
+    val recentTopics: String = "",
+    val suggestedGreeting: String = "",
+    val suggestedFollowup: String = ""
+)
+
+/**
+ * Comprensión de la necesidad y contexto detrás de un destino de navegación.
+ */
+data class NavigationContextResult(
+    val destination: String,
+    val purposeType: String,
+    val contextualNotes: List<String> = emptyList(),
+    val proactiveRecommendations: List<String> = emptyList(),
+    val safetyAlerts: String? = null
+)
+
+/**
  * Resultado estructurado retornado por el motor de análisis y consolidación del backend.
  * Permite que Fifo modifique en tiempo real recordatorios, recuerdos, gustos en detalle,
  * tags de intereses específicos y su biografía evolucionada.

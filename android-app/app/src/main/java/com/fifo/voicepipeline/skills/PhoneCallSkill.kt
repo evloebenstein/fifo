@@ -44,18 +44,66 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
 
     override suspend fun execute(args: Map<String, Any?>): SkillResult {
         val action = args["action"]?.toString()?.lowercase()?.trim() ?: "status"
+        val userId = FifoDataRepository.userProfile.value.id
         Log.i(TAG, "Ejecutando PhoneCallSkill con acción: $action")
 
         return when (action) {
             "answer" -> {
-                val callInfo = FifoDataRepository.incomingCall.value
+                val callInfo = FifoDataRepository.incomingCall.value ?: FifoDataRepository.lastActiveCall
                 val answered = FifoDataRepository.answerCurrentCall()
                 if (answered) {
-                    val caller = callInfo?.callerName ?: "la llamada"
+                    val rawCaller = callInfo?.callerName ?: ""
+                    val phone = callInfo?.phoneNumber ?: ""
+
+                    // 1. Identificar interlocutor localmente en el grafo relacional
+                    val relContact = if (rawCaller.isNotBlank()) FifoDataRepository.findContactByRoleOrName(rawCaller) else null
+                    val contactName = relContact?.contactName ?: rawCaller.ifBlank { "la llamada" }
+                    val role = relContact?.relationshipRole ?: ""
+
+                    // 2. Consultar / catalogar en el backend si hay ID de usuario disponible
+                    val backendIdentity = if (userId.isNotBlank()) {
+                        com.fifo.voicepipeline.network.FifoBackendClient.identifyContact(userId, rawCaller, phone)
+                    } else null
+
+                    val finalName = backendIdentity?.contactName ?: contactName
+                    val finalRole = backendIdentity?.relationshipRole?.takeIf { it.isNotBlank() && it != "Contacto telefónico" } ?: role
+                    val recentTopics = backendIdentity?.recentTopics ?: ""
+                    val followup = backendIdentity?.suggestedFollowup ?: "Atender tranquilamente la llamada."
+
+                    // 3. Registrar evento en backend de forma asíncrona
+                    if (userId.isNotBlank()) {
+                        com.fifo.voicepipeline.network.FifoBackendClient.logCallEvent(
+                            userId = userId,
+                            action = "answer",
+                            callerName = finalName,
+                            phoneNumber = phone,
+                            durationSeconds = 0,
+                            notes = "Llamada contestada en altavoz por Fifo"
+                        )
+                    }
+
+                    // 4. Frase cálida, empática y no genérica
+                    val spoken = if (finalRole.isNotBlank() && !finalRole.equals("Contacto", ignoreCase = true)) {
+                        "Contestando la llamada de su $finalRole $finalName en altavoz para que hable con tranquilidad."
+                    } else if (finalName != "la llamada") {
+                        "Contestando a $finalName en altavoz."
+                    } else {
+                        "Contestando la llamada entrante en altavoz para usted."
+                    }
+
                     SkillResult(
                         success = true,
-                        spokenFeedback = "Contestando la llamada de $caller en altavoz para usted.",
-                        data = mapOf("action" to "answer", "status" to "answered")
+                        spokenFeedback = spoken,
+                        data = mapOf(
+                            "action" to "answer",
+                            "status" to "answered",
+                            "caller" to finalName,
+                            "caller_name" to finalName,
+                            "phone" to phone,
+                            "relationship" to finalRole,
+                            "recent_context" to recentTopics,
+                            "suggested_followup" to followup
+                        )
                     )
                 } else {
                     SkillResult(
@@ -67,23 +115,87 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
             }
 
             "hangup" -> {
-                val callInfo = FifoDataRepository.incomingCall.value
-                val hungUp = FifoDataRepository.hangupCurrentCall()
-                val caller = callInfo?.callerName ?: "la llamada"
+                val callInfo = FifoDataRepository.incomingCall.value ?: FifoDataRepository.lastActiveCall
+                FifoDataRepository.hangupCurrentCall()
+                val rawCaller = callInfo?.callerName ?: ""
+                val phone = callInfo?.phoneNumber ?: ""
+
+                // 1. Identificar interlocutor localmente
+                val relContact = if (rawCaller.isNotBlank()) FifoDataRepository.findContactByRoleOrName(rawCaller) else null
+                val contactName = relContact?.contactName ?: rawCaller.ifBlank { "la llamada" }
+                val role = relContact?.relationshipRole ?: ""
+
+                // 2. Consultar o actualizar catalogación en backend
+                val backendIdentity = if (userId.isNotBlank() && rawCaller.isNotBlank()) {
+                    com.fifo.voicepipeline.network.FifoBackendClient.identifyContact(userId, rawCaller, phone)
+                } else null
+
+                val finalName = backendIdentity?.contactName ?: contactName
+                val finalRole = backendIdentity?.relationshipRole?.takeIf { it.isNotBlank() } ?: role
+                val recentTopics = backendIdentity?.recentTopics ?: ""
+
+                // 3. Registrar evento en backend
+                if (userId.isNotBlank()) {
+                    com.fifo.voicepipeline.network.FifoBackendClient.logCallEvent(
+                        userId = userId,
+                        action = "hangup",
+                        callerName = finalName,
+                        phoneNumber = phone,
+                        durationSeconds = 0,
+                        notes = "Llamada finalizada por Fifo"
+                    )
+                }
+
+                // 4. Frase conversacional cálida que previene respuestas secas o enlatadas
+                val spoken = if (finalName != "la llamada" && finalName.isNotBlank()) {
+                    "Listo, he colgado la llamada con $finalName. Si desea que le recuerde o anote algún recado de lo que hablaron, con gusto lo guardo."
+                } else {
+                    "He finalizado la llamada. Avíseme si necesita que registre algún recordatorio o nota de la conversación."
+                }
+
                 SkillResult(
                     success = true,
-                    spokenFeedback = "He detenido y colgado la llamada de $caller.",
-                    data = mapOf("action" to "hangup", "status" to "hung_up")
+                    spokenFeedback = spoken,
+                    data = mapOf(
+                        "action" to "hangup",
+                        "status" to "hung_up",
+                        "caller" to finalName,
+                        "caller_name" to finalName,
+                        "relationship" to finalRole,
+                        "recent_context" to recentTopics,
+                        "suggested_followup" to "Preguntar con amabilidad si desea guardar un recordatorio o recado de la llamada"
+                    )
                 )
             }
 
             "status" -> {
                 val callInfo = FifoDataRepository.incomingCall.value
                 if (callInfo != null && callInfo.isRinging) {
+                    val rawCaller = callInfo.callerName
+                    val relContact = FifoDataRepository.findContactByRoleOrName(rawCaller)
+                    val backendIdentity = if (userId.isNotBlank()) {
+                        com.fifo.voicepipeline.network.FifoBackendClient.identifyContact(userId, rawCaller, callInfo.phoneNumber)
+                    } else null
+
+                    val finalName = backendIdentity?.contactName ?: (relContact?.contactName ?: rawCaller)
+                    val finalRole = backendIdentity?.relationshipRole?.takeIf { it.isNotBlank() && it != "Contacto telefónico" } ?: (relContact?.relationshipRole ?: "")
+
+                    val spoken = if (finalRole.isNotBlank()) {
+                        "Tiene una llamada entrante de su $finalRole $finalName. ¿Desea que le conteste en altavoz o que cuelgue?"
+                    } else {
+                        "Tiene una llamada entrante de $finalName. ¿Desea que conteste en altavoz o prefiere colgar?"
+                    }
+
                     SkillResult(
                         success = true,
-                        spokenFeedback = "Tiene una llamada entrante de ${callInfo.callerName}. ¿Desea que conteste o que cuelgue?",
-                        data = mapOf("ringing" to true, "caller" to callInfo.callerName, "phone" to callInfo.phoneNumber)
+                        spokenFeedback = spoken,
+                        data = mapOf(
+                            "ringing" to true,
+                            "caller" to finalName,
+                            "caller_name" to finalName,
+                            "relationship" to finalRole,
+                            "phone" to callInfo.phoneNumber
+                        )
                     )
                 } else {
                     SkillResult(
@@ -163,16 +275,32 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
                     Log.e(TAG, "Error iniciando llamada: ${e.message}")
                 }
 
+                if (userId.isNotBlank()) {
+                    com.fifo.voicepipeline.network.FifoBackendClient.logCallEvent(
+                        userId = userId,
+                        action = "dialed",
+                        callerName = resolvedContactName,
+                        phoneNumber = phoneNumber,
+                        durationSeconds = 0,
+                        notes = "Marcado saliente solicitado por voz: $contactInput"
+                    )
+                }
+
                 val spoken = if (phoneNumber.length <= 3) {
                     "Marcando inmediatamente al servicio de urgencia $resolvedContactName."
                 } else {
-                    "Marcando a $resolvedContactName por teléfono."
+                    "Marcando a $resolvedContactName por teléfono. Ya tiene la llamada lista en pantalla."
                 }
 
                 SkillResult(
                     success = true,
                     spokenFeedback = spoken,
-                    data = mapOf("target" to contactInput, "name" to resolvedContactName, "phone" to phoneNumber)
+                    data = mapOf(
+                        "action" to "dialed",
+                        "target" to contactInput,
+                        "name" to resolvedContactName,
+                        "phone" to phoneNumber
+                    )
                 )
             }
 

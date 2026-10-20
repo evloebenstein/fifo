@@ -75,7 +75,11 @@ REGLAS:
    - Al sugerir o guiar, usa la ubicación GPS real. NUNCA respondas con el nombre de la comuna como si fuera un local.
    - Si el usuario confirma un destino sugerido ("sí", "guíame", "vamos", "dije sí"), invoca 'open_navigation_directions' con destination='confirm_pending'.
 4. Celular y hardware: 'manage_phone_call' para llamadas, 'read_phone_contacts' para contactos (si piden dictar número, díctalo pausado con comas), 'control_device_hardware' para linterna/volumen/batería/hora, 'find_fifo_device' para hacer sonar el robot.
-5. Memoria e internet: Usa 'recall_past_context' ante preguntas sobre charlas pasadas, qué dijo alguien (familia, doctora), recetas médicas, ropa o locales. Si hay una laguna o espacio en blanco, dilo con honestidad; si nunca hablaron de eso, admite con cariño que no lo conversaron (NUNCA inventes). Usa 'web_search' para verificar noticias, clima o si un restaurante sigue abierto."""
+5. Memoria e internet: Usa 'recall_past_context' ante preguntas sobre charlas pasadas, qué dijo alguien (familia, doctora), recetas médicas, ropa o locales. Si hay una laguna o espacio en blanco, dilo con honestidad; si nunca hablaron de eso, admite con cariño que no lo conversaron (NUNCA inventes). Usa 'web_search' para verificar noticias, clima o si un restaurante sigue abierto.
+6. CERO RESPUESTAS GENÉRICAS O ENLATADAS:
+   - Al gestionar llamadas ('manage_phone_call'), habla con calidez reconociendo a la persona que llama y su relación con el usuario. Al colgar, ofrece amablemente anotar un recado o recordatorio si hablaron de algo importante.
+   - Al controlar hardware ('control_device_hardware'), comprende la situación del usuario con empatía (ej: si pide luz porque no ve, o volumen porque no oye).
+   - Al dar direcciones o guiar ('open_navigation_directions', 'search_nearby_places'), comprende la NECESIDAD detrás del destino (salud, comida, compras, paseo) y sugiere ideas o precauciones pertinentes sin rodeos."""
 
         fun isWhisperHallucination(rawText: String): Boolean {
             val norm = java.text.Normalizer.normalize(rawText.lowercase().trim(), java.text.Normalizer.Form.NFD)
@@ -603,7 +607,15 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
                             "destination", "distance_meters", "walking_minutes",
                             "driving_minutes", "cardinalDirection", "title",
                             "summary", "heading", "screen_opened", "success",
-                            "is_plural", "nearby_places"
+                            "is_plural", "nearby_places",
+                            // Contexto de telefonía y relaciones
+                            "action", "status", "caller", "caller_name", "phone",
+                            "relationship", "recent_context", "suggested_followup", "notes",
+                            // Contexto de control de hardware
+                            "feature", "state", "battery_level", "is_charging", "time_formatted", "volumePercent",
+                            // Contexto y necesidad de navegación
+                            "street", "road", "turn", "relative_turn", "purpose_type",
+                            "contextual_notes", "contextual_recommendations", "spatial_awareness"
                         )
                     }
                     val toolPayload = mapOf(

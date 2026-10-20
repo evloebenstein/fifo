@@ -587,6 +587,100 @@ object FifoBackendClient {
             }
         }
 
+    suspend fun identifyContact(
+        userId: String,
+        callerName: String?,
+        phoneNumber: String?
+    ): ContactIdentityResult? = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject().apply {
+                callerName?.let { put("caller_name", it) }
+                phoneNumber?.let { put("phone_number", it) }
+            }
+            val req = Request.Builder()
+                .url("$baseUrl/users/$userId/telephony/identify-contact")
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val bodyStr = resp.body?.string() ?: return@withContext null
+                val obj = JSONObject(bodyStr)
+                ContactIdentityResult(
+                    isKnown = obj.optBoolean("isKnown", false),
+                    contactName = obj.optString("contactName", callerName ?: "Contacto"),
+                    relationshipRole = obj.optString("relationshipRole", "Contacto telefónico"),
+                    phoneNumber = obj.optString("phoneNumber", phoneNumber ?: ""),
+                    contextualNotes = obj.optString("contextualNotes", ""),
+                    recentTopics = obj.optString("recentTopics", ""),
+                    suggestedGreeting = obj.optString("suggestedGreeting", ""),
+                    suggestedFollowup = obj.optString("suggestedFollowup", "")
+                )
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Fallback local identifyContact: ${e.message}")
+            null
+        }
+    }
+
+    suspend fun logCallEvent(
+        userId: String,
+        action: String,
+        callerName: String,
+        phoneNumber: String? = null,
+        durationSeconds: Int = 0,
+        notes: String? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject().apply {
+                put("action", action)
+                put("caller_name", callerName)
+                phoneNumber?.let { put("phone_number", it) }
+                put("duration_seconds", durationSeconds)
+                notes?.let { put("notes", it) }
+            }
+            postOrPatchJson("$baseUrl/users/$userId/telephony/log-call-event", "POST", payload)
+        } catch (e: Exception) {
+            Log.d(TAG, "Error logCallEvent: ${e.message}")
+            false
+        }
+    }
+
+    suspend fun fetchNavigationContextualIntent(
+        userId: String,
+        destination: String,
+        lat: Double? = null,
+        lon: Double? = null
+    ): NavigationContextResult? = withContext(Dispatchers.IO) {
+        try {
+            val payload = JSONObject().apply {
+                put("destination", destination)
+                lat?.let { put("current_lat", it) }
+                lon?.let { put("current_lon", it) }
+            }
+            val req = Request.Builder()
+                .url("$baseUrl/users/$userId/navigation/contextual-intent")
+                .post(payload.toString().toRequestBody(jsonMediaType))
+                .build()
+            httpClient.newCall(req).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext null
+                val bodyStr = resp.body?.string() ?: return@withContext null
+                val obj = JSONObject(bodyStr)
+                val notesArr = obj.optJSONArray("contextualNotes") ?: JSONArray()
+                val recsArr = obj.optJSONArray("proactiveRecommendations") ?: JSONArray()
+                NavigationContextResult(
+                    destination = obj.optString("destination", destination),
+                    purposeType = obj.optString("purposeType", "general"),
+                    contextualNotes = (0 until notesArr.length()).map { notesArr.getString(it) },
+                    proactiveRecommendations = (0 until recsArr.length()).map { recsArr.getString(it) },
+                    safetyAlerts = if (obj.has("safetyAlerts") && !obj.isNull("safetyAlerts")) obj.getString("safetyAlerts") else null
+                )
+            }
+        } catch (e: Exception) {
+            Log.d(TAG, "Fallback local fetchNavigationContextualIntent: ${e.message}")
+            null
+        }
+    }
+
     suspend fun putInterestTags(userId: String, tags: List<String>) =
         postOrPatchJson("$baseUrl/users/$userId/interest-tags", "PUT", JSONObject().apply {
             put("interest_tags", JSONArray(tags))

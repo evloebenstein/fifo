@@ -1032,7 +1032,13 @@ object FifoDataRepository {
     var onAnswerCallAction: (() -> Boolean)? = null
     var onHangupCallAction: (() -> Boolean)? = null
 
+    var lastActiveCall: IncomingCallInfo? = null
+        private set
+
     fun setIncomingCall(call: IncomingCallInfo?) {
+        if (call != null) {
+            lastActiveCall = call
+        }
         _incomingCall.value = call
     }
 
@@ -1040,11 +1046,13 @@ object FifoDataRepository {
         val handled = onAnswerCallAction?.invoke() ?: false
         if (handled) {
             _incomingCall.value = _incomingCall.value?.copy(isRinging = false)
+            _incomingCall.value?.let { lastActiveCall = it }
         }
         return handled
     }
 
     fun hangupCurrentCall(): Boolean {
+        _incomingCall.value?.let { lastActiveCall = it }
         val handled = onHangupCallAction?.invoke() ?: false
         _incomingCall.value = null
         return handled
