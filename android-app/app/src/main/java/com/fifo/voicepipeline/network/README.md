@@ -1,23 +1,24 @@
-# 🌐 Network & Communication Subsystem (`com.fifo.voicepipeline.network`)
+# 🌐 Network Subsystem (`com.fifo.voicepipeline.network`)
 
-Subpaquete para conectividad de hardware (Bluetooth LE, Hotspot Wi-Fi, WebSockets) y servicios de Inteligencia Artificial en la nube.
+Subsistema de conectividad de hardware (BLE, WebSocket, Hotspot) e inteligencia artificial en la nube.
 
 ---
 
-## 🗺️ Mapa de Archivos del Directorio
+## Módulos
 
-| Archivo | Rol y Responsabilidad |
+| Archivo | Rol |
 | :--- | :--- |
-| [`BleProvisioner.kt`](BleProvisioner.kt) | **Aprovisionamiento Wi-Fi por BLE**: Escanea el robot Fifo por Bluetooth Low Energy y le envía las credenciales Wi-Fi (SSID y contraseña) para que el ESP32 se conecte a internet. |
-| [`BleVoiceClient.kt`](BleVoiceClient.kt) | **Cliente GATT Bluetooth Low Energy**: Establece y mantiene la conexión con el ESP32. Recibe tramas de audio del micrófono físico, envía paquetes de voz para el parlante y transmite actualizaciones de estado para la pantalla OLED (estados `ESCUCHANDO`, `HABLANDO`, `DURMIENDO` y texto en pantalla). |
-| [`CloudApiClient.kt`](CloudApiClient.kt) | **Cerebro de IA en la Nube (Claude / Groq / OpenAI)**: Gestiona las llamadas al LLM (Anthropic Claude 3.5 Sonnet o Groq LPU), transcripción STT con Whisper, detección de alucinaciones y llamadas a herramientas (Tool Use / Function Calling) con el catálogo de `FifoSkillRegistry`. |
-| [`FifoBackendClient.kt`](FifoBackendClient.kt) | **Cliente HTTP del Backend MySQL**: Comunicación con la API REST (`backend/api/main.py`) para perfiles, recuerdos vivos, historias de gustos, recordatorios y amigos. |
-| [`HotspotManager.kt`](HotspotManager.kt) | **Gestor de Punto de Acceso Wi-Fi (Tethering)**: Permite al teléfono crear una red Wi-Fi local para que el ESP32 se conecte directamente en caso de no haber router en el hogar. |
-| [`WsServer.kt`](WsServer.kt) | **Servidor WebSocket Local**: Servidor WebSocket integrado en el teléfono para streaming de audio PCM con latencia ultrabaja (<50ms) entre el ESP32 y el móvil. |
+| [`CloudApiClient.kt`](CloudApiClient.kt) | **Cognición en la nube**: Groq Whisper STT, Groq LPU (Qwen 27B) con tool-calling, detección de alucinaciones context-aware, y loop de ejecución de skills. **Candidato a colapsar en `SpeechCognitionSeam`** (Candidato 03 del Architecture Review). |
+| [`FifoBackendClient.kt`](FifoBackendClient.kt) | Cliente HTTP del backend propio (FastAPI/MySQL): perfiles, knowledge graph, GraphRAG recall, telefonía contextual (`/identify-contact`, `/log-call-event`), intención de navegación (`/contextual-intent`). |
+| [`BleVoiceClient.kt`](BleVoiceClient.kt) | Cliente GATT BLE: conexión, streaming de audio PCM del ESP32, actualización de pantalla OLED, reconexión automática con backoff. |
+| [`BleProvisioner.kt`](BleProvisioner.kt) | Aprovisionamiento Wi-Fi sobre BLE: envía SSID/contraseña al ESP32 en el setup inicial. |
+| [`HotspotManager.kt`](HotspotManager.kt) | Punto de acceso Wi-Fi del teléfono para que el ESP32 se conecte sin router externo. |
+| [`WsServer.kt`](WsServer.kt) | Servidor WebSocket local para streaming PCM de baja latencia (<50ms). |
 
 ---
 
-## 🧭 Reglas de Programación en `network/`
-1. **Reconexión Automática BLE:** El cliente BLE debe reintentar reconectar con backoff exponencial si el ESP32 se apaga o sale del rango de cobertura.
-2. **Fallback entre Motores de IA:** Si Groq o Claude no responden dentro de 20s, debe existir fallback limpio sin colgar la interfaz de usuario.
-3. **Manejo de Claves:** Las claves de API se configuran desde la pantalla de perfil (`ProfileScreen`) y se persisten de forma segura en `EncryptedSharedPreferences` / `FifoDataRepository`.
+## Reglas
+
+1. **Sin Claude:** `CloudApiClient` usa exclusivamente Groq LPU (Qwen 27B) y Groq Whisper. El código Claude SSE está deprecado — no usar.
+2. **Reconexión BLE:** `BleVoiceClient` reintenta con backoff exponencial. No agregar lógica de reconexión en otros módulos.
+3. **Claves de API:** Siempre leer desde `SharedPreferences` vía `VoicePipelineManager`. Nunca hardcodear.

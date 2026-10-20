@@ -1,60 +1,42 @@
 # ⚙️ Voice Pipeline Core (`com.fifo.voicepipeline.pipeline`)
 
-Núcleo central de procesamiento de voz y orquestación del asistente interactivo **FIFO**.
+Núcleo de la arquitectura de voz de Fifo. Ver **ADR-0001** (`docs/adr/0001-deep-voice-session-architecture.md`) para el diseño completo.
 
 ---
 
-## 🗺️ Mapa de Archivos del Directorio
+## Módulos
 
-| Archivo | Rol y Responsabilidad |
+| Archivo / Carpeta | Rol |
 | :--- | :--- |
-| [`PipelineState.kt`](PipelineState.kt) | **Máquina de Estados Finita (`enum class PipelineState`)**: Define los estados del pipeline: `DISCONNECTED` (robot desconectado), `CONNECTING`, `SLEEPING` (en reposo silencioso esperando "Fifo"), `IDLE` (listo con micrófono abierto), `LISTENING` (capturando voz del usuario), `PROCESSING` (pensando / consultando IA), `SPEAKING` (hablando por altavoz), `ERROR`. |
-| [`VoicePipelineManager.kt`](VoicePipelineManager.kt) | **Director de Orquesta de la Voz**: Clase de ~1,850 líneas que coordina la captura de micrófono, detección estricta de la palabra de activación (*"Fifo"*), **modo follow-up fluido** al formular preguntas directas al usuario, cancelación de eco acústico del altavoz, interrupción por voz (*Barge-in*), comandos de silencio (*"Fifo silencio"*), enrutamiento de intenciones directas mediante `FifoSkillRegistry` y consolidación de memoria al finalizar sesiones. |
+| [`PipelineState.kt`](PipelineState.kt) | `enum class PipelineState`: `DISCONNECTED · SLEEPING · IDLE · LISTENING · PROCESSING · SPEAKING · ERROR` |
+| [`VoicePipelineManager.kt`](VoicePipelineManager.kt) | **Fachada de delegación** (~120 líneas). Expone los `StateFlow` observables hacia la UI y delega toda la lógica conversacional al módulo profundo `VoiceSession`. Retiene la lógica de telefonía (`FifoCallManager`, `ensureCallListeningActive`) que por invariante arquitectónico no puede moverse (ver ADR-0005). |
+| [`session/VoiceSession.kt`](session/VoiceSession.kt) | **Módulo profundo de sesión conversacional**. Interfaz pequeña que oculta: PreRollBuffer, AudioInboundFilter, SpeechOutboundEngine, TurnOrchestrator y los adaptadores de hardware. |
+| [`session/TurnOrchestrator.kt`](session/TurnOrchestrator.kt) | Máquina de estados del **ConversationalTurn**: wake-word gating, ventana de follow-up (14s), barge-in con resolución contextual, auto-sueño (25s / 120s modo continuo). |
+| [`session/AudioSeam.kt`](session/AudioSeam.kt) | Costura de entrada/salida de audio PCM. Produce `AudioInboundAdapter` y `AudioOutboundAdapter`. |
+| [`session/AndroidAudioHardwareAdapter.kt`](session/AndroidAudioHardwareAdapter.kt) | Adaptador de hardware: TTS del teléfono (producción). |
+| [`session/AndroidAudioHardwareInboundAdapter.kt`](session/AndroidAudioHardwareInboundAdapter.kt) | Adaptador de entrada: multiplexor de micrófono del teléfono y audio BLE del ESP32. |
+| [`session/SpeechCognitionSeam.kt`](session/SpeechCognitionSeam.kt) | Costura de cognición: STT Whisper + LLM Groq. |
+| [`session/SpeechOutboundEngine.kt`](session/SpeechOutboundEngine.kt) | Motor de salida de voz: sanitización y despacho al adaptador de hardware. |
+| [`session/AudioInboundFilter.kt`](session/AudioInboundFilter.kt) | Filtro anti-eco y blindaje contra audio del propio altavoz. |
 
 ---
 
-## 🔄 Flujo Conversacional Estricto (Wake-Word vs. Follow-up)
+## Flujo del ConversationalTurn
 
 ```
-       +────────────────────────────────────────────────────────────+
-       │                     ESTADO: SLEEPING                       │
-       │  (Micrófono escucha pero ignora todo ruido / voz ambiente) │
-       +─────────────────────────────┬──────────────────────────────+
-                                     │
-                          ¿El usuario dijo "Fifo"?
-                                     │
-                                     ▼
-       +────────────────────────────────────────────────────────────+
-       │            ESTADO: LISTENING / PROCESSING                  │
-       │   Procesa la consulta con Claude / Groq / Skills nativas   │
-       +─────────────────────────────┬──────────────────────────────+
-                                     │
-                                     ▼
-       +────────────────────────────────────────────────────────────+
-       │                     ESTADO: SPEAKING                       │
-       │         Fifo responde verbalmente por el altavoz           │
-       +─────────────────────────────┬──────────────────────────────+
-                                     │
-                    Al terminar la locución (TTS Done):
-                                     │
-                ┌────────────────────┴────────────────────┐
-                ▼                                         ▼
-      ¿Fifo formuló una PREGUNTA?                ¿Fue una AFIRMACIÓN?
-      (Contiene '?' o "¿" o invitó)             (ej: "Son las 4", "Listo")
-                │                                         │
-                ▼                                         ▼
-   +──────────────────────────+              +──────────────────────────+
-   │    ESTADO: LISTENING     │              │     ESTADO: SLEEPING     │
-   │  Follow-up activo (14s)  │              │  Fifo descansa y exige   │
-   │ El usuario puede responder│              │  "Fifo" para despertar   │
-   │   DIRECTAMENTE sin decir │              +──────────────────────────+
-   │      la palabra "Fifo"   │
-   +──────────────────────────+
+SLEEPING ──[WakeWordTrigger]──► LISTENING ──► PROCESSING ──► SPEAKING
+                                    ▲                              │
+                                    │   follow-up (14s si ?)       │
+                                    └──────────────────────────────┘
+                                    │   auto-sleep (25s inactividad)
+                                    └──────────────────────────────► SLEEPING
 ```
 
 ---
 
-## 🧭 Reglas de Programación en `pipeline/`
-1. **Regla de Oro del Wake-Word:** NUNCA aceptar audio sin la palabra "Fifo" a menos que `expectFollowUpQuestion == true` esté activo o el usuario esté en modo de escucha continua explícita.
-2. **Protección Anti-Eco:** Durante y después de la locución, la respuesta del usuario en modo follow-up nunca debe descartarse como eco salvo que sea una repetición idéntica de la propia frase emitida por Fifo.
-3. **Consolidación de Memoria:** Al pasar a `goToSleep()`, los turnos conversacionales acumulados en `activeSessionTurns` se envían en segundo plano a `consolidateSessionIntoMemory()` para persistencia en SQLite y MySQL.
+## Invariantes (no modificar sin leer los ADRs)
+
+1. **Wake-word estricto:** Ningún audio se procesa sin `isWakeWord()` a menos que `expectFollowUp` esté activo o el modo continuo esté habilitado.
+2. **Anti-eco:** Las respuestas en modo follow-up nunca se descartan como eco salvo que sean repetición idéntica de lo que Fifo acabó de decir.
+3. **Telefonía:** `FifoCallManager` y `ensureCallListeningActive()` permanecen en `VoicePipelineManager`. No mover. Ver ADR-0005.
+4. **Memoria de sesión:** Al ejecutar `goToSleep()`, los turnos de `activeSessionTurns` se consolidan en SQLite + backend.

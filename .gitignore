@@ -56,3 +56,16 @@ __pycache__/
 # Temp captures & dev scripts
 current_screen.png
 take_screen.py
+
+# Local debug / scratch scripts (never commit these)
+read_recent.py
+inspect_db.py
+
+# Local SQLite databases (may contain real user data)
+*.db
+fifo_local.db
+local_fifo.db
+
+# Debug dump files
+db_dump.json
+recent_output.txt

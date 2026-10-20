@@ -1875,8 +1875,10 @@ class VoicePipelineManager(
 
         val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
         val isQuestion = isAskingQuestion(spokenText)
-        // Únicamente permanecer en espera activa (follow-up) si Fifo formuló una pregunta o está en modo continuo
-        val shouldStayAwake = isContinuous || isQuestion
+        // Permanecer en escucha activa si: Fifo hizo una pregunta, modo continuo, o el pipeline
+        // ya había activado expectFollowUpQuestion antes de que el TTS terminara (ej. saludo inicial).
+        val wasAlreadyExpectingFollowUp = expectFollowUpQuestion
+        val shouldStayAwake = isContinuous || isQuestion || wasAlreadyExpectingFollowUp
 
         if (shouldStayAwake) {
             expectFollowUpQuestion = true

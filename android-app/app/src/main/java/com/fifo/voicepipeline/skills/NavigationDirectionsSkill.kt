@@ -63,7 +63,7 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
             "si", "sí", "por favor", "si por favor", "sí por favor", "guíame", "guiame",
             "vamos", "dale", "ok", "bueno", "claro", "llevame", "llévame", "ayúdame",
             "ayudame", "avanza", "vamos allá", "vamos alla", "indicame", "indícame",
-            "confirm_pending", "el local", "la tienda", "el mas cercano", "el más cercano",
+            "confirm_pending", "el local", "la tienda",
             "dije sí", "dije si", "dije sí por favor", "dije si por favor"
         ) || destTrimmed.startsWith("si,") || destTrimmed.startsWith("sí,")
           || destTrimmed.startsWith("dije si") || destTrimmed.startsWith("dije sí")
@@ -74,9 +74,7 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
         // 1. PRIORIDAD ABSOLUTA: Si hay un destino pendiente consultado previamente y el usuario confirma o pide ir
         if (pending != null && (isConfirmation || isGenericDestination ||
                     destTrimmed.contains(pending.name, ignoreCase = true) ||
-                    destTrimmed.contains(pending.road, ignoreCase = true) ||
-                    destTrimmed.contains("oxxo", ignoreCase = true) ||
-                    destTrimmed.contains("vitacura", ignoreCase = true))) {
+                    destTrimmed.contains(pending.road, ignoreCase = true))) {
 
             val active = com.fifo.voicepipeline.location.FifoNavigationManager.confirmPendingDestination()
                 ?: com.fifo.voicepipeline.location.FifoNavigationManager.ActiveDestination(

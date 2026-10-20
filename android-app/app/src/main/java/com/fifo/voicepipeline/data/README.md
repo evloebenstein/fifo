@@ -1,36 +1,41 @@
-# 📦 Data Layer Architecture (`com.fifo.voicepipeline.data`)
+# 📦 Data Layer (`com.fifo.voicepipeline.data`)
 
-Capa central de almacenamiento, persistencia y estado reactivo para la aplicación Fifo. Implementa un patrón **Local-First con Sincronización Nube**: la aplicación funciona 100% desconectada mediante SQLite y se sincroniza automáticamente con el backend MySQL cuando hay conexión.
-
----
-
-## 🗺️ Mapa de Archivos del Directorio
-
-| Archivo / Carpeta | Tipo | Rol Principal |
-| :--- | :--- | :--- |
-| [`FifoDataRepository.kt`](FifoDataRepository.kt) | **Repositorio Central (Single Source of Truth)**: Gestiona todos los `StateFlow` reactivos consumidos por la UI de Jetpack Compose: usuario activo (`userProfile`), lista de perfiles, recordatorios (`reminders`), recuerdos vivos (`memories`), historias de gustos (`tasteStories`), contactos telefónicos (`contacts`), amigos compatibles (`friends`), y actividades del día (`activities`). Coordina la persistencia en `local/FifoDatabaseHelper.kt` y la sincronización con `remote/FifoApiClient.kt`. |
-| [`local/`](local/README.md) | Subpaquete | Base de datos relacional local en SQLite (`FifoDatabaseHelper.kt`). |
-| [`remote/`](remote/README.md) | Subpaquete | Cliente HTTP REST (`FifoApiClient.kt`) para sincronización con la nube. |
+Capa de datos de Fifo. Ver **ADR-0002** (`docs/adr/0002-data-repository-modularization.md`) para la descomposición modular.
 
 ---
 
-## 🔄 Flujo de Datos Doble Capa
+## Módulos
+
+| Archivo / Carpeta | Rol |
+| :--- | :--- |
+| [`FifoDataRepository.kt`](FifoDataRepository.kt) | **Fachada de delegación** 100% backward-compatible hacia los tres módulos de dominio. Expone todos los `StateFlow` para la UI. **Retiene directamente la telefonía** (`incomingCall`, `setIncomingCall`, `answerCurrentCall`, `hangupCurrentCall`) — invariante de ADR-0002, no mover. |
+| [`modules/UserIdentityModule.kt`](modules/UserIdentityModule.kt) | Perfil de usuario, identidad, bio generada por IA, tags de intereses. Costura: `UserStorageAdapter`. |
+| [`modules/CommunityModule.kt`](modules/CommunityModule.kt) | Actividades comunitarias (`ActividadComunitaria`) y red de `FifoAmigos`. Costura: `CommunityStorageAdapter`. |
+| [`modules/EpisodicMemoryModule.kt`](modules/EpisodicMemoryModule.kt) | Memoria episódica dual-capa: contexto on-device (<80 tokens) + recuperación GraphRAG en backend. Costura: `MemoryStorageAdapter`. |
+| [`modules/SqliteStorageAdapters.kt`](modules/SqliteStorageAdapters.kt) | Adaptadores SQLite de producción para los tres módulos. |
+| [`local/FifoDatabaseHelper.kt`](local/FifoDatabaseHelper.kt) | Helper SQLite: esquema, migraciones y acceso de bajo nivel. |
+| [`remote/FifoApiClient.kt`](remote/FifoApiClient.kt) | **Deprecado para nuevas features** — `FifoBackendClient` en `network/` es la fuente preferida. Mantiene sincronización legacy de recuerdos. |
+| [`FifoContentFilter.kt`](FifoContentFilter.kt) | Filtro de contenido sensible antes de persistir en memoria. |
+
+---
+
+## Flujo de datos
 
 ```
-                 [ UI en Jetpack Compose ]
-                             ▲
-                             │ Escucha StateFlows
-                             ▼
-                  [ FifoDataRepository ]
-                   /                  \
-   (Instantáneo)  /                    \ (Asíncrono en segundo plano)
-                 ▼                      ▼
-      [ local/FifoDatabaseHelper ]   [ remote/FifoApiClient ]
-          (SQLite en Teléfono)          (FastAPI / MySQL 8.4)
+UI (Jetpack Compose)
+    │ observa StateFlows
+    ▼
+FifoDataRepository (fachada)
+    ├─► UserIdentityModule ──► SqliteUserStorageAdapter ──► SQLite
+    ├─► CommunityModule ────► SqliteCommunityStorageAdapter ──► SQLite
+    └─► EpisodicMemoryModule ─► SqliteMemoryStorageAdapter ──► SQLite
+                                       └──► FifoBackendClient ──► Backend MySQL (GraphRAG)
 ```
 
 ---
 
-## 🧭 Reglas de Programación en `data/`
-1. **Actualizaciones Atómicas:** Toda mutación de estado (ej: añadir un recuerdo o recordatorio) debe insertarse primero en SQLite y luego actualizar el `MutableStateFlow` con `.value = ...` para que la UI se refresque instantáneamente sin lag de red.
-2. **Cambio de Perfil Limpio:** Al cambiar de perfil de usuario (`switchProfile`), deben reinicializarse todos los `StateFlow` con los datos del nuevo usuario para evitar filtraciones de datos entre perfiles.
+## Invariantes
+
+1. **Telefonía en la fachada:** `incomingCall` y sus mutaciones permanecen en `FifoDataRepository`. No mover a ningún módulo de dominio. Ver ADR-0002.
+2. **Actualizaciones atómicas:** Siempre insertar en SQLite antes de actualizar el `StateFlow`.
+3. **Tests sin Android:** Los tres módulos de dominio son 100% testables en JVM puro con los adaptadores `InMemory*`.

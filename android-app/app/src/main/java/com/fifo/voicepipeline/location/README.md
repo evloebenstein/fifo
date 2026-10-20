@@ -1,19 +1,21 @@
-# 📍 Location & Navigation Subsystem (`com.fifo.voicepipeline.location`)
+# 📍 Location & Navigation (`com.fifo.voicepipeline.location`)
 
-Subpaquete para geolocalización en tiempo real, brújula digital y guiado de navegación peatonal o vehicular adaptado para adultos mayores.
+Subsistema de geolocalización, brújula y copiloto peatonal autónomo. Ver **Candidato 02** del Architecture Review para la propuesta de profundizar este módulo en un `PedestrianCopilotModule`.
 
 ---
 
-## 🗺️ Mapa de Archivos del Directorio
+## Módulos
 
-| Archivo | Rol y Responsabilidad |
+| Archivo | Rol |
 | :--- | :--- |
-| [`FifoLocationHelper.kt`](FifoLocationHelper.kt) | **Manejador de GPS y Geocodificación**: Consulta la ubicación actual mediante `FusedLocationProviderClient`, realiza geocodificación inversa (convierte lat/long en dirección legible en español: calle, número y comuna) y mantiene el estado reactivo de la posición actual del usuario. |
-| [`FifoNavigationManager.kt`](FifoNavigationManager.kt) | **Guía de Navegación Paso a Paso (Estilo Waze)**: Gestiona rutas de navegación activas, calcula distancias restantes, detecta giros próximos y emite instrucciones verbales autónomas mediante `VoicePipelineManager.speakAutonomousMessage()` (ej: *"En 50 metros gire a la derecha por calle Los Alerces"*). |
-| [`FifoOrientationHelper.kt`](FifoOrientationHelper.kt) | **Sensor de Orientación y Brújula**: Lee el acelerómetro y magnetómetro del teléfono mediante `SensorManager` para calcular el azimut o rumbo en tiempo real y guiar hacia dónde mirar o caminar. |
+| [`FifoLocationHelper.kt`](FifoLocationHelper.kt) | GPS + Geocodificación inversa + búsqueda de lugares cercanos (Overpass API). Caché de 45s para no consultar hardware repetidamente. |
+| [`FifoNavigationManager.kt`](FifoNavigationManager.kt) | Copiloto peatonal autónomo estilo Waze: monitorea GPS continuo, detecta desvíos, emite alertas de proximidad (100m, 50m, llegada 25m) y detecta detenciones prolongadas. Mantiene `activeRoute` y `pendingDestination`. |
+| [`FifoOrientationHelper.kt`](FifoOrientationHelper.kt) | Sensor de orientación (acelerómetro + magnetómetro) para calcular azimut y dar instrucciones relativas al cuerpo ("gire a su derecha"). |
 
 ---
 
-## 🧭 Reglas de Programación en `location/`
-1. **Consumo de Batería:** Detener las actualizaciones de GPS continuas cuando no haya una ruta activa para preservar la batería del teléfono.
-2. **Claridad del Mensaje:** Las indicaciones habladas deben ser cortas, claras y con referencias amigables sin jerga técnica.
+## Reglas
+
+1. **GPS solo cuando hay ruta activa:** Detener actualizaciones continuas cuando `FifoNavigationManager.activeRoute == null`.
+2. **Sin hardcodes de lugar:** Ningún nombre de local, dirección, ni POI puede estar hardcodeado. Todo viene de Overpass API o del backend.
+3. **`pendingDestination`:** El estado de confirmación de destino vive en `FifoNavigationManager.pendingDestination`. `NavigationDirectionsSkill` confirma contra él con `destination='confirm_pending'`.

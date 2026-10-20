@@ -1,31 +1,35 @@
 # 🛠️ Voice Skills Catalog (`com.fifo.voicepipeline.skills`)
 
-Catálogo de habilidades ejecutables mediante comandos de voz directos o a través de llamadas a herramientas (*Tool Calling*) de Claude / Groq.
+Catálogo de habilidades ejecutables por el LLM (Groq) y por intenciones locales de voz. Ver **ADR-0003** (`docs/adr/0003-knowledge-graph-and-intent-router.md`) para el diseño del enrutador y el catálogo.
 
 ---
 
-## 🗺️ Mapa de Archivos del Directorio
+## Módulos
 
-| Archivo | Rol y Responsabilidad |
+| Archivo | Rol |
 | :--- | :--- |
-| [`FifoSkill.kt`](FifoSkill.kt) | **Interfaz Base**: Define el contrato `FifoSkill`, parámetros JSON para el LLM y el objeto `FifoSkillResult` (resultado estructurado y mensaje hablado de retroalimentación). |
-| [`FifoSkillRegistry.kt`](FifoSkillRegistry.kt) | **Registro y Despachador Central**: Coordina las 14 habilidades. Dispone de un despachador rápido por expresiones regulares (para ejecución instantánea sin latencia de red, ej: *"Fifo qué hora es"*, *"Fifo enciende la linterna"*) y genera los esquemas JSON de herramientas para Claude / Gemini. |
-| [`CalendarSkill.kt`](CalendarSkill.kt) | **Calendario y Fechas**: Consulta el día actual, festivos y eventos programados. |
-| [`ContactsSkill.kt`](ContactsSkill.kt) | **Agenda de Contactos**: Busca números telefónicos, añade nuevos familiares y actualiza notas relacionales. |
-| [`ContextRecallSkill.kt`](ContextRecallSkill.kt) | **Recuperación de Memoria Pasada**: Busca en la base de datos recuerdos de conversaciones anteriores para responder preguntas personales. |
-| [`CurrentLocationSkill.kt`](CurrentLocationSkill.kt) | **Ubicación Actual**: Indica en voz alta la calle, número y comuna donde se encuentra la persona. |
-| [`FindFifoDeviceSkill.kt`](FindFifoDeviceSkill.kt) | **Encontrar el Robot**: Hace pitar al ESP32 o parpadear su pantalla OLED si el usuario no sabe dónde dejó a Fifo. |
-| [`MapsSkill.kt`](MapsSkill.kt) | **Búsqueda de Lugares**: Localiza farmacias, hospitales, almacenes o plazas cercanas. |
-| [`NavigationDirectionsSkill.kt`](NavigationDirectionsSkill.kt) | **Navegación GPS**: Inicia la guía paso a paso para llegar a una dirección o destino solicitado. |
-| [`PhoneCallSkill.kt`](PhoneCallSkill.kt) | **Llamadas Telefónicas**: Inicia llamadas telefónicas celulares a contactos (ej: *"Fifo llama a mi hija Carmen"*). |
-| [`PhoneCommunicationSkill.kt`](PhoneCommunicationSkill.kt) | **Mensajería**: Envía mensajes de texto o WhatsApp a familiares. |
-| [`PhoneDeviceControlSkill.kt`](PhoneDeviceControlSkill.kt) | **Control del Dispositivo**: Enciende/apaga la linterna, ajusta el volumen y consulta el porcentaje de batería. |
-| [`ProfileDatabaseSkill.kt`](ProfileDatabaseSkill.kt) | **Gestión de Perfiles y Gustos**: Cambia de usuario activo y consulta gustos registrados en la base de datos. |
-| [`ReminderSkill.kt`](ReminderSkill.kt) | **Recordatorios de Voz**: Crea recordatorios (medicamentos, citas médicas, tareas) y los lista en voz alta. |
-| [`WebSearchSkill.kt`](WebSearchSkill.kt) | **Búsqueda Web**: Consulta información enciclopédica general en internet mediante DuckDuckGo. |
+| [`FifoSkill.kt`](FifoSkill.kt) | Interfaz base: `execute(args): SkillResult`. Toda skill implementa esta interfaz. |
+| [`FifoSkillRegistry.kt`](FifoSkillRegistry.kt) | **Fachada de delegación** sobre `GroqToolCatalog` y `VoiceIntentRouter`. Registra las 13 skills activas y las despacha por nombre. |
+| [`VoiceIntentRouter.kt`](VoiceIntentRouter.kt) | Enrutador local sub-milisegundo para comandos de hardware sin ambigüedad (linterna, volumen, hora, batería, contestar/colgar llamada). Devuelve `null` para todo lo conversacional. |
+| [`GroqToolCatalog.kt`](GroqToolCatalog.kt) | Catálogo OpenAI/Groq 100% dinámico. Genera los schemas JSON para el LLM sin código Claude. |
+| [`CalendarSkill.kt`](CalendarSkill.kt) | Día actual, fechas y recordatorios de calendario. |
+| [`ContactsSkill.kt`](ContactsSkill.kt) | Búsqueda, adición y notas en la agenda de contactos del teléfono. |
+| [`ContextRecallSkill.kt`](ContextRecallSkill.kt) | Recuperación GraphRAG de memoria episódica pasada desde el backend (`recall_past_context`). |
+| [`CurrentLocationSkill.kt`](CurrentLocationSkill.kt) | Dirección actual por GPS con geocodificación inversa. |
+| [`FindFifoDeviceSkill.kt`](FindFifoDeviceSkill.kt) | Hace pitar el ESP32 físico para localizarlo. |
+| [`MapsSkill.kt`](MapsSkill.kt) | Busca lugares cercanos (farmacias, supermercados, parques) por Overpass API. |
+| [`NavigationDirectionsSkill.kt`](NavigationDirectionsSkill.kt) | Guía de navegación peatonal hacia un destino con orientación corporal. No usa hardcoded fallbacks. |
+| [`PhoneCallSkill.kt`](PhoneCallSkill.kt) | Inicia llamadas telefónicas con identificación de caller contextual (backend knowledge graph). |
+| [`PhoneCommunicationSkill.kt`](PhoneCommunicationSkill.kt) | Mensajería de texto y WhatsApp a contactos. |
+| [`PhoneDeviceControlSkill.kt`](PhoneDeviceControlSkill.kt) | Linterna, volumen, batería, hora — con respuestas empáticas dinámicas. |
+| [`ProfileDatabaseSkill.kt`](ProfileDatabaseSkill.kt) | Consulta y mutación del perfil de usuario activo. |
+| [`ReminderSkill.kt`](ReminderSkill.kt) | Creación y listado de recordatorios de voz (medicamentos, citas). |
+| [`WebSearchSkill.kt`](WebSearchSkill.kt) | Búsqueda web en tiempo real para noticias, clima y verificación de locales. |
 
 ---
 
-## 🧭 Reglas de Programación en `skills/`
-1. **Doble Vía de Ejecución:** Siempre que sea posible, implementar un `fastIntentMatcher` con regex en `FifoSkillRegistry` para dar respuesta inmediata sin esperar los 2-3 segundos de inferencia del LLM.
-2. **Retroalimentación Afectuosa:** El texto en `spokenFeedback` debe ser conciso, empático y en español claro para personas mayores.
+## Reglas
+
+1. **Sin respuestas hardcodeadas:** Toda skill devuelve datos estructurados en `SkillResult.data`; el LLM genera el texto hablado final con contexto y calidez. Ver ADR-0004.
+2. **VoiceIntentRouter primero:** Comandos de hardware se resuelven en microsegundos localmente. El LLM solo ve lo conversacional.
+3. **`spokenFeedback` como hint:** El campo `spokenFeedback` de `SkillResult` es solo un fallback de emergencia; el texto final siempre lo genera el LLM con los datos de `SkillResult.data`.
