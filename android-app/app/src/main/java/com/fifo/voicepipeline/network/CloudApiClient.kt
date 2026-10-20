@@ -81,7 +81,15 @@ REGLAS:
    - Al controlar hardware ('control_device_hardware'), comprende la situación del usuario con empatía (ej: si pide luz porque no ve, o volumen porque no oye).
    - Al dar direcciones o guiar ('open_navigation_directions', 'search_nearby_places'), comprende la NECESIDAD detrás del destino (salud, comida, compras, paseo) y sugiere ideas o precauciones pertinentes sin rodeos."""
 
-        fun isWhisperHallucination(rawText: String): Boolean {
+        /**
+         * Detecta alucinaciones de Whisper ante silencio o ruido ambiental.
+         *
+         * @param rawText     Texto transcrito por Whisper.
+         * @param allowShortResponses Si es true (Fifo esperaba una respuesta de follow-up),
+         *   palabras breves como "sí", "no", "ok", "gracias" se tratan como respuestas
+         *   conversacionales reales y NO se descartan como alucinaciones.
+         */
+        fun isWhisperHallucination(rawText: String, allowShortResponses: Boolean = false): Boolean {
             val norm = java.text.Normalizer.normalize(rawText.lowercase().trim(), java.text.Normalizer.Form.NFD)
                 .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
                 .replace(Regex("[^a-z0-9\\s]"), " ")
@@ -90,8 +98,10 @@ REGLAS:
 
             if (norm.isBlank() || norm.length <= 1) return true
 
-            val knownHallucinations = setOf(
-                "gracias", "muchas gracias", "gracias por ver", "gracias por ver el video",
+            // Alucinaciones absolutas: frases que Whisper genera sistemáticamente ante silencio
+            // o ruido de video/TV. Siempre se descartan, sin importar el contexto.
+            val absoluteHallucinations = setOf(
+                "gracias por ver", "gracias por ver el video",
                 "gracias por ver este video", "gracias por mirar", "gracias por su atencion",
                 "subtitulos realizados por la comunidad de amara org",
                 "subtitulos por la comunidad de amara org", "amara org", "amara",
@@ -100,10 +110,22 @@ REGLAS:
                 "thank you for watching", "thanks for watching", "thank you",
                 "conex", "conexion", "conexion con el robot fifo", "conectro",
                 "filin gud", "filin", "you", "bye", "bye bye",
-                "musica", "aplausos", "silencio", "continuara",
-                "conversacion de bunos", "conversacion", "oh", "ah", "eh", "no", "si", "ok"
+                "musica", "aplausos", "continuara",
+                "conversacion de bunos", "conversacion", "oh", "ah", "eh"
             )
-            return knownHallucinations.contains(norm)
+            if (absoluteHallucinations.contains(norm)) return true
+
+            // Palabras breves ambiguas: pueden ser respuestas reales ("sí", "no", "gracias")
+            // o alucinaciones ante silencio. Solo se descartan si Fifo NO espera una respuesta.
+            if (!allowShortResponses) {
+                val ambiguousShortWords = setOf(
+                    "si", "no", "ok", "okay", "gracias", "muchas gracias",
+                    "bueno", "dale", "claro", "perfecto"
+                )
+                if (ambiguousShortWords.contains(norm)) return true
+            }
+
+            return false
         }
     }
 
@@ -130,7 +152,11 @@ REGLAS:
      * @param language Código de idioma (ej: "es", "en")
      * @return Texto transcrito
      */
-    suspend fun transcribe(wavData: ByteArray, language: String = "es"): String {
+    suspend fun transcribe(
+        wavData: ByteArray,
+        language: String = "es",
+        allowShortResponses: Boolean = false
+    ): String {
         val groqKey = effectiveGroqKey
         val openKey = openAiApiKey.trim()
 
@@ -149,6 +175,14 @@ REGLAS:
             }
         }
 
+        // El prompt de Whisper ayuda a guiarlo hacia transcripción de conversación directa
+        // en lugar de frases de relleno de video de YouTube.
+        val whisperPrompt = if (allowShortResponses) {
+            "Conversación en español. El usuario responde brevemente a una pregunta. Transcribir exactamente lo que dice."
+        } else {
+            "Conversación en español con asistente de voz. Transcribir el comando o pregunta del usuario."
+        }
+
         val requestBody = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
             .addFormDataPart(
@@ -158,10 +192,7 @@ REGLAS:
             )
             .addFormDataPart("model", model)
             .addFormDataPart("language", language)
-            .addFormDataPart(
-                "prompt",
-                "Transcripción clara en español."
-            )
+            .addFormDataPart("prompt", whisperPrompt)
             .build()
 
         val request = Request.Builder()
@@ -182,8 +213,8 @@ REGLAS:
             val json = JsonParser.parseString(body).asJsonObject
             val text = json.get("text")?.asString?.trim() ?: ""
             Log.i(TAG, "Transcripción ($model): '$text'")
-            if (isWhisperHallucination(text)) {
-                Log.w(TAG, "Alucinación de silencio/ruido de Whisper descartada: '$text'")
+            if (isWhisperHallucination(text, allowShortResponses = allowShortResponses)) {
+                Log.w(TAG, "Alucinación de silencio/ruido de Whisper descartada: '$text' (allowShortResponses=$allowShortResponses)")
                 return ""
             }
             text

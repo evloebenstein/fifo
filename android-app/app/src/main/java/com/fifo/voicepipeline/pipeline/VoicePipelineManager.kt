@@ -1429,9 +1429,13 @@ class VoicePipelineManager(
                 }
 
                 // 1. STT Whisper (Groq LPU o OpenAI) con timeout estricto de 10s
+                // Si Fifo esperaba una respuesta (follow-up de pregunta propia o barge-in),
+                // permitir palabras cortas como "sí", "no", "ok", "gracias" — son respuestas reales.
+                val allowShortResp = expectFollowUpQuestion || isWaitingForBargeInFollowUp
                 val transcript = withTimeoutOrNull(10000L) {
-                    cloudClient.transcribe(wavAudio)
+                    cloudClient.transcribe(wavAudio, allowShortResponses = allowShortResp)
                 } ?: "[TIMEOUT_STT]"
+
 
                 if (transcript == "[KEY_STT_FALTANTE]") {
                     if (!isSpeakingNow) {
@@ -1443,7 +1447,7 @@ class VoicePipelineManager(
                 }
 
                 if (transcript == "[TIMEOUT_STT]" || transcript.isBlank() || transcript.startsWith("[") ||
-                    CloudApiClient.isWhisperHallucination(transcript)) {
+                    CloudApiClient.isWhisperHallucination(transcript, allowShortResponses = allowShortResp)) {
                     if (!isSpeakingNow) {
                         Log.d(TAG, "Audio ignorado: transcripción vacía o alucinación de silencio ($transcript)")
                         _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
@@ -1452,6 +1456,7 @@ class VoicePipelineManager(
                     }
                     return@launch
                 }
+
 
                 val textLower = transcript.lowercase().trim()
                 val hasWakeWord = isWakeWord(textLower)
