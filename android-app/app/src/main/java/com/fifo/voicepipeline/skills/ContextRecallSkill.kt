@@ -30,7 +30,7 @@ class ContextRecallSkill(private val context: Context) : FifoSkill {
     override val name: String = "recall_past_context"
 
     override val description: String =
-        "Busca en la memoria profunda y registros pasados de Fifo: lugares visitados ayer o la semana pasada, nombres de locales olvidados, anécdotas, compras, gustos, personas y temas de charlas anteriores. Úsalo SIEMPRE que el usuario diga 'a dónde fui ayer', 'no me acuerdo cómo se llamaba ese local', o pregunte por algo que hicieron o hablaron antes."
+        "Busca en la memoria profunda y el grafo de conocimiento relacional de Fifo (GraphRAG): lugares visitados en el pasado, qué restaurante era, qué dijo una persona o doctora sobre recetas médicas, qué ropa llevaba puesta alguien, anécdotas, gustos, o temas olvidados. Úsalo SIEMPRE que el usuario diga 'te acuerdas...', 'qué me dijo...', 'a dónde fui...', o pregunte por algo hablado anteriormente. Detecta si faltan detalles o si nunca hablaron de eso."
 
     override val parameterSchemaJson: String = """
     {
@@ -38,11 +38,11 @@ class ContextRecallSkill(private val context: Context) : FifoSkill {
         "properties": {
             "query": {
                 "type": "string",
-                "description": "Término, lugar, comida, persona o pista temporal a buscar en la memoria (ej: 'local ayer', 'empanadas', 'recetario abuela', 'orquídeas', 'dónde fui ayer')"
+                "description": "Término, lugar, comida, persona, receta o pista temporal a buscar en la memoria (ej: 'restaurante con María año pasado', 'receta doctora', 'vestimenta nieta', 'dónde fui ayer')"
             },
             "context_hint": {
                 "type": "string",
-                "description": "Pista adicional sobre qué tipo de información buscas (ej: 'nombre de local', 'detalle de receta', 'fecha de evento', 'persona')"
+                "description": "Pista adicional sobre qué tipo de información buscas (ej: 'nombre de local', 'detalle de receta', 'fecha de evento', 'persona', 'ropa')"
             }
         },
         "required": ["query"]
@@ -60,20 +60,19 @@ class ContextRecallSkill(private val context: Context) : FifoSkill {
             )
         }
 
-        Log.i(TAG, "Buscando contexto profundo: query='$query', hint='$contextHint'")
+        Log.i(TAG, "Buscando contexto profundo GraphRAG: query='$query', hint='$contextHint'")
 
-        // Buscar en los fragmentos locales (en producción esto llamará al servidor)
+        // Buscar en el backend GraphRAG con fallback local multinivel
         val result = FifoDataRepository.searchDeepContext(query)
 
         return if (result.relevantExcerpts.isNotEmpty()) {
             Log.i(TAG, "Contexto encontrado: ${result.conversationsSearched} charlas revisadas, ${result.relevantExcerpts.size} coincidencias")
 
-            // El feedback incluye el contexto sintetizado para que Claude lo use
-            // en su respuesta al usuario
+            // El feedback incluye el contexto sintetizado para que Groq formule
+            // una respuesta cálida, precisa y sin alucinaciones al usuario
             SkillResult(
                 success = true,
                 spokenFeedback = result.synthesizedContext,
-                // Datos adicionales para que Claude pueda usar el contexto en su respuesta
                 additionalData = mapOf(
                     "found_entities" to result.foundEntities.joinToString(", "),
                     "excerpts_count" to result.relevantExcerpts.size.toString(),

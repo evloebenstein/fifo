@@ -75,7 +75,7 @@ REGLAS:
    - Al sugerir o guiar, usa la ubicación GPS real. NUNCA respondas con el nombre de la comuna como si fuera un local.
    - Si el usuario confirma un destino sugerido ("sí", "guíame", "vamos", "dije sí"), invoca 'open_navigation_directions' con destination='confirm_pending'.
 4. Celular y hardware: 'manage_phone_call' para llamadas, 'read_phone_contacts' para contactos (si piden dictar número, díctalo pausado con comas), 'control_device_hardware' para linterna/volumen/batería/hora, 'find_fifo_device' para hacer sonar el robot.
-5. Internet y memoria: 'web_search' para noticias o clima; 'recall_past_context' para recuerdos, anécdotas o personas pasadas. Si el audio no se entiende, pide amablemente repetir sin inventar."""
+5. Memoria e internet: Usa 'recall_past_context' ante preguntas sobre charlas pasadas, qué dijo alguien (familia, doctora), recetas médicas, ropa o locales. Si hay una laguna o espacio en blanco, dilo con honestidad; si nunca hablaron de eso, admite con cariño que no lo conversaron (NUNCA inventes). Usa 'web_search' para verificar noticias, clima o si un restaurante sigue abierto."""
 
         fun isWhisperHallucination(rawText: String): Boolean {
             val norm = java.text.Normalizer.normalize(rawText.lowercase().trim(), java.text.Normalizer.Form.NFD)

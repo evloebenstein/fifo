@@ -86,6 +86,36 @@ def ensure_schema_migrations():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_es_0900_ai_ci;
         """)
 
+        # Migración: tablas de Grafo de Conocimiento (GraphRAG: Nodos de Conocimiento y Punteros a Chunks)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS knowledge_nodes (
+                id VARCHAR(64) NOT NULL PRIMARY KEY,
+                user_id VARCHAR(64) NOT NULL,
+                name VARCHAR(160) NOT NULL,
+                entity_type VARCHAR(60) NOT NULL DEFAULT 'concept',
+                metadata_json JSON NULL DEFAULT NULL,
+                mention_count INT UNSIGNED NOT NULL DEFAULT 1,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_knodes_user_type (user_id, entity_type),
+                INDEX idx_knodes_user_name (user_id, name)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_es_0900_ai_ci;
+        """)
+
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS knowledge_node_mentions (
+                id VARCHAR(64) NOT NULL PRIMARY KEY,
+                user_id VARCHAR(64) NOT NULL,
+                node_id VARCHAR(64) NOT NULL,
+                conversation_id VARCHAR(64) NOT NULL,
+                chunk_index INT NOT NULL DEFAULT 0,
+                snippet_text TEXT NOT NULL,
+                mentioned_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_kmention_node_conv (node_id, conversation_id),
+                INDEX idx_kmention_user (user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_es_0900_ai_ci;
+        """)
+
         # Migración: columna google_id en tabla users para autenticación con Google
         cursor.execute("""
             SELECT COUNT(*) FROM information_schema.COLUMNS
@@ -2250,6 +2280,54 @@ def analyze_and_consolidate_conversation(user_id: str, req: ConversationAnalyzeA
         past_id, user_id, f"Charla con Fifo", f"{mins} min", req.duration_seconds, summary_text, req.primary_tag
     ))
 
+    # 11. GraphRAG: Indexar Nodos de Conocimiento y Punteros a Chunks
+    try:
+        # A. Indexar contactos como nodos de tipo 'person' y registrar punteros a turnos
+        for c_info in contacts_analyzed:
+            c_name = c_info.get("name", "").strip()
+            if c_name:
+                knode_id = f"knode_{uuid.uuid4().hex[:8]}"
+                cursor.execute("""
+                    INSERT INTO knowledge_nodes (id, user_id, name, entity_type, metadata_json, mention_count)
+                    VALUES (%s, %s, %s, 'person', %s, 1)
+                    ON DUPLICATE KEY UPDATE mention_count = mention_count + 1
+                """, (knode_id, user_id, c_name, json.dumps({"role": c_info.get("role")}, ensure_ascii=False)))
+
+                # Punteros a chunks donde se menciona a la persona
+                for idx, t in enumerate(req.turns):
+                    t_text = t.get("text", t.get("content", ""))
+                    if c_name.lower() in t_text.lower():
+                        ment_id = f"kment_{uuid.uuid4().hex[:8]}"
+                        cursor.execute("""
+                            INSERT INTO knowledge_node_mentions (id, user_id, node_id, conversation_id, chunk_index, snippet_text)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                        """, (ment_id, user_id, knode_id, srv_id, idx, t_text[:250]))
+
+        # B. Indexar temas médicos, recetas y lugares
+        for topic in (extracted_topics + tastes_added):
+            t_clean = topic.strip()
+            if len(t_clean) >= 3:
+                e_type = "place" if any(p in t_clean.lower() for p in ["restaurante", "local", "farmacia", "parque", "café", "mercado", "plaza"]) else (
+                    "medical" if any(m in t_clean.lower() for m in ["doctor", "doctora", "receta", "pastilla", "presión", "salud", "remedio"]) else "concept"
+                )
+                knode_id = f"knode_{uuid.uuid4().hex[:8]}"
+                cursor.execute("""
+                    INSERT INTO knowledge_nodes (id, user_id, name, entity_type, metadata_json, mention_count)
+                    VALUES (%s, %s, %s, %s, %s, 1)
+                    ON DUPLICATE KEY UPDATE mention_count = mention_count + 1
+                """, (knode_id, user_id, t_clean, e_type, json.dumps({"source": "conversation"}, ensure_ascii=False)))
+
+                for idx, t in enumerate(req.turns):
+                    t_text = t.get("text", t.get("content", ""))
+                    if t_clean.lower() in t_text.lower():
+                        ment_id = f"kment_{uuid.uuid4().hex[:8]}"
+                        cursor.execute("""
+                            INSERT INTO knowledge_node_mentions (id, user_id, node_id, conversation_id, chunk_index, snippet_text)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                        """, (ment_id, user_id, knode_id, srv_id, idx, t_text[:250]))
+    except Exception as e:
+        print(f"[GraphRAG] Aviso al indexar nodos de conocimiento: {e}")
+
     cursor.close()
     conn.close()
 
@@ -2268,6 +2346,190 @@ def analyze_and_consolidate_conversation(user_id: str, req: ConversationAnalyzeA
         "routinesAnalyzed": routines_analyzed,
         "anomaliesDetected": anomalies_detected,
         "tastesAdded": tastes_added
+    }
+
+
+# -----------------------------------------------------------------------------
+# GraphRAG: Recuperación Profunda de Contexto Episódico (recall_past_context)
+# Recorre el árbol relacional de nodos, extrae punteros a chunks y aplica Sliding Window
+# -----------------------------------------------------------------------------
+@app.post("/users/{user_id}/recall-context")
+def recall_context_graph_rag(user_id: str, req: RecallContextRequest):
+    """
+    Recuperación profunda de contexto episódico basada en GraphRAG:
+    1. Localiza nodos clave en el grafo (Personas, Lugares/Restaurantes, Recetas/Salud, Hábitos).
+    2. Sigue los punteros hacia chunks de conversaciones específicas (knowledge_node_mentions).
+    3. Aplica Sliding Window (ventana deslizante) a los turnos circundantes para capturar el diálogo completo.
+    4. Analiza lagunas de información y espacios en blanco frente a la consulta del usuario.
+    """
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    raw_query = req.query.strip()
+    query_lower = raw_query.lower()
+
+    stop_words = {
+        "el", "la", "los", "las", "un", "una", "de", "del", "a", "al", "en", "con",
+        "por", "para", "que", "es", "fue", "como", "hace", "donde", "cual", "mi", "mis",
+        "tu", "tus", "su", "sus", "te", "acuerdas", "mencioné", "mencione", "dijo",
+        "dije", "qué", "que", "cuál", "cual", "quién", "quien", "año", "pasado", "ayer",
+        "sobre", "algo", "cierta", "cierto", "día", "dia", "hora"
+    }
+    tokens = [w for w in re.split(r"[^\wáéíóúñ]+", query_lower) if len(w) >= 3 and w not in stop_words]
+
+    relevant_excerpts = []
+    found_entities = set()
+    conversations_searched = 0
+
+    # 1. BÚSQUEDA EN NODOS DE CONOCIMIENTO (El Árbol GraphRAG)
+    matched_nodes = []
+    if tokens:
+        token_clause = " OR ".join(["LOWER(name) LIKE %s" for _ in tokens])
+        params = [user_id] + [f"%{t}%" for t in tokens]
+        cursor.execute(f"""
+            SELECT id, name, entity_type, metadata_json, mention_count
+            FROM knowledge_nodes
+            WHERE user_id = %s AND ({token_clause})
+            ORDER BY mention_count DESC
+            LIMIT 6
+        """, params)
+        matched_nodes = cursor.fetchall()
+
+    # Si no hubo match por tokens, intentar búsqueda en personas relacionales
+    if not matched_nodes and tokens:
+        p_clause = " OR ".join(["LOWER(contact_name) LIKE %s OR LOWER(relationship_role) LIKE %s" for _ in tokens])
+        p_params = [user_id] + [f"%{t}%" for t in tokens for _ in range(2)]
+        cursor.execute(f"""
+            SELECT id, contact_name AS name, 'person' AS entity_type, contextual_memory, linked_conversation_ids
+            FROM user_contacts_relational
+            WHERE user_id = %s AND ({p_clause})
+            LIMIT 4
+        """, p_params)
+        for c in cursor.fetchall():
+            matched_nodes.append({
+                "id": c["id"],
+                "name": c["name"],
+                "entity_type": "person",
+                "metadata_json": json.dumps({"contextual_memory": c.get("contextual_memory")}),
+                "mention_count": 1
+            })
+
+    # 2. SEGUIMIENTO DE PUNTEROS A CHUNKS CON VENTANA DESLIZANTE (Sliding Window)
+    processed_convs = set()
+    for node in matched_nodes:
+        n_id = node["id"]
+        n_name = node["name"]
+        n_type = node["entity_type"]
+        found_entities.add(f"{n_name} ({n_type})")
+
+        # Buscar punteros a chunks en knowledge_node_mentions
+        cursor.execute("""
+            SELECT conversation_id, chunk_index, snippet_text
+            FROM knowledge_node_mentions
+            WHERE node_id = %s
+            ORDER BY mentioned_at DESC
+            LIMIT 4
+        """, (n_id,))
+        mentions = cursor.fetchall()
+
+        # Si no hay en knowledge_node_mentions, buscar en contact_conversation_mentions
+        if not mentions:
+            cursor.execute("""
+                SELECT conversation_id, 0 AS chunk_index, snippet_mention AS snippet_text
+                FROM contact_conversation_mentions
+                WHERE contact_id = %s
+                ORDER BY mentioned_at DESC
+                LIMIT 4
+            """, (n_id,))
+            mentions = cursor.fetchall()
+
+        for m in mentions:
+            conv_id = m["conversation_id"]
+            chunk_idx = m["chunk_index"]
+            processed_convs.add(conv_id)
+
+            # Cargar la conversación completa para aplicar Sliding Window
+            cursor.execute("SELECT turns_json, full_transcript, started_at FROM conversations_full WHERE id = %s", (conv_id,))
+            conv_row = cursor.fetchone()
+            if conv_row:
+                turns = parse_json_col(conv_row.get("turns_json"), [])
+                date_str = str(conv_row.get("started_at", "en una charla pasada"))[:10]
+                if turns and 0 <= chunk_idx < len(turns):
+                    # Ventana deslizante: turno anterior, turno actual, turno posterior
+                    start_i = max(0, chunk_idx - 1)
+                    end_i = min(len(turns), chunk_idx + 2)
+                    window_turns = turns[start_i:end_i]
+                    window_text = " | ".join([
+                        f"{t.get('role', t.get('speaker', 'interlocutor'))}: {t.get('text', t.get('content', ''))}"
+                        for t in window_turns
+                    ])
+                    relevant_excerpts.append(f"[{date_str}] Charla con mención de {n_name} ({n_type}): {window_text}")
+                elif m.get("snippet_text"):
+                    relevant_excerpts.append(f"[{date_str}] Registro de {n_name} ({n_type}): {m['snippet_text']}")
+
+    # 3. FALLBACK: Búsqueda en fragmentos compactos y recuerdos persistentes si no hubo coincidencia en grafo
+    if not relevant_excerpts:
+        cursor.execute("""
+            SELECT compact_summary, primary_tag, key_topics, named_entities, recorded_at
+            FROM conversation_fragments
+            WHERE user_id = %s
+            ORDER BY recorded_at DESC
+            LIMIT 5
+        """, (user_id,))
+        frags = cursor.fetchall()
+        for f in frags:
+            f_summary = f.get("compact_summary", "")
+            f_tag = f.get("primary_tag", "")
+            f_topics = parse_json_col(f.get("key_topics"), [])
+            f_entities = parse_json_col(f.get("named_entities"), [])
+            f_text = f"{f_summary} {f_tag} {' '.join(f_topics)} {' '.join(f_entities)}".lower()
+            if any(t in f_text for t in tokens) or not tokens:
+                relevant_excerpts.append(f"Fragmento ({f_tag}): {f_summary}")
+                found_entities.update(f_entities)
+                processed_convs.add(f.get("recorded_at"))
+
+    # Buscar en recuerdos persistentes (memories)
+    cursor.execute("SELECT title, detail, learned_date_label FROM memories WHERE user_id = %s", (user_id,))
+    mems = cursor.fetchall()
+    for mem in mems:
+        m_text = f"{mem['title']} {mem['detail']}".lower()
+        if any(t in m_text for t in tokens):
+            relevant_excerpts.append(f"Recuerdo '{mem['title']}': {mem['detail']}")
+            found_entities.add(mem['title'])
+
+    conversations_searched = len(processed_convs) or len(relevant_excerpts)
+
+    # 4. ANÁLISIS DE ESPACIOS EN BLANCO Y SÍNTESIS FACTUAL
+    if not relevant_excerpts:
+        synthesized = (
+            f"Revisé minuciosamente la base de datos de memoria y registros de conversaciones pasadas, "
+            f"y no encontré que hayamos conversado sobre '{raw_query}'. No tengo registrado este tema todavía."
+        )
+    else:
+        # Detectar lagunas específicas preguntadas por el usuario
+        gap_notes = []
+        combined_text = " ".join(relevant_excerpts).lower()
+        if any(w in query_lower for w in ["ropa", "vestida", "vestido", "llevaba", "puesta", "puesto"]):
+            if not any(w in combined_text for w in ["vestido", "falda", "camisa", "pantalón", "blusa", "ropa", "chaqueta", "abrigo", "color"]):
+                gap_notes.append("Laguna de información detectada: El usuario preguntó por la vestimenta o ropa, pero en las conversaciones registradas no se mencionó qué ropa llevaba.")
+        if any(w in query_lower for w in ["receta", "dosis", "antes o después", "ayunas", "pastilla"]):
+            if any(w in combined_text for w in ["médico", "doctor", "doctora", "receta", "pastilla", "enalapril"]):
+                if not any(w in combined_text for w in ["antes de comer", "después de comer", "ayunas", "almuerzo"]):
+                    gap_notes.append("Laguna de información detectada: Se conversó sobre la consulta médica o indicación, pero no se detalló si la toma debía ser antes o después de los alimentos.")
+        if any(w in query_lower for w in ["sigue abierto", "sigue funcionando", "cerró", "cerrado", "horario actual"]):
+            gap_notes.append("Nota de frescura: La memoria registra el nombre y lugar del establecimiento en el pasado, pero para verificar si sigue abierto actualmente se requiere consultar fuentes externas en internet.")
+
+        synthesized = "Contexto recuperado de la memoria del usuario:\n" + "\n".join([f"• {e}" for e in relevant_excerpts[:4]])
+        if gap_notes:
+            synthesized += "\n\nAnálisis de lagunas / espacios en blanco:\n" + "\n".join([f"⚠ {g}" for g in gap_notes])
+
+    cursor.close()
+    conn.close()
+
+    return {
+        "relevantExcerpts": relevant_excerpts[:5],
+        "foundEntities": list(found_entities),
+        "synthesizedContext": synthesized,
+        "conversationsSearched": conversations_searched
     }
 
 
