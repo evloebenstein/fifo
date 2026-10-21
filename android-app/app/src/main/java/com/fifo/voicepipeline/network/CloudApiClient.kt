@@ -491,7 +491,8 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
         } else ""
 
         val navContext = if (gpsInfo != null) {
-            com.fifo.voicepipeline.location.FifoNavigationManager.buildSystemPromptContext(gpsInfo)
+            @Suppress("DEPRECATION")
+            com.fifo.voicepipeline.location.FifoNavigationManager.instance.buildSystemPromptContext(gpsInfo)
         } else ""
 
         return buildString {

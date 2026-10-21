@@ -89,7 +89,7 @@ class MainActivity : ComponentActivity() {
 
         // ── Inicializar Sensor de Orientación / Brújula para Navegación en Tiempo Real ──
         com.fifo.voicepipeline.location.FifoOrientationHelper.init(applicationContext)
-        com.fifo.voicepipeline.location.FifoNavigationManager.init(applicationContext)
+        // Note: FifoNavigationManager singleton is initialised inside FifoSkillRegistry (ADR-0007).
 
         // ── Iniciar Foreground Service solo si el setup ya fue completado y los permisos otorgados ──
         val prefs = getSharedPreferences("fifo_prefs", MODE_PRIVATE)

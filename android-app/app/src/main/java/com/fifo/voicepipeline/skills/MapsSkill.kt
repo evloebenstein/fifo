@@ -1,13 +1,10 @@
 package com.fifo.voicepipeline.skills
 
-import android.content.Context
 import android.content.Intent
-import android.location.Geocoder
-import android.location.Location
 import android.net.Uri
 import android.util.Log
-import com.fifo.voicepipeline.location.FifoLocationHelper
-import java.util.Locale
+import com.fifo.voicepipeline.location.FifoNavigationManager
+import com.fifo.voicepipeline.location.LocationAdapter
 
 /**
  * Skill para interactuar con Google Maps y buscar lugares cercanos de interés:
@@ -16,8 +13,21 @@ import java.util.Locale
  *
  * Entrega una respuesta 100% hablada por voz con la calle exacta y la distancia,
  * además de dejar abierto el mapa en pantalla.
+ *
+ * ## GeoIntentSeam (ADR-0007)
+ * No longer holds `android.content.Context`; all geo operations go through
+ * [locationAdapter], and map-launch intents go through [intentLauncher].
+ * This makes the skill fully testable on the JVM.
  */
-class MapsSkill(private val context: Context) : FifoSkill {
+class MapsSkill(
+    private val locationAdapter: LocationAdapter,
+    private val navigationManager: FifoNavigationManager,
+    /**
+     * Allows tests to capture Intent launches without a real Activity stack.
+     * Production code wires this to `context::startActivity`.
+     */
+    private val intentLauncher: ((Intent) -> Unit)? = null
+) : FifoSkill {
 
     companion object {
         private const val TAG = "MapsSkill"
@@ -55,7 +65,7 @@ class MapsSkill(private val context: Context) : FifoSkill {
         val openScreen = (args["open_screen_map"] as? Boolean)
             ?: (args["open_screen_map"]?.toString()?.toBooleanStrictOrNull() ?: false)
 
-        val currentLoc = FifoLocationHelper.getFreshLocation(context)
+        val currentLoc = locationAdapter.getFreshLocation()
         val cleanHint = if (currentLoc.isGpsActive && !currentLoc.city.contains("Providencia", ignoreCase = true)) {
             hint.replace(Regex("(?i)\\b(near|cerca de)?\\s*av\\.?\\s*providencia.*"), "").trim()
         } else {
@@ -72,8 +82,7 @@ class MapsSkill(private val context: Context) : FifoSkill {
         val displayName = placeName
         Log.i(TAG, "Buscando lugares cercanos: '$displayName' (openScreen=$openScreen). GPS activo=${currentLoc.isGpsActive} (${currentLoc.latitude}, ${currentLoc.longitude})")
 
-        val rawMatches = FifoLocationHelper.searchNearbyPlaces(context, displayName, currentLoc)
-        // Descartar cualquier falso positivo que sea el nombre de la comuna o ciudad
+        val rawMatches = locationAdapter.searchNearbyPlaces(displayName, currentLoc)
         val matches = rawMatches.filterNot {
             it.name.equals(currentLoc.city, ignoreCase = true) ||
             it.name.equals("Vitacura", ignoreCase = true) ||
@@ -82,9 +91,9 @@ class MapsSkill(private val context: Context) : FifoSkill {
 
         val closest = matches.firstOrNull()
         if (closest != null) {
-            com.fifo.voicepipeline.location.FifoNavigationManager.setPendingDestination(closest)
+            navigationManager.setPendingDestination(closest)
             if (openScreen) {
-                com.fifo.voicepipeline.location.FifoNavigationManager.startNavigation(
+                navigationManager.startNavigation(
                     name = closest.name,
                     latitude = closest.latitude,
                     longitude = closest.longitude,
@@ -94,7 +103,7 @@ class MapsSkill(private val context: Context) : FifoSkill {
             }
         }
 
-        // Detectar si la pregunta original del usuario fue en plural
+        // Detect if original user query was in plural form
         val fullQueryText = "$placeTypeRaw $hint".lowercase()
         val isPlural = fullQueryText.contains("locales") ||
                 fullQueryText.contains("mercados") ||
@@ -126,33 +135,9 @@ class MapsSkill(private val context: Context) : FifoSkill {
             }
         }
 
-        // Abrir Google Maps ÚNICAMENTE si el usuario pidió explícitamente abrir la pantalla
+        // Open Google Maps ONLY if user explicitly requested the screen
         if (openScreen) {
-            try {
-                val mapUri = if (closest != null) {
-                    Uri.parse("https://www.google.com/maps/dir/?api=1&origin=${currentLoc.latitude},${currentLoc.longitude}&destination=${closest.latitude},${closest.longitude}&travelmode=walking")
-                } else if (currentLoc.isGpsActive) {
-                    Uri.parse("geo:${currentLoc.latitude},${currentLoc.longitude}?q=" + Uri.encode(displayName))
-                } else {
-                    Uri.parse("https://www.google.com/maps/search/?api=1&query=" + Uri.encode("$displayName cerca de mí"))
-                }
-
-                val mapIntent = Intent(Intent.ACTION_VIEW, mapUri).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    setPackage("com.google.android.apps.maps")
-                }
-
-                try {
-                    context.startActivity(mapIntent)
-                } catch (e: Exception) {
-                    val fallbackIntent = Intent(Intent.ACTION_VIEW, mapUri).apply {
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    context.startActivity(fallbackIntent)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error abriendo Maps: ${e.message}")
-            }
+            launchMapIntent(closest?.latitude, closest?.longitude, currentLoc.latitude, currentLoc.longitude, displayName, currentLoc.isGpsActive)
         } else {
             Log.i(TAG, "Guía 100% verbal solicitada (openScreen=false). No se abre la pantalla de Maps.")
         }
@@ -187,5 +172,37 @@ class MapsSkill(private val context: Context) : FifoSkill {
                 "nearby_places" to topPlacesData
             )
         )
+    }
+
+    private fun launchMapIntent(
+        destLat: Double?,
+        destLon: Double?,
+        originLat: Double,
+        originLon: Double,
+        displayName: String,
+        gpsActive: Boolean
+    ) {
+        try {
+            val mapUri = when {
+                destLat != null && destLon != null ->
+                    Uri.parse("https://www.google.com/maps/dir/?api=1&origin=$originLat,$originLon&destination=$destLat,$destLon&travelmode=walking")
+                gpsActive ->
+                    Uri.parse("geo:$originLat,$originLon?q=" + Uri.encode(displayName))
+                else ->
+                    Uri.parse("https://www.google.com/maps/search/?api=1&query=" + Uri.encode("$displayName cerca de mí"))
+            }
+
+            val mapIntent = Intent(Intent.ACTION_VIEW, mapUri).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                setPackage("com.google.android.apps.maps")
+            }
+
+            val launcher = intentLauncher
+            if (launcher != null) {
+                launcher(mapIntent)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error construyendo intent de Maps: ${e.message}")
+        }
     }
 }

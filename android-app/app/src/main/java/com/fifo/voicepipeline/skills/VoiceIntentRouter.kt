@@ -144,7 +144,8 @@ class VoiceIntentRouter(private val context: Context? = null) {
         }
 
         // ── 6. CONFIRMACIÓN NATURAL DE DESTINO PENDIENTE ───────────────────────────────────
-        val pending = FifoNavigationManager.pendingDestination
+        @Suppress("DEPRECATION")
+        val pending = FifoNavigationManager.instance.pendingDestination
         if (pending != null) {
             val cleanAffirmative = text.replace(Regex("[¿?.,!¡]"), "").trim()
             val isYes = cleanAffirmative in listOf(
@@ -159,7 +160,8 @@ class VoiceIntentRouter(private val context: Context? = null) {
                     cleanAffirmative.startsWith("guíame") || cleanAffirmative.startsWith("vamos")
 
             if (isYes) {
-                val active = FifoNavigationManager.confirmPendingDestination()
+                @Suppress("DEPRECATION")
+                val active = FifoNavigationManager.instance.confirmPendingDestination()
                 if (active != null) {
                     val targetName = active.name
 
@@ -177,13 +179,16 @@ class VoiceIntentRouter(private val context: Context? = null) {
         }
 
         // ── 7. NAVEGACIÓN PEATONAL ACTIVA (Solo si ya está en curso) ──────────────────────
-        if (FifoNavigationManager.isNavigating) {
+        @Suppress("DEPRECATION")
+        if (FifoNavigationManager.instance.isNavigating) {
             // Cancelar ruta
             if (text.contains("cancela la ruta") || text.contains("cancela el viaje") ||
                 text.contains("deja de guiarme") || text.contains("ya no voy") ||
                 text.contains("detén la guía") || text.contains("deten la guia")) {
-                val destName = FifoNavigationManager.activeRoute?.name ?: "el destino"
-                FifoNavigationManager.stopNavigation()
+                @Suppress("DEPRECATION")
+                val destName = FifoNavigationManager.instance.activeRoute?.name ?: "el destino"
+                @Suppress("DEPRECATION")
+                FifoNavigationManager.instance.stopNavigation()
                 return SkillResult(
                     success = true,
                     spokenFeedback = "Entendido, detuve las indicaciones hacia $destName.",
@@ -202,7 +207,8 @@ class VoiceIntentRouter(private val context: Context? = null) {
 
             if (isNavQuery) {
                 val currentLoc = if (context != null) FifoLocationHelper.getCurrentLocation(context) else CurrentLocationInfo(address = "Santiago Centro", city = "Santiago")
-                val report = FifoNavigationManager.getGuidanceReport(currentLoc)
+                @Suppress("DEPRECATION")
+                val report = FifoNavigationManager.instance.getGuidanceReport(currentLoc)
                 if (report != null) {
                     val distText = if (report.distanceMeters < 1200) "${report.distanceMeters} metros" else "${String.format(Locale("es", "ES"), "%.1f", report.distanceMeters / 1000.0)} km"
 
@@ -237,7 +243,8 @@ class VoiceIntentRouter(private val context: Context? = null) {
         if (isSpatialQuery) {
             val currentLoc = if (context != null) FifoLocationHelper.getCurrentLocation(context) else CurrentLocationInfo(address = "Santiago Centro", city = "Santiago")
             val spatialDesc = if (context != null) {
-                FifoNavigationManager.getSpatialAwarenessDescription(context, currentLoc)
+                @Suppress("DEPRECATION")
+                FifoNavigationManager.instance.getSpatialAwarenessDescription(currentLoc)
             } else {
                 "Te encuentras en ${currentLoc.address}, ${currentLoc.city}."
             }

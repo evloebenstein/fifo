@@ -1,9 +1,11 @@
 package com.fifo.voicepipeline.skills
 
-import android.content.Context
+import android.location.Location
 import android.util.Log
 import com.fifo.voicepipeline.data.FifoDataRepository
-import com.fifo.voicepipeline.location.FifoLocationHelper
+import com.fifo.voicepipeline.location.FifoNavigationManager
+import com.fifo.voicepipeline.location.FifoOrientationHelper
+import com.fifo.voicepipeline.location.LocationAdapter
 
 /**
  * Skill que permite a Fifo guiar al usuario hacia un destino:
@@ -11,8 +13,16 @@ import com.fifo.voicepipeline.location.FifoLocationHelper
  * - Calcula distancia, minutos caminando, orientación cardinal y pasos iniciales.
  * - Si el usuario pide expresamente abrir la pantalla ("abre Maps", "abre Waze"),
  *   inicia la app visual en el celular.
+ *
+ * ## GeoIntentSeam (ADR-0007)
+ * Replaced direct `android.content.Context` dependency with [LocationAdapter]
+ * and [FifoNavigationManager] constructor injection.  The skill is now fully
+ * testable on the JVM without an emulator.
  */
-class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
+class NavigationDirectionsSkill(
+    private val locationAdapter: LocationAdapter,
+    private val navigationManager: FifoNavigationManager
+) : FifoSkill {
 
     companion object {
         private const val TAG = "NavigationDirectionsSkill"
@@ -68,16 +78,16 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
         ) || destTrimmed.startsWith("si,") || destTrimmed.startsWith("sí,")
           || destTrimmed.startsWith("dije si") || destTrimmed.startsWith("dije sí")
 
-        val currentLoc = FifoLocationHelper.getFreshLocation(context)
-        val pending = com.fifo.voicepipeline.location.FifoNavigationManager.pendingDestination
+        val currentLoc = locationAdapter.getFreshLocation()
+        val pending = navigationManager.pendingDestination
 
-        // 1. PRIORIDAD ABSOLUTA: Si hay un destino pendiente consultado previamente y el usuario confirma o pide ir
+        // 1. ABSOLUTE PRIORITY: pending destination + user confirmation
         if (pending != null && (isConfirmation || isGenericDestination ||
                     destTrimmed.contains(pending.name, ignoreCase = true) ||
                     destTrimmed.contains(pending.road, ignoreCase = true))) {
 
-            val active = com.fifo.voicepipeline.location.FifoNavigationManager.confirmPendingDestination()
-                ?: com.fifo.voicepipeline.location.FifoNavigationManager.ActiveDestination(
+            val active = navigationManager.confirmPendingDestination()
+                ?: FifoNavigationManager.ActiveDestination(
                     name = pending.name,
                     latitude = pending.latitude,
                     longitude = pending.longitude,
@@ -93,17 +103,24 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
                 else -> "el local ${active.name}"
             }
 
-            val userAzimuth = com.fifo.voicepipeline.location.FifoOrientationHelper.currentAzimuthDegrees
+            val userAzimuth = FifoOrientationHelper.currentAzimuthDegrees
             val distResults = FloatArray(2)
-            android.location.Location.distanceBetween(currentLoc.latitude, currentLoc.longitude, active.latitude, active.longitude, distResults)
+            Location.distanceBetween(
+                currentLoc.latitude, currentLoc.longitude,
+                active.latitude, active.longitude,
+                distResults
+            )
             val distMeters = distResults[0].toInt().coerceAtLeast(10)
             val targetBearing = (distResults[1] + 360f) % 360f
-            val turnInfo = com.fifo.voicepipeline.location.FifoOrientationHelper.getRelativeTurnInstruction(userAzimuth, targetBearing)
-            val cardinal = FifoLocationHelper.calculateCardinal(targetBearing)
-            val distText = if (distMeters < 1200) "$distMeters metros" else "${String.format(java.util.Locale("es", "ES"), "%.1f", distMeters / 1000.0)} km"
+            val turnInfo = FifoOrientationHelper.getRelativeTurnInstruction(userAzimuth, targetBearing)
+            val cardinal = locationAdapter.calculateCardinal(targetBearing)
+            val distText = if (distMeters < 1200) "$distMeters metros"
+                else "${String.format(java.util.Locale("es", "ES"), "%.1f", distMeters / 1000.0)} km"
 
             if (openScreen) {
-                val (navSuccess, appUsed) = FifoLocationHelper.startNavigation(context, "${active.latitude},${active.longitude}", appChoice)
+                val (navSuccess, appUsed) = locationAdapter.startExternalNavigation(
+                    "${active.latitude},${active.longitude}", appChoice
+                )
                 val spoken = "¡Vamos hacia $desc en $street! Para comenzar: ${turnInfo.instruction} y avance $distText hacia el $cardinal. Te abrí la ruta en la pantalla."
                 return SkillResult(
                     success = navSuccess,
@@ -142,7 +159,7 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
             )
         }
 
-        // 2. Si pide un comercio o lugar de interés cercano (ej: OXXO, farmacia, supermercado, mercado)
+        // 2. Store/POI query (OXXO, farmacia, supermercado, …)
         val destLower = destInput.lowercase().trim()
         val isStoreQuery = destLower.contains("oxxo") ||
                 destLower.contains("farmacia") ||
@@ -159,7 +176,7 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
                 destLower.contains("santa isabel")
 
         if (isStoreQuery) {
-            val rawMatches = FifoLocationHelper.searchNearbyPlaces(context, destInput, currentLoc)
+            val rawMatches = locationAdapter.searchNearbyPlaces(destInput, currentLoc)
             val matches = rawMatches.filterNot {
                 it.name.equals(currentLoc.city, ignoreCase = true) ||
                 it.name.equals("Vitacura", ignoreCase = true) ||
@@ -168,11 +185,12 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
             val closest = matches.firstOrNull()
             if (closest != null) {
                 val targetName = closest.name.ifBlank { destInput }
-                val desc = targetName
 
                 if (openScreen) {
-                    val spoken = "$desc en ${closest.fullAddressText}."
-                    val (navSuccess, appUsed) = FifoLocationHelper.startNavigation(context, "${closest.latitude},${closest.longitude}", appChoice)
+                    val spoken = "$targetName en ${closest.fullAddressText}."
+                    val (navSuccess, appUsed) = locationAdapter.startExternalNavigation(
+                        "${closest.latitude},${closest.longitude}", appChoice
+                    )
                     return SkillResult(
                         success = navSuccess,
                         spokenFeedback = spoken,
@@ -188,11 +206,10 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
                         )
                     )
                 } else {
-                    // Guía 100% verbal concisa con orientación corporal
                     val isRealTime = args["real_time"] == true || destInput.contains("tiempo real", ignoreCase = true)
                     val street = closest.road.ifBlank { closest.fullAddressText }
                     if (isRealTime) {
-                        com.fifo.voicepipeline.location.FifoNavigationManager.startNavigation(
+                        navigationManager.startNavigation(
                             name = closest.name,
                             latitude = closest.latitude,
                             longitude = closest.longitude,
@@ -200,7 +217,7 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
                             road = street
                         )
                     } else {
-                        com.fifo.voicepipeline.location.FifoNavigationManager.setPendingDestination(closest)
+                        navigationManager.setPendingDestination(closest)
                     }
                     val userId = FifoDataRepository.userProfile.value.id
                     val contextIntent = if (userId.isNotBlank()) {
@@ -213,9 +230,9 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
                     } else null
 
                     val spoken = if (isRealTime) {
-                        "$desc: ${closest.relativeDirection} por $street (${closest.distanceMeters}m)."
+                        "$targetName: ${closest.relativeDirection} por $street (${closest.distanceMeters}m)."
                     } else {
-                        "$desc en $street a ${closest.distanceMeters}m."
+                        "$targetName en $street a ${closest.distanceMeters}m."
                     }
                     return SkillResult(
                         success = true,
@@ -238,7 +255,7 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
             }
         }
 
-        // Si pide ir a "mi casa" o "casa", buscamos su dirección registrada en el perfil
+        // 3. Address or named destination (including "mi casa")
         val resolvedDestination = if (destInput.contains("casa", ignoreCase = true)) {
             val userAddr = FifoDataRepository.userProfile.value.preferredAddress
             if (!userAddr.isNullOrBlank()) userAddr else destInput
@@ -258,9 +275,8 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
             )
         } else null
 
-        // 1. Obtener guía hablada con cálculo de distancia, minutos a pie y orientación
-        val routeGuidance = FifoLocationHelper.getSpokenRouteGuidance(context, resolvedDestination)
-        com.fifo.voicepipeline.location.FifoNavigationManager.startNavigation(
+        val routeGuidance = locationAdapter.getSpokenRouteGuidance(resolvedDestination)
+        navigationManager.startNavigation(
             name = resolvedDestination,
             latitude = routeGuidance.destinationLat,
             longitude = routeGuidance.destinationLon,
@@ -268,13 +284,11 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
             road = resolvedDestination
         )
 
-        // 2. Si el usuario pidió explícitamente abrir el mapa visual en pantalla
         if (openScreen) {
-            val (success, appUsed) = FifoLocationHelper.startNavigation(context, resolvedDestination, appChoice)
-            val combinedSpoken = "Ruta abierta hacia $resolvedDestination."
+            val (success, appUsed) = locationAdapter.startExternalNavigation(resolvedDestination, appChoice)
             return SkillResult(
                 success = success,
-                spokenFeedback = combinedSpoken,
+                spokenFeedback = "Ruta abierta hacia $resolvedDestination.",
                 data = mapOf(
                     "destination" to resolvedDestination,
                     "distance_meters" to routeGuidance.distanceMeters,
@@ -288,12 +302,10 @@ class NavigationDirectionsSkill(private val context: Context) : FifoSkill {
             )
         }
 
-        // 3. Guía 100% por voz sin obligar a desbloquear ni mirar el celular
         val proactiveTip = contextIntent?.proactiveRecommendations?.firstOrNull()?.let { " ($it)" } ?: ""
-        val enrichedSpoken = "$resolvedDestination a ${routeGuidance.distanceMeters}m.$proactiveTip"
         return SkillResult(
             success = true,
-            spokenFeedback = enrichedSpoken,
+            spokenFeedback = "$resolvedDestination a ${routeGuidance.distanceMeters}m.$proactiveTip",
             data = mapOf(
                 "destination" to resolvedDestination,
                 "distance_meters" to routeGuidance.distanceMeters,

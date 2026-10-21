@@ -423,8 +423,9 @@ class VoicePipelineManager(
         }
 
         // ── Conectar navegación autónoma en tiempo real (Copiloto Waze) ──
-        com.fifo.voicepipeline.location.FifoNavigationManager.init(context)
-        com.fifo.voicepipeline.location.FifoNavigationManager.onAutonomousGuidance = { guidanceSpeech ->
+        // FifoNavigationManager is initialised by FifoSkillRegistry; wire the callback here.
+        @Suppress("DEPRECATION")
+        com.fifo.voicepipeline.location.FifoNavigationManager.instance.onAutonomousGuidance = { guidanceSpeech ->
             speakAutonomousMessage(guidanceSpeech)
         }
 

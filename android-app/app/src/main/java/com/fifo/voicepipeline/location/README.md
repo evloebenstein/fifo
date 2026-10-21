@@ -1,21 +1,39 @@
-# 📍 Location & Navigation (`com.fifo.voicepipeline.location`)
+# location/
 
-Subsistema de geolocalización, brújula y copiloto peatonal autónomo. Ver **Candidato 02** del Architecture Review para la propuesta de profundizar este módulo en un `PedestrianCopilotModule`.
+Motor de localización, orientación y navegación autónoma de Fifo.
 
----
+## Archivos
 
-## Módulos
+| Archivo | Responsabilidad |
+|---|---|
+| [`LocationAdapter.kt`](LocationAdapter.kt) | **GeoIntentSeam** — interfaz que aísla todo acceso a hardware GPS, geocodificación, búsqueda de POI e intents de mapa. Única frontera autorizada para operaciones de localización. |
+| [`AndroidLocationAdapter.kt`](AndroidLocationAdapter.kt) | Implementación de producción de `LocationAdapter`. Delega en `FifoLocationHelper` y mantiene el `Context` confinado a esta capa. |
+| [`InMemoryLocationAdapter.kt`](InMemoryLocationAdapter.kt) | Doble de prueba puro-JVM de `LocationAdapter`. Sin dependencias Android — permite tests unitarios de skills de navegación sin emulador ni Robolectric. |
+| [`FifoLocationHelper.kt`](FifoLocationHelper.kt) | Utilidad GPS de bajo nivel: obtención de ubicación fresca, geocodificación inversa, búsqueda Nominatim de POI cercanos, lanzamiento de intents Maps/Waze. No debe ser llamado directamente desde skills; usar `LocationAdapter`. |
+| [`FifoNavigationManager.kt`](FifoNavigationManager.kt) | Copiloto peatonal autónomo estilo Waze: monitorea GPS continuo (vía `locationManagerProvider`), detecta desvíos, emite alertas de proximidad (100 m, 50 m, llegada 25 m) y detecta detenciones prolongadas. Ya no es un `object` singleton — se inyecta como clase. |
+| [`FifoOrientationHelper.kt`](FifoOrientationHelper.kt) | Sensor de brújula: azimuth en grados y orientación cardinal del dispositivo en español. Singleton de solo lectura, sin efectos de lado. |
 
-| Archivo | Rol |
-| :--- | :--- |
-| [`FifoLocationHelper.kt`](FifoLocationHelper.kt) | GPS + Geocodificación inversa + búsqueda de lugares cercanos (Overpass API). Caché de 45s para no consultar hardware repetidamente. |
-| [`FifoNavigationManager.kt`](FifoNavigationManager.kt) | Copiloto peatonal autónomo estilo Waze: monitorea GPS continuo, detecta desvíos, emite alertas de proximidad (100m, 50m, llegada 25m) y detecta detenciones prolongadas. Mantiene `activeRoute` y `pendingDestination`. |
-| [`FifoOrientationHelper.kt`](FifoOrientationHelper.kt) | Sensor de orientación (acelerómetro + magnetómetro) para calcular azimut y dar instrucciones relativas al cuerpo ("gire a su derecha"). |
+## Arquitectura (ADR-0007)
 
----
+```
+Callers (Skills, VoiceIntentRouter, SpeechCognitionSeam)
+        │
+        ▼
+  LocationAdapter (interface)          FifoNavigationManager (class, inyectado)
+        │                                        │
+  AndroidLocationAdapter                locationManagerProvider()
+        │                                        │ (Android only)
+  FifoLocationHelper          ◄───────  LocationManager (GPS listener)
+  (GPS, Geocoder, Nominatim, Intent)
+```
 
-## Reglas
+- **Skills** reciben `LocationAdapter` + `FifoNavigationManager` por constructor.
+- **`FifoSkillRegistry`** construye y cablea el grafo.
+- **`FifoNavigationManager.instance`** (shim deprecated) permite que `VoiceIntentRouter`, `SpeechCognitionSeam` y `CloudApiClient` sigan compilando durante la migración.
 
-1. **GPS solo cuando hay ruta activa:** Detener actualizaciones continuas cuando `FifoNavigationManager.activeRoute == null`.
-2. **Sin hardcodes de lugar:** Ningún nombre de local, dirección, ni POI puede estar hardcodeado. Todo viene de Overpass API o del backend.
-3. **`pendingDestination`:** El estado de confirmación de destino vive en `FifoNavigationManager.pendingDestination`. `NavigationDirectionsSkill` confirma contra él con `destination='confirm_pending'`.
+## Notas importantes
+
+1. **GPS solo cuando hay ruta activa:** El listener continuo se inicia en `startNavigation()` y se detiene en `stopNavigation()` / llegada a destino.
+2. **`FifoLocationHelper` NO cambia:** toda la lógica de resolución de ubicación, geocodificación y Nominatim sigue igual; `AndroidLocationAdapter` es solo un wrapper de compatibilidad.
+3. **`pendingDestination`:** El estado de confirmación vive en `FifoNavigationManager.pendingDestination`. `NavigationDirectionsSkill` confirma contra él cuando el usuario dice "sí" o "guíame".
+4. **Memoria y contexto histórico:** La memoria de ubicaciones pasadas (lugares visitados, contexto de conversaciones) vive en `FifoDataRepository` y el pipeline de enriquecimiento del backend — completamente separado de esta capa.

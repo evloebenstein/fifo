@@ -35,7 +35,8 @@ class DefaultConversationContextProvider(
 
             // Contexto de navegación activa
             if (gpsInfo != null) {
-                val navContext = com.fifo.voicepipeline.location.FifoNavigationManager.buildSystemPromptContext(gpsInfo)
+                @Suppress("DEPRECATION")
+                val navContext = com.fifo.voicepipeline.location.FifoNavigationManager.instance.buildSystemPromptContext(gpsInfo)
                 if (navContext.isNotBlank()) {
                     append(navContext).append("\n")
                 }

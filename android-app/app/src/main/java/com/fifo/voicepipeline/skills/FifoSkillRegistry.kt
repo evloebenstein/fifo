@@ -1,7 +1,10 @@
 package com.fifo.voicepipeline.skills
 
 import android.content.Context
+import android.location.LocationManager
 import android.util.Log
+import com.fifo.voicepipeline.location.AndroidLocationAdapter
+import com.fifo.voicepipeline.location.FifoNavigationManager
 
 /**
  * Registro y despachador central de Skills de Fifo.
@@ -31,15 +34,34 @@ class FifoSkillRegistry(
     var lastTopic: String = ""
 
     init {
+        // ── GeoIntentSeam (ADR-0007): build location adapter + navigation manager ──
+        val locationAdapter = AndroidLocationAdapter(context)
+        val navigationManager = FifoNavigationManager(
+            locationAdapter = locationAdapter,
+            locationManagerProvider = {
+                context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+            }
+        )
+        // Initialise the deprecated singleton shim so legacy callers still compile.
+        @Suppress("DEPRECATION")
+        FifoNavigationManager.initSingleton(navigationManager)
+
         registerSkill(ReminderSkill(context))
         registerSkill(CalendarSkill(context))
-        registerSkill(MapsSkill(context))
+        registerSkill(MapsSkill(
+            locationAdapter = locationAdapter,
+            navigationManager = navigationManager,
+            intentLauncher = { intent -> context.startActivity(intent) }
+        ))
         registerSkill(PhoneCommunicationSkill(context))
         registerSkill(ProfileDatabaseSkill(context))
         registerSkill(ContextRecallSkill(context))
         registerSkill(FindFifoDeviceSkill(context))
         registerSkill(CurrentLocationSkill(context))
-        registerSkill(NavigationDirectionsSkill(context))
+        registerSkill(NavigationDirectionsSkill(
+            locationAdapter = locationAdapter,
+            navigationManager = navigationManager
+        ))
         registerSkill(PhoneCallSkill(context))
         registerSkill(PhoneDeviceControlSkill(context))
         registerSkill(ContactsSkill(context))
