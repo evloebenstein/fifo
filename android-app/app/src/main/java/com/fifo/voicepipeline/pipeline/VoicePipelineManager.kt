@@ -2,6 +2,7 @@ package com.fifo.voicepipeline.pipeline
 
 import android.content.Context
 import android.util.Log
+import com.fifo.voicepipeline.BuildConfig
 import com.fifo.voicepipeline.audio.*
 import com.fifo.voicepipeline.network.BleConnectionState
 import com.fifo.voicepipeline.network.BleVoiceClient
@@ -76,6 +77,12 @@ class VoicePipelineManager(
     private val _isMicMuted = MutableStateFlow(prefs.getBoolean("is_mic_muted", false))
     val isMicMuted: StateFlow<Boolean> = _isMicMuted.asStateFlow()
 
+    // ── Selección de camino (una sola release) ──────────────
+    // El flag se evalúa al iniciar, cuando ya se conocen las claves de STT.
+    private var useVoiceSession = false
+    private var sessionPipeline: VoiceSessionPipeline? = null
+    private val sessionMirrorJobs = mutableListOf<Job>()
+
     // Temporizador de auto-sueño para Fifo (25 segundos de inactividad)
     private var autoSleepJob: Job? = null
 
@@ -115,54 +122,14 @@ class VoicePipelineManager(
     // ── Componentes internos de audio y BLE ──────────
     private val bleClient = BleVoiceClient(
         onAudioReceived = { pcmData ->
-            handleIncomingAudio(pcmData, MicSource.ESP32)
+            if (useVoiceSession) {
+                sessionPipeline?.onBleFrame(pcmData)
+            } else {
+                handleIncomingAudio(pcmData, MicSource.ESP32)
+            }
         },
         onConnectionChanged = { connected ->
-            if (connected) {
-                Log.i(TAG, "ESP32-S3 conectado por BLE!")
-                _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
-                _statusMessage.value = if (_isAwake.value) "Fifo despierto — le escucho" else "Fifo en reposo · Diga 'Fifo' para despertar"
-                vad.reset()
-                pcmBuffer.clear()
-                updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
-                ensureListeningActive()
-
-                // Registrar ubicación GPS del celular al conectar
-                try {
-                    val loc = com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(context)
-                    com.fifo.voicepipeline.data.FifoDataRepository.updateDeviceConnectionStatus(
-                        connected = true,
-                        latitude = loc.latitude,
-                        longitude = loc.longitude,
-                        address = loc.address,
-                        roomHint = "En esta habitación",
-                        rssi = -60
-                    )
-                } catch (e: Exception) {
-                    Log.w(TAG, "Error registrando ubicación al conectar: ${e.message}")
-                }
-            } else {
-                Log.i(TAG, "ESP32-S3 desconectado de BLE")
-                _state.value = PipelineState.DISCONNECTED
-                _statusMessage.value = "Fifo desconectado · Conecte por Bluetooth"
-                vad.reset()
-                pcmBuffer.clear()
-                ensureListeningActive()
-
-                // Registrar última ubicación GPS conocida del celular al desconectar
-                try {
-                    val loc = com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(context)
-                    com.fifo.voicepipeline.data.FifoDataRepository.updateDeviceConnectionStatus(
-                        connected = false,
-                        latitude = loc.latitude,
-                        longitude = loc.longitude,
-                        address = loc.address,
-                        roomHint = "Cerca del lugar de desconexión"
-                    )
-                } catch (e: Exception) {
-                    Log.w(TAG, "Error registrando ubicación al desconectar: ${e.message}")
-                }
-            }
+            handleBleConnectionChanged(connected)
         }
     )
 
@@ -175,36 +142,21 @@ class VoicePipelineManager(
     // Registro de habilidades nativas del teléfono y mutaciones de BD
     val skillRegistry = com.fifo.voicepipeline.skills.FifoSkillRegistry(context)
 
-    // Parlante del celular
-    private val audioPlayer = AudioPlayer()
+    // Parlante del celular (solo se crea si el camino legacy se usa)
+    private val audioPlayer by lazy { AudioPlayer() }
     private var androidTtsSpeaker: AndroidTtsSpeaker? = null
 
-    // Micrófono del celular (fallback)
-    private val phoneMicRecorder = PhoneMicRecorder(context = context)
+    // Micrófono del celular (fallback; solo se crea si el camino legacy se usa)
+    private val phoneMicRecorder by lazy { PhoneMicRecorder(context = context) }
 
     // ── Coroutine scope ─────────────────────────────
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // ── Módulo profundo de Sesión de Voz (VoiceSession) ──────
-    val voiceSession: VoiceSession by lazy {
-        val client = if (::cloudClient.isInitialized) {
-            cloudClient
-        } else {
-            val effectiveOpenAiKey = if (openAiApiKey.isNotBlank()) openAiApiKey else if (groqApiKey.startsWith("gsk_")) groqApiKey else ""
-            CloudApiClient(
-                groqApiKey = groqApiKey,
-                anthropicApiKey = anthropicApiKey,
-                openAiApiKey = effectiveOpenAiKey,
-                context = context
-            ).also { cloudClient = it }
-        }
-        VoiceSession(
-            scope = scope,
-            outboundAdapter = AndroidAudioHardwareAdapter(context, scope),
-            speechCognition = GroqSpeechCognitionAdapter(client),
-            skillRegistry = skillRegistry
-        )
-    }
+    // Solo existe cuando el camino nuevo está activo. No se crea de forma perezosa
+    // para que el modo legacy nunca construya una segunda sesión.
+    val voiceSession: VoiceSession?
+        get() = sessionPipeline?.session
 
     /**
      * Inicia el pipeline completo:
@@ -223,6 +175,17 @@ class VoicePipelineManager(
             openAiApiKey = effectiveOpenAiKey,
             context = context
         )
+
+        useVoiceSession = VoicePipelineModeSelector.select(
+            flagEnabled = BuildConfig.VOICE_SESSION_ENABLED,
+            hasCloudStt = hasCloudStt
+        ) == VoicePipelineMode.SESSION
+
+        if (useVoiceSession) {
+            Log.i(TAG, "VOICE_SESSION_ENABLED activo: usando VoiceSessionPipeline")
+            startVoiceSessionPipeline()
+            return
+        }
 
         // Inicializar reproductor de audio del celular
         audioPlayer.initialize()
@@ -435,6 +398,155 @@ class VoicePipelineManager(
     }
 
     /**
+     * Construye y arranca el camino nuevo. Es el único lugar que instancia
+     * `VoiceSessionPipeline`; el camino legacy no se toca.
+     */
+    private fun startVoiceSessionPipeline() {
+        if (sessionPipeline != null) return
+        val pipeline = VoiceSessionPipeline(
+            context = context,
+            scope = scope,
+            cloudClient = cloudClient,
+            skillRegistry = skillRegistry,
+            initialMicMuted = _isMicMuted.value
+        )
+        sessionPipeline = pipeline
+        mirrorSessionPipeline(pipeline)
+        // Fijar la ruta BLE antes de empezar la captura evita abrir el micrófono
+        // del celular solo para apagarlo en la siguiente transición.
+        pipeline.setBleConnected(bleClient.isConnected)
+        pipeline.start()
+
+        // La navegación autónoma sigue hablando por el mismo motor de salida.
+        @Suppress("DEPRECATION")
+        com.fifo.voicepipeline.location.FifoNavigationManager.instance.onAutonomousGuidance = { guidanceSpeech ->
+            pipeline.session.speakResponse(guidanceSpeech)
+        }
+
+        _micSource.value = MicSource.ESP32
+        connectBle()
+    }
+
+    private fun mirrorSessionPipeline(pipeline: VoiceSessionPipeline) {
+        sessionMirrorJobs += scope.launch {
+            pipeline.state.collect { state ->
+                _state.value = state
+                updateEspDisplay(state = displayStateName(state))
+            }
+        }
+        sessionMirrorJobs += scope.launch {
+            pipeline.isAwake.collect { awake -> _isAwake.value = awake }
+        }
+        sessionMirrorJobs += scope.launch {
+            pipeline.transcription.collect { text ->
+                _transcription.value = text
+                updateEspDisplay(
+                    state = displayStateName(_state.value),
+                    transcript = text,
+                    response = _aiResponse.value
+                )
+            }
+        }
+        sessionMirrorJobs += scope.launch {
+            pipeline.aiResponse.collect { response ->
+                _aiResponse.value = response
+                updateEspDisplay(
+                    state = displayStateName(_state.value),
+                    transcript = _transcription.value,
+                    response = response
+                )
+            }
+        }
+        sessionMirrorJobs += scope.launch {
+            pipeline.statusMessage.collect { message -> _statusMessage.value = message }
+        }
+        sessionMirrorJobs += scope.launch {
+            pipeline.rmsLevel.collect { rms ->
+                _rmsLevel.value = rms
+                if (_state.value == PipelineState.LISTENING) {
+                    updateEspDisplay(state = "ESCUCHANDO", level = rms.toFloat())
+                }
+            }
+        }
+        sessionMirrorJobs += scope.launch {
+            pipeline.isMicMuted.collect { muted -> _isMicMuted.value = muted }
+        }
+    }
+
+    private fun displayStateName(state: PipelineState): String = when (state) {
+        PipelineState.SPEAKING -> "HABLANDO"
+        PipelineState.LISTENING -> "ESCUCHANDO"
+        PipelineState.PROCESSING -> "PENSANDO"
+        PipelineState.SLEEPING -> "DURMIENDO"
+        PipelineState.DISCONNECTED -> "DESCONECTADO"
+        PipelineState.ERROR -> "ERROR"
+        PipelineState.IDLE -> "LISTO"
+    }
+
+    private fun handleBleConnectionChanged(connected: Boolean) {
+        if (useVoiceSession) {
+            sessionPipeline?.setBleConnected(connected)
+            if (connected) {
+                Log.i(TAG, "ESP32-S3 conectado por BLE (VoiceSession)")
+                _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
+                _statusMessage.value = if (_isAwake.value) {
+                    "Fifo despierto — le escucho"
+                } else {
+                    "Fifo en reposo · Diga 'Fifo' para despertar"
+                }
+                updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
+            } else {
+                Log.i(TAG, "ESP32-S3 desconectado de BLE (VoiceSession)")
+                _state.value = PipelineState.DISCONNECTED
+                _statusMessage.value = "Fifo desconectado · Conecte por Bluetooth"
+                updateEspDisplay(state = "DESCONECTADO")
+            }
+
+            registerBleLocation(connected)
+            return
+        }
+
+        if (connected) {
+            Log.i(TAG, "ESP32-S3 conectado por BLE!")
+            _state.value = if (_isAwake.value) PipelineState.IDLE else PipelineState.SLEEPING
+            _statusMessage.value = if (_isAwake.value) "Fifo despierto — le escucho" else "Fifo en reposo · Diga 'Fifo' para despertar"
+            vad.reset()
+            pcmBuffer.clear()
+            updateEspDisplay(state = if (_isAwake.value) "LISTO" else "DURMIENDO")
+            ensureListeningActive()
+
+            // Registrar ubicación GPS del celular al conectar
+            registerBleLocation(connected = true)
+        } else {
+            Log.i(TAG, "ESP32-S3 desconectado de BLE")
+            _state.value = PipelineState.DISCONNECTED
+            _statusMessage.value = "Fifo desconectado · Conecte por Bluetooth"
+            vad.reset()
+            pcmBuffer.clear()
+            ensureListeningActive()
+
+            // Registrar última ubicación GPS conocida del celular al desconectar
+            registerBleLocation(connected = false)
+        }
+    }
+
+    private fun registerBleLocation(connected: Boolean) {
+        try {
+            val loc = com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(context)
+            com.fifo.voicepipeline.data.FifoDataRepository.updateDeviceConnectionStatus(
+                connected = connected,
+                latitude = loc.latitude,
+                longitude = loc.longitude,
+                address = loc.address,
+                roomHint = if (connected) "En esta habitación" else "Cerca del lugar de desconexión",
+                rssi = if (connected) -60 else null
+            )
+        } catch (e: Exception) {
+            Log.w(TAG, "Error registrando ubicación BLE: ${e.message}")
+        }
+    }
+
+    /**
      * Intenta escanear y conectar con el ESP32 por BLE.
      */
     fun connectBle() {
@@ -447,6 +559,20 @@ class VoicePipelineManager(
      */
     fun setMicSource(source: MicSource) {
         if (_micSource.value == source) return
+
+        if (useVoiceSession) {
+            _micSource.value = source
+            sessionPipeline?.setMicSource(source)
+            _statusMessage.value = when (source) {
+                MicSource.ESP32 -> if (bleClient.isConnected) {
+                    "Usando micrófono de Fifo (ESP32)"
+                } else {
+                    "Buscando micrófono de Fifo por Bluetooth..."
+                }
+                MicSource.PHONE -> "Usando micrófono integrado del celular"
+            }
+            return
+        }
 
         _micSource.value = source
         vad.reset()
@@ -497,6 +623,13 @@ class VoicePipelineManager(
         _state.value = PipelineState.SLEEPING
         _statusMessage.value = "Modo celular activo · Di 'Fifo' para despertar"
         autoSleepJob?.cancel()
+
+        if (useVoiceSession) {
+            sessionPipeline?.talkFromPhone()
+            updateEspDisplay(state = "DURMIENDO", transcript = "", response = "")
+            return
+        }
+
         vad.reset()
         pcmBuffer.clear()
 
@@ -519,6 +652,23 @@ class VoicePipelineManager(
     fun setMicMuted(muted: Boolean) {
         _isMicMuted.value = muted
         prefs.edit().putBoolean("is_mic_muted", muted).apply()
+
+        if (useVoiceSession) {
+            sessionPipeline?.setMicMuted(muted)
+            if (muted) {
+                _rmsLevel.value = 0.0
+                _state.value = PipelineState.SLEEPING
+                _statusMessage.value = "Micrófono silenciado (Mute)"
+                updateEspDisplay(state = "MUTED", transcript = "", response = "")
+            } else {
+                _isAwake.value = false
+                _state.value = PipelineState.SLEEPING
+                _statusMessage.value = "Fifo en reposo · Diga 'Fifo' para hablar"
+                updateEspDisplay(state = "DURMIENDO", transcript = "", response = "")
+            }
+            return
+        }
+
         if (muted) {
             Log.i(TAG, "Micrófono SILENCIADO por el usuario")
             // Detener cualquier habla o audio activo inmediatamente
@@ -555,6 +705,19 @@ class VoicePipelineManager(
      */
     fun stop() {
         Log.i(TAG, "Deteniendo pipeline...")
+
+        if (useVoiceSession) {
+            sessionPipeline?.stop()
+            sessionPipeline = null
+            sessionMirrorJobs.forEach { it.cancel() }
+            sessionMirrorJobs.clear()
+            bleClient.disconnect()
+            scope.cancel()
+            _state.value = PipelineState.DISCONNECTED
+            _statusMessage.value = "Pipeline detenido"
+            return
+        }
+
         bargeInResumeJob?.cancel()
         bargeInResumeJob = null
         isWaitingForBargeInFollowUp = false
@@ -585,6 +748,11 @@ class VoicePipelineManager(
      *    - De lo contrario, si el ESP32 está conectado vía BLE, el audio proviene directamente del robot.
      */
     fun ensureListeningActive() {
+        if (useVoiceSession) {
+            sessionPipeline?.setBleConnected(bleClient.isConnected)
+            return
+        }
+
         if (_isMicMuted.value) {
             phoneMicRecorder.stop()
             nativeRecognizer?.stop()
@@ -619,6 +787,12 @@ class VoicePipelineManager(
      * En llamadas, NUNCA usa SpeechRecognizer de Google porque Android lo bloquea con ERROR_AUDIO.
      */
     fun ensureCallListeningActive() {
+        if (useVoiceSession) {
+            // El CaptureArbiter y AndroidTelephonyPort ya gobiernan la ruta de llamada.
+            sessionPipeline?.setBleConnected(bleClient.isConnected)
+            return
+        }
+
         if (_isMicMuted.value) return
         val isRinging = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value?.isRinging == true
         if (expectFollowUpQuestion) {
@@ -811,6 +985,13 @@ class VoicePipelineManager(
         _isAwake.value = true
         _state.value = PipelineState.IDLE
         _statusMessage.value = "Fifo despierto — te escucho"
+
+        if (useVoiceSession) {
+            sessionPipeline?.wakeUpManually()
+            updateEspDisplay(state = "ESCUCHANDO", transcript = "", response = "")
+            return
+        }
+
         ensureListeningActive()
         updateEspDisplay(state = "ESCUCHANDO", transcript = "", response = "")
         resetAutoSleepTimer()
@@ -831,6 +1012,11 @@ class VoicePipelineManager(
         _state.value = PipelineState.SLEEPING
         _statusMessage.value = if (_isMicMuted.value) "Micrófono silenciado (Mute)" else "Fifo en reposo · Diga 'Fifo' para hablar"
         updateEspDisplay(state = if (_isMicMuted.value) "MUTED" else "DURMIENDO", transcript = "", response = "")
+
+        if (useVoiceSession) {
+            sessionPipeline?.goToSleep()
+            return
+        }
 
         // Consolidar la información de la sesión en la base de datos relacional SQLite de memoria
         if (activeSessionTurns.isNotEmpty()) {
@@ -1165,6 +1351,12 @@ class VoicePipelineManager(
         if (query.isBlank()) return
         oneShotPushedToTalk = true
         _isAwake.value = true
+
+        if (useVoiceSession) {
+            sessionPipeline?.processTextQuery(query)
+            return
+        }
+
         processUserText(query)
     }
 
@@ -2007,7 +2199,11 @@ class VoicePipelineManager(
 
     /** Limpia el historial de conversación del agente. */
     fun clearConversation() {
-        cloudClient.clearHistory()
+        if (useVoiceSession) {
+            sessionPipeline?.clearConversation()
+        } else {
+            cloudClient.clearHistory()
+        }
         _transcription.value = ""
         _aiResponse.value = ""
         _statusMessage.value = "Conversación limpiada"

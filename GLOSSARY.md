@@ -15,8 +15,8 @@ Un ciclo indivisible de diálogo compuesto por la intervención hablada del usua
 _Avoid_: ChatMessage, InteractionStep
 
 **BargeIn**:
-Interrupción natural de la locución de Fifo provocada cuando el usuario habla mientras Fifo emite audio, pausando inmediatamente la reproducción y evaluando con el LLM si se trata de una aclaración, una nueva pregunta o una orden de silencio.
-_Avoid_: AudioCut, HardStop, MuteInterrupt
+Interrupción de la locución de Fifo confirmada por el contenido de la transcripción: una nueva invocación "Fifo …" o una orden de silencio. La energía RMS no corta la locución; solo mueve la boca/OLED. Un eco de la propia voz se ignora.
+_Avoid_: AudioCut, HardStop, MuteInterrupt, RmsCut
 
 **WakeWordTrigger**:
 La detección de la palabra de activación ("Fifo"), tanto de forma aislada como incrustada de forma natural dentro de una frase continua hablada por el usuario.
@@ -26,9 +26,25 @@ _Avoid_: Hotword, KeywordDetection
 La costura de interfaz que desacopla la captura y emisión física de tramas PCM (micrófono del teléfono o BLE ESP32) de la máquina de estados conversacional.
 _Avoid_: AudioBridge, HardwareBoundary
 
+**SpeechSegmenter**:
+Dueño único del VAD, el pre-roll y la construcción del WAV en el camino nuevo. Entrega segmentos de habla completos a VoiceSession; no conoce Android, TTS ni telefonía.
+_Avoid_: VadFilter, AudioInboundFilter, SpeechBuffer
+
 **PreRollBuffer**:
-Búfer circular de audio en memoria (~480 ms) que retiene los milisegundos previos a la confirmación de la palabra clave para evitar la amputación del fonema inicial "Fi-".
+Búfer circular de audio en memoria (~480 ms) que retiene los milisegundos previos a la confirmación de la palabra clave para evitar la amputación del fonema inicial "Fi-". En el camino nuevo vive dentro de `SpeechSegmenter`.
 _Avoid_: AudioCache, FrameQueue
+
+**VOICE_SESSION_ENABLED**:
+Flag de una release que selecciona el camino nuevo (`SESSION`) o el legacy (`LEGACY`). Está apagado en debug y encendido en release; sin STT de nube cae a legacy. Se borra junto con el camino legacy en la release siguiente.
+_Avoid_: FeatureToggle, UseNewPipeline
+
+**VoicePipelineMode**:
+Resultado puro de `VoicePipelineModeSelector`: `LEGACY` o `SESSION`. Garantiza que solo se construya un pipeline.
+_Avoid_: PipelineType, RuntimeMode
+
+**VoiceSessionPipeline**:
+Raíz de composición del camino nuevo. Construye `VoiceSession`, el adaptador de captura, `AndroidTelephonyPort` y `CallerContextCoordinator`; conecta el estado de llamada con la captura y entrega las acciones de llamada al exterior.
+_Avoid_: NewPipelineManager, VoiceFacade
 
 **CaptureArbiter**:
 El único dueño de la captura de audio. Decide entre micrófono del celular en modo normal, micrófono en modo llamada, BLE del ESP32, reconocedor nativo o captura detenida. Solo reconfigura hardware cuando cambia la ruta efectiva y descarta tramas tardías.
@@ -39,7 +55,7 @@ La fuente efectiva de audio elegida por el CaptureArbiter para el turno actual: 
 _Avoid_: AudioSource, InputMode
 
 **TelephonyPort**:
-La costura que mantiene la telefonía fuera de VoiceSession. Expone el estado de llamada y las acciones contestar/colgar sin que la sesión toque AudioManager ni FifoCallManager.
+La costura que mantiene la telefonía fuera de VoiceSession. Expone el estado de llamada y las acciones contestar/colgar sin que la sesión toque AudioManager ni FifoCallManager. VoiceSession solo recibe `callState` y entrega la acción por `onCallAction`.
 _Avoid_: CallManager, PhoneBridge
 
 **CallSnapshot**:

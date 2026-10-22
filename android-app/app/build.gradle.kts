@@ -44,12 +44,18 @@ android {
         buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicKey\"")
         buildConfigField("String", "OPENAI_API_KEY", "\"$openAiKey\"")
         buildConfigField("String", "GROQ_API_KEY", "\"$groqKey\"")
+        // Flag de una release: apagado en debug, encendido en release (ver buildTypes).
+        buildConfigField("boolean", "VOICE_SESSION_ENABLED", "false")
     }
 
     buildTypes {
+        debug {
+            buildConfigField("boolean", "VOICE_SESSION_ENABLED", "false")
+        }
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            buildConfigField("boolean", "VOICE_SESSION_ENABLED", "true")
         }
     }
 

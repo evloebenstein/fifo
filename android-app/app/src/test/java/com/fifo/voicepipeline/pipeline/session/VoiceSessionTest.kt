@@ -1,6 +1,10 @@
 package com.fifo.voicepipeline.pipeline.session
 
+import com.fifo.voicepipeline.audio.VadProcessor
 import com.fifo.voicepipeline.pipeline.PipelineState
+import com.fifo.voicepipeline.telephony.CallPhase
+import com.fifo.voicepipeline.telephony.CallSnapshot
+import com.fifo.voicepipeline.telephony.InMemoryTelephonyPort
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -17,7 +21,6 @@ class VoiceSessionTest {
 
     private lateinit var inMemoryOutbound: InMemoryAudioOutboundAdapter
     private lateinit var inMemoryCognition: InMemorySpeechCognitionAdapter
-    private lateinit var inboundFilter: AudioInboundFilter
     private lateinit var outboundEngine: SpeechOutboundEngine
     private lateinit var turnOrchestrator: TurnOrchestrator
     private lateinit var voiceSession: VoiceSession
@@ -26,11 +29,6 @@ class VoiceSessionTest {
     fun setUp() {
         inMemoryOutbound = InMemoryAudioOutboundAdapter()
         inMemoryCognition = InMemorySpeechCognitionAdapter()
-        inboundFilter = AudioInboundFilter(
-            preRollCapacity = 5,
-            speechRmsThreshold = 0.05,
-            bargeInRmsThreshold = 0.15
-        )
         outboundEngine = SpeechOutboundEngine(inMemoryOutbound)
         turnOrchestrator = TurnOrchestrator(
             scope = testScope,
@@ -41,41 +39,22 @@ class VoiceSessionTest {
         voiceSession = VoiceSession(
             scope = testScope,
             outboundAdapter = inMemoryOutbound,
-            inboundFilter = inboundFilter,
+            speechSegmenter = SpeechSegmenter(
+                vad = VadProcessor(clock = { 0L }),
+                preRollCapacity = 5
+            ),
             speechOutbound = outboundEngine,
             turnOrchestrator = turnOrchestrator,
             speechCognition = inMemoryCognition
         )
     }
 
-    @Test
-    fun testAudioInboundFilter_preRollRetention() {
-        val silentFrame = ByteArray(640)
-        inboundFilter.processFrame(silentFrame, isSpeakingNow = false)
-        inboundFilter.processFrame(silentFrame, isSpeakingNow = false)
-        inboundFilter.processFrame(silentFrame, isSpeakingNow = false)
-
-        val preRoll = inboundFilter.extractPreRollAndClear()
-        assertEquals(640 * 3, preRoll.size)
-        assertEquals(0, inboundFilter.extractPreRollAndClear().size)
-    }
-
-    @Test
-    fun testAudioInboundFilter_echoShieldingAndBargeIn() {
-        val lowEnergyFrame = ByteArray(640) { 1 }
-        val resultEcho = inboundFilter.processFrame(lowEnergyFrame, isSpeakingNow = true)
-        assertTrue(resultEcho is InboundFrameResult.EchoSuppressed)
-
-        val highEnergyFrame = ByteArray(640)
-        for (i in 0 until 640 step 2) {
+    private fun highEnergyFrame(): ByteArray = ByteArray(640).also { frame ->
+        for (i in 0 until frame.size step 2) {
             val highVal: Short = 16000
-            highEnergyFrame[i] = (highVal.toInt() and 0xFF).toByte()
-            highEnergyFrame[i + 1] = ((highVal.toInt() shr 8) and 0xFF).toByte()
+            frame[i] = (highVal.toInt() and 0xFF).toByte()
+            frame[i + 1] = ((highVal.toInt() shr 8) and 0xFF).toByte()
         }
-
-        inboundFilter.processFrame(highEnergyFrame, isSpeakingNow = true)
-        val resultBargeIn = inboundFilter.processFrame(highEnergyFrame, isSpeakingNow = true)
-        assertTrue("Debe detectar intención de interrupción (Barge-In)", resultBargeIn is InboundFrameResult.BargeInDetected)
     }
 
     @Test
@@ -111,26 +90,47 @@ class VoiceSessionTest {
     }
 
     @Test
-    fun testVoiceSession_bargeInInterruptsSpeechAndStoresContext() = runTest(testDispatcher) {
+    fun testVoiceSession_highRmsDoesNotCutSpeechWithoutTranscriptContent() = runTest(testDispatcher) {
         voiceSession.speakResponse("Hola María, ¿cómo estuvo tu caminata matutina por el parque?")
         assertEquals(PipelineState.SPEAKING, voiceSession.state.value)
         assertTrue(outboundEngine.isSpeaking)
 
-        val highEnergyFrame = ByteArray(640)
-        for (i in 0 until 640 step 2) {
-            val highVal: Short = 16000
-            highEnergyFrame[i] = (highVal.toInt() and 0xFF).toByte()
-            highEnergyFrame[i + 1] = ((highVal.toInt() shr 8) and 0xFF).toByte()
-        }
+        // Energía alta durante la locución: solo mueve la boca/OLED. No corta TTS.
+        voiceSession.onAudioFrameReceived(highEnergyFrame())
+        voiceSession.onAudioFrameReceived(highEnergyFrame())
 
-        voiceSession.onAudioFrameReceived(highEnergyFrame)
-        voiceSession.onAudioFrameReceived(highEnergyFrame)
+        assertTrue("El RMS por sí solo no debe cortar la locución", outboundEngine.isSpeaking)
+        assertEquals(PipelineState.SPEAKING, voiceSession.state.value)
+        assertFalse(turnOrchestrator.isWaitingForBargeInResolution)
+    }
 
-        assertFalse("El audio debe haberse pausado", outboundEngine.isSpeaking)
-        assertEquals(PipelineState.LISTENING, voiceSession.state.value)
-        assertTrue(turnOrchestrator.isWaitingForBargeInResolution)
-        assertNotNull(turnOrchestrator.interruptedSpokenSentence)
-        assertTrue(turnOrchestrator.interruptedSpokenSentence!!.contains("Hola María"))
+    @Test
+    fun testVoiceSession_silenceCommandCutsSpeechByTranscriptContent() = runTest(testDispatcher) {
+        voiceSession.speakResponse("Hola María, ¿cómo estuvo tu caminata matutina por el parque?")
+        assertTrue(outboundEngine.isSpeaking)
+
+        voiceSession.processUserUtterance("Fifo cállate")
+        testDispatcher.scheduler.runCurrent()
+
+        assertFalse("El contenido de la transcripción sí debe cortar TTS", outboundEngine.isSpeaking)
+        assertEquals(PipelineState.SLEEPING, voiceSession.state.value)
+    }
+
+    @Test
+    fun testVoiceSession_newFifoQueryWhileSpeakingCutsAndProcessesByTranscript() = runTest(testDispatcher) {
+        voiceSession.speakResponse("Te estaba contando una historia muy larga.")
+        assertTrue(outboundEngine.isSpeaking)
+
+        inMemoryCognition.responseToReturn = "Son las cinco de la tarde."
+        voiceSession.processUserUtterance("Fifo, ¿qué hora es?")
+        testDispatcher.scheduler.runCurrent()
+
+        assertEquals(2, inMemoryOutbound.spokenUtterances.size)
+        assertEquals("Son las cinco de la tarde.", inMemoryOutbound.spokenUtterances.last())
+        assertTrue("La respuesta nueva se está locutando", outboundEngine.isSpeaking)
+        assertEquals(1, inMemoryCognition.receivedQueries.size)
+        assertEquals("¿qué hora es?", inMemoryCognition.receivedQueries.first())
+        assertEquals("Son las cinco de la tarde.", voiceSession.aiResponse.value)
     }
 
     @Test
@@ -242,7 +242,8 @@ class VoiceSessionTest {
         testDispatcher.scheduler.runCurrent()
 
         assertFalse("El habla debe detenerse de inmediato durante una llamada", outboundEngine.isSpeaking)
-        assertEquals(PipelineState.SLEEPING, voiceSession.state.value)
+        assertEquals(PipelineState.LISTENING, voiceSession.state.value)
+        assertTrue("Fifo debe quedar despierto para oír 'Fifo contesta'", voiceSession.isAwake.value)
         assertEquals("Llamada telefónica en curso", voiceSession.statusMessage.value)
 
         // Finaliza la llamada telefónica
@@ -269,7 +270,82 @@ class VoiceSessionTest {
     }
 
     @Test
+    fun testCallActionRequiresFullWakeWordAndRoutesOutsideSession() = runTest(testDispatcher) {
+        val telephony = InMemoryTelephonyPort(
+            CallSnapshot(phase = CallPhase.RINGING, callerName = "María")
+        )
+        val outbound = InMemoryAudioOutboundAdapter()
+        val engine = SpeechOutboundEngine(outbound)
+        val orchestrator = TurnOrchestrator(scope = testScope, speechOutbound = engine)
+        val cognition = InMemorySpeechCognitionAdapter()
+        var handled: CallAction? = null
+
+        val session = VoiceSession(
+            scope = testScope,
+            outboundAdapter = outbound,
+            speechSegmenter = SpeechSegmenter(),
+            speechOutbound = engine,
+            turnOrchestrator = orchestrator,
+            speechCognition = cognition,
+            callState = telephony.callState,
+            onCallAction = { action ->
+                handled = action
+                if (action == CallAction.ANSWER) telephony.answer()
+                true
+            }
+        )
+
+        // "contesta" aislado no es una orden válida: la palabra de activación es obligatoria.
+        session.processUserUtterance("contesta")
+        testDispatcher.scheduler.runCurrent()
+        assertNull(handled)
+        assertEquals(0, telephony.answerInvocations)
+        assertEquals(0, cognition.receivedQueries.size)
+
+        // "Fifo contesta" sí se enruta al control de llamada, fuera de VoiceSession.
+        session.processUserUtterance("Fifo contesta")
+        testDispatcher.scheduler.runCurrent()
+        assertEquals(CallAction.ANSWER, handled)
+        assertEquals(1, telephony.answerInvocations)
+        assertEquals(0, cognition.receivedQueries.size)
+        assertEquals("Contestando...", session.statusMessage.value)
+    }
+
+    @Test
+    fun testCallActionEchoFromRingingAnnouncementDoesNotAnswer() = runTest(testDispatcher) {
+        val telephony = InMemoryTelephonyPort(
+            CallSnapshot(phase = CallPhase.RINGING, callerName = "María")
+        )
+        val outbound = InMemoryAudioOutboundAdapter()
+        val engine = SpeechOutboundEngine(outbound)
+        val orchestrator = TurnOrchestrator(scope = testScope, speechOutbound = engine)
+        var handled: CallAction? = null
+
+        val session = VoiceSession(
+            scope = testScope,
+            outboundAdapter = outbound,
+            speechSegmenter = SpeechSegmenter(),
+            speechOutbound = engine,
+            turnOrchestrator = orchestrator,
+            speechCognition = InMemorySpeechCognitionAdapter(),
+            callState = telephony.callState,
+            onCallAction = { action ->
+                handled = action
+                true
+            }
+        )
+
+        session.speakResponse("Le está llamando María. Diga 'Fifo contesta' o 'Fifo cuelga'.")
+        session.processUserUtterance("Fifo contesta")
+        testDispatcher.scheduler.runCurrent()
+
+        assertNull("El eco del anuncio no debe contestar la llamada", handled)
+        assertEquals(0, telephony.answerInvocations)
+    }
+
+    @Test
     fun testConversationContextProvider_customContextInjection() {
+
         val customProvider = object : ConversationContextProvider {
             override fun buildContextWindow(): String {
                 return "CONTEXTO FIJADO: Usuario Pedro, Ciudad Santiago, Destino activo Farmacia."

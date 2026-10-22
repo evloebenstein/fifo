@@ -19,7 +19,8 @@ import kotlin.math.sqrt
 class VadProcessor(
     private val silenceTimeoutMs: Long = AudioConfig.VAD_SILENCE_TIMEOUT_MS,
     private val maxSpeechDurationMs: Long = 8000L, // 8 segundos máx por turno
-    private val minSpeechDurationMs: Long = 300L   // Frases menores a 300ms se consideran ruido
+    private val minSpeechDurationMs: Long = 300L,  // Frases menores a 300ms se consideran ruido
+    private val clock: () -> Long = System::currentTimeMillis
 ) {
     /** Piso de ruido ambiental estimado dinámicamente */
     var ambientNoiseFloor: Double = 70.0
@@ -53,7 +54,7 @@ class VadProcessor(
      */
     fun processChunk(pcmData: ByteArray, isSpeaking: Boolean = false): VadResult {
         val rms = calculateFilteredRms(pcmData)
-        val now = System.currentTimeMillis()
+        val now = clock()
 
         // Umbrales adaptativos con piso calibrado:
         // Si Fifo está hablando por parlante, el umbral de arranque sube para captar la voz directa del usuario

@@ -2,6 +2,7 @@ package com.fifo.voicepipeline.pipeline.session
 
 import com.fifo.voicepipeline.pipeline.PipelineState
 import com.fifo.voicepipeline.skills.FifoSkillRegistry
+import com.fifo.voicepipeline.telephony.CallSnapshot
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -39,11 +40,14 @@ sealed class VoiceSessionIntent {
 class VoiceSession(
     private val scope: CoroutineScope,
     private val outboundAdapter: AudioOutboundAdapter,
-    val inboundFilter: AudioInboundFilter = AudioInboundFilter(),
+    val speechSegmenter: SpeechSegmenter = SpeechSegmenter(),
     val speechOutbound: SpeechOutboundEngine = SpeechOutboundEngine(outboundAdapter),
     val turnOrchestrator: TurnOrchestrator = TurnOrchestrator(scope, speechOutbound),
-    val speechCognition: SpeechCognitionAdapter = InMemorySpeechCognitionAdapter(),
-    var skillRegistry: FifoSkillRegistry? = null
+    var speechCognition: SpeechCognitionAdapter = InMemorySpeechCognitionAdapter(),
+    var skillRegistry: FifoSkillRegistry? = null,
+    private val callState: StateFlow<CallSnapshot>? = null,
+    private val onCallAction: ((CallAction) -> Boolean)? = null,
+    initialMicMuted: Boolean = false
 ) {
     // ── Estados observables para la UI / Servicios ──────────────
     val state: StateFlow<PipelineState> = turnOrchestrator.state
@@ -61,8 +65,12 @@ class VoiceSession(
     private val _statusMessage = MutableStateFlow("Fifo listo · Diga 'Fifo'")
     val statusMessage: StateFlow<String> = _statusMessage.asStateFlow()
 
-    private val _isMicMuted = MutableStateFlow(false)
+    private val _isMicMuted = MutableStateFlow(initialMicMuted)
     val isMicMuted: StateFlow<Boolean> = _isMicMuted.asStateFlow()
+
+    /** Evita transcribir dos segmentos en paralelo y abrir dos turnos duplicados. */
+    @Volatile
+    private var isTranscribing = false
 
     /**
      * Procesa una intención de alto nivel enviada por la UI o el sistema (telefonía, pantalla).
@@ -71,7 +79,7 @@ class VoiceSession(
         when (intent) {
             is VoiceSessionIntent.IncomingCall -> {
                 speechOutbound.stopAndCaptureInterrupted()
-                turnOrchestrator.goToSleep()
+                turnOrchestrator.wakeUpExplicitly()
                 _statusMessage.value = "Llamada telefónica en curso"
             }
             is VoiceSessionIntent.CallEnded -> {
@@ -92,81 +100,117 @@ class VoiceSession(
                 _statusMessage.value = "Te escucho..."
             }
             is VoiceSessionIntent.ProcessTextQuery -> {
-                processUserUtterance(intent.query)
+                turnOrchestrator.wakeUpExplicitly()
+                val query = if (turnOrchestrator.isWakeWord(intent.query)) {
+                    intent.query
+                } else {
+                    "Fifo ${intent.query}"
+                }
+                processUserUtterance(query)
             }
         }
     }
 
     /**
      * Alimenta una trama de audio crudo entrante (desde Bluetooth LE o Micrófono del celular).
+     *
+     * El segmentador hace VAD y pre-roll. La energía (RMS) solo alimenta la boca/OLED:
+     * no corta a Fifo. El corte se decide más abajo, con la transcripción ya lista.
      */
-    fun onAudioFrameReceived(pcmData: ByteArray): InboundFrameResult {
+    fun onAudioFrameReceived(pcmData: ByteArray): SpeechSegment {
         if (_isMicMuted.value) {
             _rmsLevel.value = 0.0
-            return InboundFrameResult.Silent(0.0)
+            return SpeechSegment.Silence(0.0)
         }
 
-        val result = inboundFilter.processFrame(
+        // Hay una transcripción en vuelo: no acumular tramas para un segundo turno.
+        if (isTranscribing) {
+            speechSegmenter.reset()
+            _rmsLevel.value = 0.0
+            return SpeechSegment.Silence(0.0)
+        }
+
+        // Mientras el LLM piensa no se abre otro turno. La locución sí se puede interrumpir
+        // porque su audio también pasa por el segmentador y se evalúa por contenido.
+        if (turnOrchestrator.state.value == PipelineState.PROCESSING && !speechOutbound.isSpeaking) {
+            speechSegmenter.reset()
+            _rmsLevel.value = 0.0
+            return SpeechSegment.Silence(0.0)
+        }
+
+        val segment = speechSegmenter.processFrame(
             pcmData = pcmData,
             isSpeakingNow = speechOutbound.isSpeaking
         )
+        _rmsLevel.value = segment.rms
 
-        when (result) {
-            is InboundFrameResult.EchoSuppressed -> {
-                // Silenciado por blindaje de altavoz
+        when (segment) {
+            is SpeechSegment.Started -> {
+                if (!speechOutbound.isSpeaking && turnOrchestrator.isAwake.value) {
+                    _statusMessage.value = "Escuchando..."
+                }
             }
-            is InboundFrameResult.Silent -> {
-                _rmsLevel.value = result.rms
+            is SpeechSegment.Ended -> {
+                _statusMessage.value = "Transcribiendo..."
+                processUserAudio(segment.wavData)
             }
-            is InboundFrameResult.Speech -> {
-                _rmsLevel.value = result.rms
-            }
-            is InboundFrameResult.BargeInDetected -> {
-                _rmsLevel.value = result.rms
-                turnOrchestrator.onBargeInTriggered()
-                _statusMessage.value = "Te escucho..."
-            }
+            is SpeechSegment.Continuing, is SpeechSegment.Silence -> Unit
         }
 
-        return result
+        return segment
     }
 
     /**
      * Procesa audio completo de usuario (ej. delimitado por VAD).
      */
     fun processUserAudio(wavData: ByteArray) {
+        if (isTranscribing) return
+        isTranscribing = true
         scope.launch {
-            // Capturar antes de procesar: onProcessingStarted cierra la ventana de follow-up,
-            // pero STT aún necesita saber si la respuesta puede ser corta ("sí", "no", "ok").
-            val allowShortResponses = turnOrchestrator.shouldAllowShortResponses()
-            turnOrchestrator.onProcessingStarted()
-            _statusMessage.value = "Transcribiendo..."
+            try {
+                // Capturar antes de transcribir: la ventana de follow-up aún debe permitir
+                // respuestas cortas ("sí", "no", "ok"). No cambiamos a PROCESSING hasta que
+                // la transcripción demuestre que hay un turno real; así un ruido ambiental
+                // no deja a Fifo atascado pensando.
+                val allowShortResponses = turnOrchestrator.shouldAllowShortResponses()
+                _statusMessage.value = "Transcribiendo..."
 
-            val text = speechCognition.transcribe(
-                wavData,
-                allowShortResponses = allowShortResponses
-            ).trim()
-            _transcription.value = text
+                val text = speechCognition.transcribe(
+                    wavData,
+                    allowShortResponses = allowShortResponses
+                ).trim()
+                _transcription.value = text
 
-            if (text.isBlank()) {
-                // Si hubo un barge-in y el usuario se quedó en silencio, reanudar mediante LLM
-                if (turnOrchestrator.isWaitingForBargeInResolution) {
-                    val interrupted = turnOrchestrator.interruptedSpokenSentence
-                    if (!interrupted.isNullOrBlank()) {
-                        _statusMessage.value = "Reanudando..."
-                        val resumption = speechCognition.generateNaturalResumption(interrupted)
-                        turnOrchestrator.clearBargeInResolution()
-                        speakResponse(resumption)
-                        return@launch
+                if (text.isBlank()) {
+                    // Si hubo un barge-in y el usuario se quedó en silencio, reanudar mediante LLM
+                    if (turnOrchestrator.isWaitingForBargeInResolution) {
+                        val interrupted = turnOrchestrator.interruptedSpokenSentence
+                        if (!interrupted.isNullOrBlank()) {
+                            _statusMessage.value = "Reanudando..."
+                            val resumption = speechCognition.generateNaturalResumption(interrupted)
+                            turnOrchestrator.clearBargeInResolution()
+                            speakResponse(resumption)
+                            return@launch
+                        }
                     }
+
+                    _statusMessage.value = if (turnOrchestrator.isAwake.value) {
+                        "Fifo listo"
+                    } else {
+                        "Fifo durmiendo · Diga 'Fifo'"
+                    }
+                    turnOrchestrator.resetAutoSleepTimer()
+                    return@launch
                 }
 
-                _statusMessage.value = "Fifo listo"
-                turnOrchestrator.resetAutoSleepTimer()
-                return@launch
+                processUserUtterance(text)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                _statusMessage.value = "No pude entender el audio"
+            } finally {
+                isTranscribing = false
             }
-
-            processUserUtterance(text)
         }
     }
 
@@ -181,9 +225,51 @@ class VoiceSession(
      */
     fun processUserUtterance(rawText: String) {
         scope.launch {
+            val text = rawText.trim()
+            if (text.isBlank()) return@launch
+
+            val isSpeakingNow = turnOrchestrator.state.value == PipelineState.SPEAKING ||
+                speechOutbound.isSpeaking
+            val isEcho = turnOrchestrator.isEchoOfLastSpokenSentence(text, isSpeakingNow)
+
             val isFollowUp = turnOrchestrator.expectFollowUp.value
             val isBargeIn = turnOrchestrator.isWaitingForBargeInResolution
-            val isWakeWord = turnOrchestrator.isWakeWord(rawText)
+            val isWakeWord = turnOrchestrator.isWakeWord(text)
+
+            // Silencio gana al escudo de eco: el usuario puede repetir las mismas
+            // palabras que acaba de decir Fifo para detenerlo.
+            if (turnOrchestrator.isSilenceCommand(text, whileSpeaking = isSpeakingNow || isBargeIn)) {
+                interruptAndQuiet()
+                return@launch
+            }
+
+            // Eco de la propia voz de Fifo: no abre turno y, sobre todo, no corta TTS.
+            // Esto también protege el anuncio de timbrado, que contiene las propias
+            // frases "Fifo contesta" / "Fifo cuelga": un eco nunca debe contestar una llamada.
+            if (isEcho) {
+                if (isSpeakingNow) _statusMessage.value = "Eco ignorado"
+                return@launch
+            }
+
+            // Control de llamada determinista y con palabra de activación completa.
+            // Se evalúa después del escudo de eco para no auto-contestar con el propio TTS.
+            val callSnapshot = callState?.value
+            val callAction = if (callSnapshot?.hasCall == true && isExplicitCallCommand(text)) {
+                turnOrchestrator.classifyCallAction(text, callSnapshot.isRinging)
+            } else {
+                null
+            }
+            if (callAction != null && onCallAction != null && onCallAction.invoke(callAction)) {
+                if (callAction == CallAction.ANSWER || callAction == CallAction.HANGUP) {
+                    speechOutbound.stopAndCaptureInterrupted()
+                }
+                _statusMessage.value = when (callAction) {
+                    CallAction.ANSWER -> "Contestando..."
+                    CallAction.HANGUP -> "Colgando..."
+                    CallAction.CALLER_STATUS -> "Consultando llamada..."
+                }
+                return@launch
+            }
 
             // Si no dijo "Fifo" y no estamos en follow-up ni en barge-in, descartar audio ambiental
             if (!isWakeWord && !isFollowUp && !isBargeIn) {
@@ -191,20 +277,24 @@ class VoiceSession(
                 return@launch
             }
 
-            // Orden de silencio ("cállate", "para", "basta") -> Silencio absoluto sin decir ninguna palabra.
-            // Mientras Fifo habla o durante un barge-in se aceptan palabras cortas de detención.
-            val isSpeakingNow = turnOrchestrator.state.value == PipelineState.SPEAKING
-            if (turnOrchestrator.isSilenceCommand(rawText, whileSpeaking = isSpeakingNow || isBargeIn)) {
-                interruptAndQuiet()
+            if (!turnOrchestrator.shouldProcessUtterance(text)) {
                 return@launch
             }
+            turnOrchestrator.markUtteranceProcessed(text)
+
+            // Una nueva consulta con "Fifo" mientras habla es un barge-in confirmado
+            // por el contenido de la transcripción, nunca por el RMS.
+            if (isSpeakingNow && isWakeWord && !isBargeIn) {
+                turnOrchestrator.onBargeInTriggered()
+            }
+            val effectiveBargeIn = isBargeIn || (isSpeakingNow && isWakeWord)
 
             // Evaluar si es orden de reposo ("duérmete", "a dormir")
-            val isSleepCommand = turnOrchestrator.isSleepCommand(rawText)
+            val isSleepCommand = turnOrchestrator.isSleepCommand(text)
+            val cleanedQuery = turnOrchestrator.extractQuery(text)
 
             // Si fue una interrupción pero solo dijo "Fifo" y nada más, reanudar de forma natural con LLM
-            val cleanedQuery = turnOrchestrator.extractQuery(rawText)
-            if (isBargeIn && (cleanedQuery.isBlank() || cleanedQuery.equals("fifo", ignoreCase = true))) {
+            if (effectiveBargeIn && (cleanedQuery.isBlank() || cleanedQuery.equals("fifo", ignoreCase = true))) {
                 val interrupted = turnOrchestrator.interruptedSpokenSentence
                 if (!interrupted.isNullOrBlank()) {
                     _statusMessage.value = "Reanudando..."
@@ -238,6 +328,20 @@ class VoiceSession(
                 speakResponse(response)
             }
         }
+    }
+
+    /**
+     * Evita que un eco largo del anuncio ("Diga 'Fifo contesta' o 'Fifo cuelga'")
+     * se confunda con una orden real. La orden debe ser corta y no contener verbos
+     * de habla del propio anuncio.
+     */
+    private fun isExplicitCallCommand(rawText: String): Boolean {
+        val query = turnOrchestrator.extractQuery(rawText).lowercase().trim()
+        if (query.isBlank() || query.length > 40) return false
+        if (query.contains("diga") || query.contains("decir") || query.contains("dice")) return false
+        // El anuncio completo ("Fifo contesta o Fifo cuelga") no es una orden.
+        if (query.contains(" o ")) return false
+        return query.split(Regex("\\s+")).count { it.isNotBlank() } <= 4
     }
 
     /**
@@ -293,8 +397,18 @@ class VoiceSession(
      * Alterna el silenciamiento del micrófono.
      */
     fun toggleMicMute() {
-        _isMicMuted.value = !_isMicMuted.value
-        if (_isMicMuted.value) {
+        setMicMuted(!_isMicMuted.value)
+    }
+
+    /**
+     * Fija el silenciamiento del micrófono de forma idempotente.
+     */
+    fun setMicMuted(muted: Boolean) {
+        if (_isMicMuted.value == muted) return
+        _isMicMuted.value = muted
+        if (muted) {
+            interruptAndQuiet()
+            speechSegmenter.reset()
             _rmsLevel.value = 0.0
             _statusMessage.value = "Micrófono silenciado"
         } else {
@@ -308,8 +422,14 @@ class VoiceSession(
         _rmsLevel.value = 0.0
     }
 
+    /** Actualiza el texto de estado desde el coordinador de telefonía. */
+    fun setCallStatus(message: String) {
+        _statusMessage.value = message
+    }
+
     fun resetSession() {
         interruptAndQuiet()
+        speechSegmenter.reset()
         _transcription.value = ""
         _aiResponse.value = ""
         _statusMessage.value = "Fifo listo · Diga 'Fifo'"
