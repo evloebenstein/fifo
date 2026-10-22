@@ -136,10 +136,16 @@ class VoiceSession(
      */
     fun processUserAudio(wavData: ByteArray) {
         scope.launch {
+            // Capturar antes de procesar: onProcessingStarted cierra la ventana de follow-up,
+            // pero STT aún necesita saber si la respuesta puede ser corta ("sí", "no", "ok").
+            val allowShortResponses = turnOrchestrator.shouldAllowShortResponses()
             turnOrchestrator.onProcessingStarted()
             _statusMessage.value = "Transcribiendo..."
 
-            val text = speechCognition.transcribe(wavData).trim()
+            val text = speechCognition.transcribe(
+                wavData,
+                allowShortResponses = allowShortResponses
+            ).trim()
             _transcription.value = text
 
             if (text.isBlank()) {
@@ -185,8 +191,10 @@ class VoiceSession(
                 return@launch
             }
 
-            // Orden de silencio ("cállate", "para", "basta") -> Silencio absoluto sin decir ninguna palabra
-            if (turnOrchestrator.isSilenceCommand(rawText)) {
+            // Orden de silencio ("cállate", "para", "basta") -> Silencio absoluto sin decir ninguna palabra.
+            // Mientras Fifo habla o durante un barge-in se aceptan palabras cortas de detención.
+            val isSpeakingNow = turnOrchestrator.state.value == PipelineState.SPEAKING
+            if (turnOrchestrator.isSilenceCommand(rawText, whileSpeaking = isSpeakingNow || isBargeIn)) {
                 interruptAndQuiet()
                 return@launch
             }
