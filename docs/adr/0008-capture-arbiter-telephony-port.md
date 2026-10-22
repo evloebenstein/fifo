@@ -138,6 +138,6 @@ Este ADR **reemplaza las afirmaciones de audio/telefonía de ADR-0005** que daba
 
 ## Migration Path
 
-1. Paso 3: `CallerContextProvider` consume `TelephonyPort.callState` y enriquece conocido/desconocido contra el backend.
+1. Paso 3: `CallerContextProvider`/`CallerContextCoordinator` consumen `TelephonyPort.callState` y enriquecen conocido/desconocido contra el backend (ver [ADR-0009](0009-caller-context-provider.md)).
 2. Paso 4: `VoiceSession` usa `CaptureArbiter` para entrada y `TelephonyPort` como observador externo; `VoicePipelineManager` delega con `VOICE_SESSION_ENABLED`.
 3. Release siguiente: borrar el camino legacy y el flag; `FifoCallManager` deja de ser visible fuera de `telephony`.

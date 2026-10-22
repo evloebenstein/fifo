@@ -50,6 +50,22 @@ _Avoid_: CallInfo, PhoneState
 Fase de una llamada en el dominio de Fifo: `NONE`, `RINGING` o `ACTIVE`. Timbrado y activo comparten la ruta de captura `PHONE_CALL`.
 _Avoid_: CallState (ambiguo con el estado nativo de Android)
 
+**CallerContext**:
+Contexto unificado de un llamante: nombre visible, número, parentesco, si es conocido o desconocido, notas y temas recientes. El anuncio de timbrado solo usa nombre/parentesco; las notas y temas quedan para cuando el usuario pregunte.
+_Avoid_: CallerInfo, ContactCard
+
+**CallerContextSource**:
+Origen de la identidad del llamante: `UNKNOWN`, `LOCAL_CONTACT`, `BACKEND_KNOWN` o `BACKEND_NEW`. Un caller ID con nombre no convierte por sí solo a un desconocido en conocido.
+_Avoid_: IdentityType, ContactSource
+
+**CallerContextProvider**:
+Proveedor en dos fases: `local()` resuelve de inmediato el nombre del teléfono o del grafo relacional; `enrich()` consulta el backend con timeout corto (~800 ms). Si la red falla, conserva el contexto local.
+_Avoid_: CallerResolver, ContactLookup
+
+**CallerContextCoordinator**:
+Observador externo de `TelephonyPort` que emite el contexto local al instante, lanza el enriquecimiento en paralelo y descarta resultados de llamadas que ya terminaron. No inicia ni detiene la telefonía.
+_Avoid_: CallOrchestrator, PhoneSession
+
 ### Comunidad y Memoria
 
 **ActividadComunitaria**:
