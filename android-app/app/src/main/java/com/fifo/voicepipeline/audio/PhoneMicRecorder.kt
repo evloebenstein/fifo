@@ -21,7 +21,7 @@ import kotlinx.coroutines.*
  * Captura audio PCM 16-bit mono a 16kHz y emite chunks del mismo tamaño
  * que los que enviaría el ESP32 (1024 bytes = 512 muestras = 32ms).
  */
-class PhoneMicRecorder(
+internal class PhoneMicRecorder(
     private val context: android.content.Context? = null,
     private val sampleRate: Int = AudioConfig.SAMPLE_RATE,
     private val chunkBytes: Int = AudioConfig.CHUNK_BYTES

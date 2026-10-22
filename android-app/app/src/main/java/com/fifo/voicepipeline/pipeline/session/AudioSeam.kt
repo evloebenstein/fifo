@@ -4,9 +4,11 @@ package com.fifo.voicepipeline.pipeline.session
  * Costura de audio (AudioSeam) según los principios de Feathers & Ousterhout.
  *
  * Desacopla la captura y emisión física de audio del orquestador conversacional.
- * Dos adaptadores satisfacen esta costura:
- * 1. AndroidAudioHardwareAdapter: Hardware real en producción (BLE ESP32, Micrófono celular, Android TTS).
- * 2. InMemoryAudioAdapter: Simulación en memoria para pruebas unitarias instantáneas sin emulador.
+ *
+ * La entrada tiene un único dueño en producción: `AndroidAudioHardwareInboundAdapter`,
+ * que delega toda decisión de fuente en `CaptureArbiter`. La salida usa
+ * `AndroidAudioHardwareAdapter` (solo TTS; nunca toca el micrófono ni `AudioManager`).
+ * `InMemoryAudioInboundAdapter`/`InMemoryAudioOutboundAdapter` simulan la costura en JVM.
  */
 
 /**

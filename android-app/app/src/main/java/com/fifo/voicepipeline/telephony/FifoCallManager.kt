@@ -25,7 +25,7 @@ import com.fifo.voicepipeline.ui.model.IncomingCallInfo
  * 3. Notifica a Fifo para que le anuncie en voz alta al usuario quién le llama.
  * 4. Permite contestar en altavoz o colgar la llamada mediante comandos de voz ("Fifo contesta", "Fifo cuelga").
  */
-class FifoCallManager(
+internal class FifoCallManager(
     private val context: Context,
     private val onAnnounceCall: (callerName: String, phoneNumber: String) -> Unit = { _, _ -> },
     private val onCommunicationModeChanged: ((Boolean) -> Unit)? = null
@@ -33,6 +33,58 @@ class FifoCallManager(
 
     companion object {
         private const val TAG = "FifoCallManager"
+
+        /**
+         * Resuelve un número contra la libreta de contactos sin construir un manager completo.
+         * Lo usa `FifoPhoneCallReceiver` para no crear instancias desechables por broadcast.
+         */
+        @SuppressLint("Range")
+        fun resolveContactName(context: Context, phoneNumber: String): String {
+            if (phoneNumber.isBlank()) return "Llamada entrante"
+
+            val hasContactsPermission = ContextCompat.checkSelfPermission(
+                context,
+                android.Manifest.permission.READ_CONTACTS
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!hasContactsPermission) {
+                // Verificar si coincide con el contacto de emergencia del perfil
+                val profile = FifoDataRepository.userProfile.value
+                if (phoneNumber.contains(profile.emergencyContactPhone.takeLast(8))) {
+                    return profile.emergencyContactName
+                }
+                return if (phoneNumber.isNotBlank()) phoneNumber else "Llamada entrante"
+            }
+
+            return try {
+                val uri = Uri.withAppendedPath(
+                    ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
+                    Uri.encode(phoneNumber)
+                )
+                val cursor = context.contentResolver.query(
+                    uri,
+                    arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),
+                    null,
+                    null,
+                    null
+                )
+                cursor?.use {
+                    if (it.moveToFirst()) {
+                        it.getString(it.getColumnIndex(ContactsContract.PhoneLookup.DISPLAY_NAME))
+                    } else {
+                        val profile = FifoDataRepository.userProfile.value
+                        if (phoneNumber.contains(profile.emergencyContactPhone.takeLast(8))) {
+                            profile.emergencyContactName
+                        } else {
+                            phoneNumber
+                        }
+                    }
+                } ?: phoneNumber
+            } catch (e: Exception) {
+                Log.w(TAG, "Error consultando contactos: ${e.message}")
+                phoneNumber
+            }
+        }
     }
 
     private val telephonyManager = context.getSystemService(Context.TELEPHONY_SERVICE) as? TelephonyManager
@@ -43,10 +95,29 @@ class FifoCallManager(
     private var phoneStateListener: PhoneStateListener? = null
     private var audioModeListener: Any? = null
 
-    init {
-        // Enlazar acciones en el repositorio central
-        FifoDataRepository.onAnswerCallAction = { answerCall() }
-        FifoDataRepository.onHangupCallAction = { hangupCall() }
+    // Acciones estables para poder desenlazarlas sin pisar a otro manager.
+    private val repositoryAnswerAction: () -> Boolean = { answerCall() }
+    private val repositoryHangupAction: () -> Boolean = { hangupCall() }
+
+    /**
+     * Enlaza contestar/colgar con el repositorio central.
+     * Es explícito para que el constructor no tenga efectos globales.
+     */
+    fun bindRepositoryActions() {
+        FifoDataRepository.onAnswerCallAction = repositoryAnswerAction
+        FifoDataRepository.onHangupCallAction = repositoryHangupAction
+    }
+
+    /**
+     * Desenlaza solo si las acciones siguen siendo las de este manager.
+     */
+    fun unbindRepositoryActions() {
+        if (FifoDataRepository.onAnswerCallAction === repositoryAnswerAction) {
+            FifoDataRepository.onAnswerCallAction = null
+        }
+        if (FifoDataRepository.onHangupCallAction === repositoryHangupAction) {
+            FifoDataRepository.onHangupCallAction = null
+        }
     }
 
     @Volatile
@@ -210,52 +281,8 @@ class FifoCallManager(
     /**
      * Resuelve el nombre del contacto a partir del número de teléfono.
      */
-    @SuppressLint("Range")
     fun resolveContactName(phoneNumber: String): String {
-        if (phoneNumber.isBlank()) return "Llamada entrante"
-
-        val hasContactsPermission = ContextCompat.checkSelfPermission(
-            context,
-            android.Manifest.permission.READ_CONTACTS
-        ) == PackageManager.PERMISSION_GRANTED
-
-        if (!hasContactsPermission) {
-            // Verificar si coincide con el contacto de emergencia del perfil
-            val profile = FifoDataRepository.userProfile.value
-            if (phoneNumber.contains(profile.emergencyContactPhone.takeLast(8))) {
-                return profile.emergencyContactName
-            }
-            return if (phoneNumber.isNotBlank()) phoneNumber else "Llamada entrante"
-        }
-
-        return try {
-            val uri = Uri.withAppendedPath(
-                ContactsContract.PhoneLookup.CONTENT_FILTER_URI,
-                Uri.encode(phoneNumber)
-            )
-            val cursor = context.contentResolver.query(
-                uri,
-                arrayOf(ContactsContract.PhoneLookup.DISPLAY_NAME),
-                null,
-                null,
-                null
-            )
-            cursor?.use {
-                if (it.moveToFirst()) {
-                    it.getString(it.getColumnIndex(ContactsContract.PhoneLookup.DISPLAY_NAME))
-                } else {
-                    val profile = FifoDataRepository.userProfile.value
-                    if (phoneNumber.contains(profile.emergencyContactPhone.takeLast(8))) {
-                        profile.emergencyContactName
-                    } else {
-                        phoneNumber
-                    }
-                }
-            } ?: phoneNumber
-        } catch (e: Exception) {
-            Log.w(TAG, "Error consultando contactos: ${e.message}")
-            phoneNumber
-        }
+        return resolveContactName(context, phoneNumber)
     }
 
     /**
@@ -398,5 +425,6 @@ class FifoCallManager(
         } catch (e: Exception) {
             Log.e(TAG, "Error deteniendo escucha de telefonía: ${e.message}")
         }
+        unbindRepositoryActions()
     }
 }

@@ -27,8 +27,7 @@ class FifoPhoneCallReceiver : BroadcastReceiver() {
 
             when (stateStr) {
                 TelephonyManager.EXTRA_STATE_RINGING -> {
-                    val callManager = FifoCallManager(context)
-                    val callerName = callManager.resolveContactName(incomingNumber)
+                    val callerName = FifoCallManager.resolveContactName(context, incomingNumber)
 
                     val callInfo = IncomingCallInfo(
                         callerName = callerName,

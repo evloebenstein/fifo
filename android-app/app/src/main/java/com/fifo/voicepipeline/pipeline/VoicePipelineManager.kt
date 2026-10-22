@@ -362,6 +362,7 @@ class VoicePipelineManager(
                 }
             }
         )
+        callManager?.bindRepositoryActions()
         callManager?.startListening()
 
         // Iniciar captura según disponibilidad

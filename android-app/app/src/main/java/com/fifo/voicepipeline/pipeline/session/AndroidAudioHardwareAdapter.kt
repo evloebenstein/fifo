@@ -2,7 +2,6 @@ package com.fifo.voicepipeline.pipeline.session
 
 import android.content.Context
 import com.fifo.voicepipeline.audio.AndroidTtsSpeaker
-import com.fifo.voicepipeline.audio.PhoneMicRecorder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -10,14 +9,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /**
- * Adaptador de producción que conecta el hardware real de Android con la costura AudioSeam.
+ * Adaptador de producción de salida de audio (Android TTS).
+ *
+ * Es deliberadamente solo de salida: la captura pertenece a [CaptureArbiter] y a
+ * [AndroidAudioHardwareInboundAdapter]. Así nunca hay dos dueños del micrófono.
+ *
+ * No toca `AudioManager` ni el enrutamiento de llamadas: eso vive en `TelephonyPort`.
  */
-class AndroidAudioHardwareAdapter(
-    private val context: Context,
+internal class AndroidAudioHardwareAdapter(
+    context: Context,
     private val scope: CoroutineScope
-) : AudioInboundAdapter, AudioOutboundAdapter {
+) : AudioOutboundAdapter {
 
-    // ── Salida (TTS) ─────────────────────────────────
     private var finishCallback: (() -> Unit)? = null
     private var rmsSimulationJob: Job? = null
 
@@ -67,27 +70,8 @@ class AndroidAudioHardwareAdapter(
         finishCallback = null
     }
 
-    // ── Entrada (Micrófono) ──────────────────────────
-    private var phoneRecorder: PhoneMicRecorder? = null
-    override var isCapturing: Boolean = false
-        private set
-
-    override fun startCapture(onAudioFrame: (ByteArray) -> Unit) {
-        if (isCapturing) return
-        isCapturing = true
-        phoneRecorder = PhoneMicRecorder(context = context)
-        phoneRecorder?.start(onChunk = onAudioFrame)
-    }
-
-    override fun stopCapture() {
-        isCapturing = false
-        phoneRecorder?.stop()
-        phoneRecorder = null
-    }
-
     fun shutdown() {
         stop()
-        stopCapture()
         ttsSpeaker.release()
     }
 }

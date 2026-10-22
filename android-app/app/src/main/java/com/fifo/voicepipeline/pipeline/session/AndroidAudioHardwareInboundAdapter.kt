@@ -1,33 +1,36 @@
 package com.fifo.voicepipeline.pipeline.session
 
 import android.content.Context
-import android.util.Log
 import com.fifo.voicepipeline.audio.PhoneMicRecorder
-import com.fifo.voicepipeline.network.BleVoiceClient
 import com.fifo.voicepipeline.pipeline.MicSource
 
 /**
  * Adaptador de producción de hardware de audio entrante.
  *
- * Multiplexa la captura de audio entre:
- * 1. Micrófono integrado del celular (PhoneMicRecorder con cancelación de eco/ruido).
- * 2. Conexión Bluetooth LE con el micrófono del ESP32-S3 (BleVoiceClient).
+ * Toda la decisión de fuente vive en [CaptureArbiter]. Este adaptador solo traduce
+ * eventos Android/BLE a un [CaptureEnvironment] y publica las tramas resultantes.
  *
- * Emite tramas normalizadas de audio PCM (16 kHz, 16-bit mono) a través de la costura AudioInboundAdapter.
+ * No se debe llamar a `PhoneMicRecorder` desde fuera de este adaptador/árbitro.
  */
-class AndroidAudioHardwareInboundAdapter(
-    private val context: Context,
-    val phoneMicRecorder: PhoneMicRecorder = PhoneMicRecorder(context = context),
-    var bleClient: BleVoiceClient? = null
+internal class AndroidAudioHardwareInboundAdapter(
+    context: Context,
+    private val captureHardware: CaptureHardware = AndroidCaptureHardware(
+        PhoneMicRecorder(context = context)
+    )
 ) : AudioInboundAdapter {
 
-    companion object {
-        private const val TAG = "AndroidAudioInbound"
+    private var frameListener: ((ByteArray) -> Unit)? = null
+    private val arbiter = CaptureArbiter(captureHardware) { frame ->
+        frameListener?.invoke(frame)
     }
 
-    private var frameListener: ((ByteArray) -> Unit)? = null
-    var activeSource: MicSource = MicSource.PHONE
+    private var environment = CaptureEnvironment()
+
+    var activeSource: MicSource = MicSource.ESP32
         private set
+
+    val route: CaptureRoute
+        get() = arbiter.route.value
 
     override var isCapturing: Boolean = false
         private set
@@ -35,51 +38,50 @@ class AndroidAudioHardwareInboundAdapter(
     override fun startCapture(onAudioFrame: (ByteArray) -> Unit) {
         frameListener = onAudioFrame
         isCapturing = true
-        startSource(activeSource)
+        applyEnvironment()
     }
 
     override fun stopCapture() {
         isCapturing = false
-        phoneMicRecorder.stop()
+        arbiter.shutdown()
         frameListener = null
     }
 
     fun setMicSource(source: MicSource) {
-        if (activeSource == source && isCapturing) return
         activeSource = source
-        if (isCapturing) {
-            startSource(source)
-        }
+        environment = environment.copy(preferredSource = source)
+        applyEnvironment()
     }
 
-    fun handleIncomingBleFrame(pcmChunk: ByteArray) {
-        if (isCapturing && activeSource == MicSource.ESP32) {
-            frameListener?.invoke(pcmChunk)
-        }
+    fun setBleConnected(connected: Boolean) {
+        environment = environment.copy(bleConnected = connected)
+        applyEnvironment()
     }
 
+    /**
+     * Activa/desactiva el modo llamada. Es idempotente: timbrado y llamada activa
+     * comparten la misma ruta y no reconfiguran el micrófono.
+     */
     fun setCallMode(inCall: Boolean) {
-        phoneMicRecorder.switchToCallMode(inCall) { chunk ->
-            if (isCapturing && activeSource == MicSource.PHONE) {
-                frameListener?.invoke(chunk)
-            }
-        }
+        environment = environment.copy(callActive = inCall)
+        applyEnvironment()
     }
 
-    private fun startSource(source: MicSource) {
-        when (source) {
-            MicSource.PHONE -> {
-                phoneMicRecorder.start { chunk ->
-                    if (isCapturing && activeSource == MicSource.PHONE) {
-                        frameListener?.invoke(chunk)
-                    }
-                }
-                Log.i(TAG, "Captura iniciada desde micrófono del celular")
-            }
-            MicSource.ESP32 -> {
-                phoneMicRecorder.stop()
-                Log.i(TAG, "Captura direccionada a micrófono ESP32")
-            }
+    fun setMicMuted(muted: Boolean) {
+        environment = environment.copy(micMuted = muted)
+        applyEnvironment()
+    }
+
+    fun handleIncomingBleFrame(pcmData: ByteArray) {
+        if (!isCapturing) return
+        arbiter.onBleFrame(pcmData)
+    }
+
+    private fun applyEnvironment() {
+        if (isCapturing) {
+            arbiter.update(environment)
+        } else {
+            arbiter.shutdown()
         }
     }
 }

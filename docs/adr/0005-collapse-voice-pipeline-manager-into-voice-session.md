@@ -1,5 +1,10 @@
 # 0005-collapse-voice-pipeline-manager-into-voice-session
 
+> **Nota (2026-10-22):** las afirmaciones de telefonía y captura de audio de este ADR
+> quedaron reemplazadas por [ADR-0008](0008-capture-arbiter-telephony-port.md). La
+> decisión de colapsar `VoicePipelineManager` en `VoiceSession` sigue vigente; la
+> telefonía ahora vive detrás de `TelephonyPort` y la captura detrás de `CaptureArbiter`.
+
 ## Context and Decision
 
 `VoicePipelineManager` was the original monolithic orchestrator (~2,100 lines) that handled audio hardware capture, Bluetooth LE packet routing, Porcupine wake-word detection, Groq Whisper STT, LLM turn processing, TTS output, barge-in resumption, follow-up windows, auto-sleep timers, and the telephony Alexa-style call listener. In parallel, ADR-0001 introduced a deep `VoiceSession` module with two decoupled seams (`AudioSeam`, `SpeechCognitionSeam`) and a fully functional `TurnOrchestrator` implementing the same conversational machine — but VoicePipelineManager continued to duplicate that state rather than delegate to it.
