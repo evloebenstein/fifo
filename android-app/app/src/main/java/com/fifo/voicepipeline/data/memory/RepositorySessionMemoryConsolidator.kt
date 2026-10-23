@@ -4,7 +4,6 @@ import android.util.Log
 import com.fifo.voicepipeline.data.FifoDataRepository
 import com.fifo.voicepipeline.network.CloudApiClient
 import com.fifo.voicepipeline.network.FifoBackendClient
-import com.fifo.voicepipeline.network.SessionMemoryConsolidation
 import com.fifo.voicepipeline.ui.model.ConversationFragment
 import com.fifo.voicepipeline.ui.model.PastConversationItem
 import kotlinx.coroutines.CancellationException

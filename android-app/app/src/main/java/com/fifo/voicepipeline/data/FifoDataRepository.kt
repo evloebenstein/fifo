@@ -758,7 +758,7 @@ object FifoDataRepository {
      * - Si es una persona nueva mencionada (ej: "mi nieto Lucas", "la vecina Marta"):
      *   Crea un nuevo vínculo en el grafo relacional para recordarla y mencionarla a futuro.
      */
-    fun updateContactsFromSessionMentions(mentions: List<com.fifo.voicepipeline.network.MentionedPersonExtraction>) {
+    fun updateContactsFromSessionMentions(mentions: List<com.fifo.voicepipeline.data.memory.MentionedPersonExtraction>) {
         if (mentions.isEmpty()) return
 
         val currentList = relationalContacts.value.toMutableList()

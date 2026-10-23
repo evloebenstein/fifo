@@ -47,11 +47,11 @@ Mantiene el contrato público y delega:
 | STT | `GroqSpeechToTextClient` |
 | Diálogo, historial y streaming | `GroqDialogClient` |
 | TTS | `OpenAiTextToSpeechClient` |
-| Extracción de memoria | `CloudApiClient` (contrato de consolidación) |
+| Extracción de memoria | `GroqSessionMemoryExtractor` (delegada por `CloudApiClient`; ver ADR-0014) |
 
-La extracción de memoria se mantiene en la fachada porque
-`RepositorySessionMemoryConsolidator` la consume como contrato de datos, no como
-parte de la conversación en tiempo real.
+La extracción de memoria se mantuvo inicialmente en la fachada; después se
+separó en ADR-0014 para que `CloudApiClient` quedara como composición de
+adaptadores.
 
 ### 3. Sin cambios en el comportamiento observable
 

@@ -33,6 +33,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0011](adr/0011-durable-memory-journal.md) | Diario durable, cola de consolidación y reparación conversacional. | Aceptado. |
 | [ADR-0012](adr/0012-network-adapters-stt-tts.md) | Adaptadores de red para STT/TTS y fachada `CloudApiClient`. | Aceptado. |
 | [ADR-0013](adr/0013-groq-dialog-client.md) | Motor de diálogo Groq separado de la fachada. | Aceptado. |
+| [ADR-0014](adr/0014-session-memory-extractor.md) | Extractor de memoria de sesión y modelos en `data/memory`. | Aceptado. |
 
 ---
 
