@@ -18,10 +18,6 @@ val localProps = Properties().apply {
     }
 }
 
-val anthropicKey: String = localProps.getProperty("ANTHROPIC_API_KEY")
-    ?: (project.findProperty("ANTHROPIC_API_KEY") as? String)
-    ?: System.getenv("ANTHROPIC_API_KEY") ?: ""
-
 val openAiKey: String = localProps.getProperty("OPENAI_API_KEY")
     ?: (project.findProperty("OPENAI_API_KEY") as? String)
     ?: System.getenv("OPENAI_API_KEY") ?: ""
@@ -41,7 +37,6 @@ android {
         versionCode = 1
         versionName = "1.0"
 
-        buildConfigField("String", "ANTHROPIC_API_KEY", "\"$anthropicKey\"")
         buildConfigField("String", "OPENAI_API_KEY", "\"$openAiKey\"")
         buildConfigField("String", "GROQ_API_KEY", "\"$groqKey\"")
         // Flag de una release: apagado en debug, encendido en release (ver buildTypes).

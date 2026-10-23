@@ -87,14 +87,6 @@ class FifoSkillRegistry(
     fun getOpenAiToolsJson(): String = groqCatalog.getDynamicToolsJson(skills.values)
 
     /**
-     * Compatibilidad hacia atrás: delega en el formato OpenAI para Groq.
-     */
-    fun getAnthropicToolsJson(): String {
-        Log.d(TAG, "getAnthropicToolsJson invocado: delegando en catálogo Groq (Claude no está en uso)")
-        return groqCatalog.getCompactToolsJson()
-    }
-
-    /**
      * Ejecuta una herramienta por nombre con los argumentos recibidos.
      */
     suspend fun executeSkill(name: String, args: Map<String, Any?>): SkillResult {

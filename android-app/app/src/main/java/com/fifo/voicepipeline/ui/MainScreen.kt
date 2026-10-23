@@ -52,9 +52,9 @@ fun MainScreen(
     isAwake: Boolean = false,
     onWakeUp: () -> Unit = {},
     onSleep: () -> Unit = {},
-    currentClaudeKey: String = "",
-    onSaveClaudeKey: (String) -> Unit = {},
-    onTestClaudeKey: (suspend (String) -> Pair<Boolean, String>)? = null,
+    currentGroqKey: String = "",
+    onSaveGroqKey: (String) -> Unit = {},
+    onTestGroqKey: (suspend (String) -> Pair<Boolean, String>)? = null,
     isMicMuted: Boolean = false,
     onToggleMicMute: () -> Unit = {}
 ) {
@@ -213,9 +213,9 @@ fun MainScreen(
                                     isAwake = isAwake,
                                     onWakeUp = onWakeUp,
                                     onSleep = onSleep,
-                                    currentClaudeKey = currentClaudeKey,
-                                    onSaveClaudeKey = onSaveClaudeKey,
-                                    onTestClaudeKey = onTestClaudeKey,
+                                    currentGroqKey = currentGroqKey,
+                                    onSaveGroqKey = onSaveGroqKey,
+                                    onTestGroqKey = onTestGroqKey,
                                     isMicMuted = isMicMuted,
                                     onToggleMicMute = onToggleMicMute
                                 )

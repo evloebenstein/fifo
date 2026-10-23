@@ -27,19 +27,18 @@ import java.nio.ByteOrder
  */
 class CloudApiClient(
     var groqApiKey: String = "",
-    var anthropicApiKey: String = "",
     var openAiApiKey: String = "",
     var context: android.content.Context? = null,
     var contextProvider: ConversationContextProvider? = null
 ) : SpeechCognitionAdapter {
     /**
-     * Clave efectiva para Groq: verifica groqApiKey o si openAiApiKey / anthropicApiKey inician con 'gsk_'.
+     * Clave efectiva para Groq: prioriza `groqApiKey` y acepta una clave `gsk_`
+     * guardada en el campo de STT por compatibilidad.
      */
     val effectiveGroqKey: String
         get() = when {
             groqApiKey.trim().startsWith("gsk_") -> groqApiKey.trim()
             openAiApiKey.trim().startsWith("gsk_") -> openAiApiKey.trim()
-            anthropicApiKey.trim().startsWith("gsk_") -> anthropicApiKey.trim()
             groqApiKey.isNotBlank() -> groqApiKey.trim()
             else -> ""
         }
@@ -59,7 +58,6 @@ class CloudApiClient(
         // ── Modelos ──────────────────────────────────
         // Modelo principal de Groq: Qwen 27B (activo y disponible en esta cuenta de Groq)
         const val GROQ_PRIMARY_MODEL = "qwen/qwen3.8-27b"
-        const val GROQ_FALLBACK_MODEL = "qwen/qwen3.8-27b"
         const val GROQ_WHISPER_MODEL = "whisper-large-v3-turbo"
 
         private const val WHISPER_MODEL = "whisper-1"
@@ -531,7 +529,8 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
 
     /**
      * Motor conversacional principal con Groq LPU (gratuito, ultrarrápido).
-     * Utiliza Qwen 27B con failover automático a GPT-OSS 120B y Claude.
+     * Utiliza Qwen 27B. Los errores de red no se reintentan con el mismo modelo
+     * para evitar duplicar turnos y llamadas recursivas.
      */
     private suspend fun chatWithGroq(
         userText: String,
@@ -812,10 +811,6 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
             reply
         } catch (e: Exception) {
             Log.e(TAG, "Error llamando a Groq: ${e.message}", e)
-            if (modelToUse == GROQ_PRIMARY_MODEL) {
-                Log.w(TAG, "Groq: Error de red con $modelToUse, probando fallback a $GROQ_FALLBACK_MODEL...")
-                return chatWithGroq(userText, skillRegistry, modelToUse = GROQ_FALLBACK_MODEL)
-            }
             "Disculpe, hubo un problema de conexión con la API de Groq. Por favor intente nuevamente en unos instantes."
         }
     }
@@ -933,13 +928,6 @@ Genera ÚNICAMENTE 1 oración concisa para hablar en voz alta por voz, sin intro
         } catch (e: Exception) {
             Pair(false, "Fallo de red al conectar con Groq: ${e.message}")
         }
-    }
-
-    /**
-     * Valida la conexión con el motor de IA (Groq LPU).
-     */
-    suspend fun testAnthropicConnection(overrideKey: String? = null): Pair<Boolean, String> {
-        return Pair(true, "Migrado a Groq LPU (Qwen 27B)")
     }
 
     /**

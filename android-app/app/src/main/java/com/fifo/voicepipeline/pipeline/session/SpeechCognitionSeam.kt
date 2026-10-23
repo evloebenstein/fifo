@@ -84,7 +84,7 @@ class DefaultConversationContextProvider(
  *
  * Desacopla la transcripción (Groq Whisper STT), el razonamiento conversacional (Groq LPU LLM)
  * y la reanudación de locución interrumpida (Barge-In) de la máquina de estados de VoiceSession.
- * 100% Groq: sin dependencias legacy ni Claude.
+ * 100% Groq: sin dependencias de proveedores heredados.
  */
 interface SpeechCognitionAdapter {
     suspend fun transcribe(

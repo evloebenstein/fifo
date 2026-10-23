@@ -879,13 +879,13 @@ object FifoDataRepository {
      * Almacenamiento local liviano de fragmentos compactos.
      *
      * ARQUITECTURA:
-     * - Servidor (Firestore/Supabase): Guarda la transcripción COMPLETA de cada
+     * - Servidor (MySQL/FastAPI): Guarda la transcripción COMPLETA de cada
      *   conversación con todos los detalles, turnos de voz y contexto íntegro.
      * - Celular (aquí): Solo almacena estos fragmentos livianos con temas clave,
      *   entidades nombradas, estado de ánimo y un resumen compacto de ≤150 palabras.
      *
      * VENTAJAS:
-     * 1. Latencia mínima: Claude recibe solo fragmentos compactos como contexto previo,
+     * 1. Latencia mínima: el LLM recibe solo fragmentos compactos como contexto previo,
      *    reduciendo el tamaño del payload y acelerando la respuesta.
      * 2. Continuidad conversacional: Los temas clave y entidades evitan que Fifo se pierda
      *    cuando el usuario menciona datos de nicho o temas pasados.

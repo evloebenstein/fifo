@@ -11,7 +11,7 @@ data class SkillResult(
     val success: Boolean,
     val spokenFeedback: String,
     val data: Map<String, Any?> = emptyMap(),
-    /** Datos adicionales de contexto para que Claude use en su respuesta (ej: extractos de conversaciones pasadas) */
+    /** Datos adicionales de contexto para que el LLM use en su respuesta (ej: extractos de conversaciones pasadas) */
     val additionalData: Map<String, Any?> = emptyMap()
 )
 
@@ -23,10 +23,10 @@ interface FifoSkill {
     /** Nombre identificador de la herramienta para Function Calling (ej: "set_reminder") */
     val name: String
 
-    /** Descripción clara de cuándo y cómo Claude debe utilizar esta herramienta */
+    /** Descripción clara de cuándo y cómo el LLM debe utilizar esta herramienta */
     val description: String
 
-    /** Esquema JSON en formato Anthropic Tools API para los argumentos requeridos */
+    /** Esquema JSON en formato OpenAI/Groq Tools API para los argumentos requeridos */
     val parameterSchemaJson: String
 
     /**

@@ -18,7 +18,7 @@ import android.util.Log
  * 1. 100% GRATUITO y preinstalado en todos los dispositivos Android.
  * 2. CERO claves de API requeridas (no necesita OpenAI, Whisper ni Groq).
  * 3. Detección automática de inicio y fin de voz con soporte completo en español.
- * 4. Envía el texto transcrito directamente a Claude usando la clave de Anthropic.
+ * 4. Envía el texto transcrito al pipeline de Fifo (Groq LPU).
  */
 class NativeSpeechRecognizer(
     private val context: Context,

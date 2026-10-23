@@ -31,13 +31,12 @@ import com.fifo.voicepipeline.service.FifoVoiceService
  * - Conexión directa y automática por Bluetooth Low Energy (BLE) con ESP32-S3-N16R8.
  * - Streaming de audio analógico UCC en tiempo real vía notificaciones BLE.
  * - Pantalla OLED SH1106 1.3" I2C sincronizada en tiempo real con rostro animado.
- * - Salida de voz y respuestas de Claude por el parlante del celular.
+ * - Salida de voz y respuestas de Fifo por el parlante del celular.
  */
 class MainActivity : ComponentActivity() {
 
     companion object {
         private const val TAG = "MainActivity"
-        private const val DEFAULT_ANTHROPIC_KEY = ""
         private const val DEFAULT_GROQ_KEY = ""
     }
 
@@ -115,9 +114,6 @@ class MainActivity : ComponentActivity() {
             BuildConfig.GROQ_API_KEY.ifEmpty { DEFAULT_GROQ_KEY }
         }
 
-        val savedAnthropicKey = prefs.getString("anthropic_api_key", "") ?: ""
-        val anthropicKey = savedAnthropicKey.ifEmpty { BuildConfig.ANTHROPIC_API_KEY }
-
         val savedSttKey = prefs.getString("stt_api_key", "") ?: ""
         val openAiKey = savedSttKey.ifEmpty { BuildConfig.OPENAI_API_KEY }
 
@@ -125,7 +121,6 @@ class MainActivity : ComponentActivity() {
         pipeline = VoicePipelineManager(
             context = applicationContext,
             initialGroqApiKey = groqKey,
-            initialAnthropicApiKey = anthropicKey,
             initialOpenAiApiKey = openAiKey
         )
 
@@ -144,7 +139,7 @@ class MainActivity : ComponentActivity() {
             val isBleConnecting = bleState is BleConnectionState.Connecting || bleState is BleConnectionState.Scanning
             val isMicMuted by pipeline.isMicMuted.collectAsState()
 
-            var currentClaudeKey by remember { mutableStateOf(groqKey) }
+            var currentGroqKey by remember { mutableStateOf(groqKey) }
 
             val testConnectionFn: suspend (String) -> Pair<Boolean, String> = { keyToTest ->
                 pipeline.testConnection(keyToTest)
@@ -164,15 +159,15 @@ class MainActivity : ComponentActivity() {
                 onToggleMicMute = { pipeline.toggleMicMute() },
                 onWakeUp = { pipeline.wakeUpManually() },
                 onSleep = { pipeline.goToSleep() },
-                currentClaudeKey = currentClaudeKey,
-                onSaveClaudeKey = { newKey: String ->
+                currentGroqKey = currentGroqKey,
+                onSaveGroqKey = { newKey: String ->
                     val trimmed = newKey.trim()
                     prefs.edit().putString("groq_api_key", trimmed).apply()
                     pipeline.setGroqApiKey(trimmed)
-                    currentClaudeKey = trimmed
+                    currentGroqKey = trimmed
                     Toast.makeText(this, "Cerebro Groq guardado y activado", Toast.LENGTH_SHORT).show()
                 },
-                onTestClaudeKey = testConnectionFn,
+                onTestGroqKey = testConnectionFn,
                 onConnectBle = {
                     checkAndRequestBlePermissions()
                 },

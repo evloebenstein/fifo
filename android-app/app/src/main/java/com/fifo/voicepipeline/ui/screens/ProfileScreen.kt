@@ -58,9 +58,9 @@ fun ProfileScreen(
     isAwake: Boolean = false,
     onWakeUp: () -> Unit = {},
     onSleep: () -> Unit = {},
-    currentClaudeKey: String = "",
-    onSaveClaudeKey: (String) -> Unit = {},
-    onTestClaudeKey: (suspend (String) -> Pair<Boolean, String>)? = null,
+    currentGroqKey: String = "",
+    onSaveGroqKey: (String) -> Unit = {},
+    onTestGroqKey: (suspend (String) -> Pair<Boolean, String>)? = null,
     isMicMuted: Boolean = false,
     onToggleMicMute: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -147,7 +147,7 @@ fun ProfileScreen(
 
     // Opciones técnicas avanzadas colapsables
     var isAdvancedTechOpen by remember { mutableStateOf(false) }
-    var claudeInput by remember { mutableStateOf(currentClaudeKey) }
+    var groqInput by remember { mutableStateOf(currentGroqKey) }
     var isTestingKey by remember { mutableStateOf(false) }
     var testResultText by remember { mutableStateOf<String?>(null) }
     var testResultSuccess by remember { mutableStateOf(false) }
@@ -640,16 +640,16 @@ fun ProfileScreen(
                             )
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Motor gratuito y ultrarrápido (Qwen 27B con respaldo GPT-OSS 120B) y transcripción Whisper.",
+                                text = "Motor gratuito y ultrarrápido (Qwen 27B) y transcripción Whisper.",
                                 fontSize = 12.sp,
                                 color = FifoColors.LightTextSecondary
                             )
                             Spacer(modifier = Modifier.height(10.dp))
 
                             OutlinedTextField(
-                                value = claudeInput,
+                                value = groqInput,
                                 onValueChange = {
-                                    claudeInput = it
+                                    groqInput = it
                                     keySavedSuccess = false
                                     testResultText = null
                                 },
@@ -685,7 +685,7 @@ fun ProfileScreen(
                             ) {
                                 OutlinedButton(
                                     onClick = {
-                                        val keyToTest = claudeInput.trim()
+                                        val keyToTest = groqInput.trim()
                                         if (keyToTest.isBlank()) {
                                             testResultText = "Ingresa tu clave de Groq primero."
                                             testResultSuccess = false
@@ -694,7 +694,7 @@ fun ProfileScreen(
                                         isTestingKey = true
                                         testResultText = null
                                         coroutineScope.launch {
-                                            val result = onTestClaudeKey?.invoke(keyToTest) ?: Pair(false, "Prueba no disponible")
+                                            val result = onTestGroqKey?.invoke(keyToTest) ?: Pair(false, "Prueba no disponible")
                                             isTestingKey = false
                                             testResultSuccess = result.first
                                             testResultText = result.second
@@ -709,7 +709,7 @@ fun ProfileScreen(
 
                                 Button(
                                     onClick = {
-                                        onSaveClaudeKey(claudeInput.trim())
+                                        onSaveGroqKey(groqInput.trim())
                                         keySavedSuccess = true
                                     },
                                     shape = RoundedCornerShape(12.dp),

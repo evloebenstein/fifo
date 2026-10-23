@@ -21,8 +21,8 @@ import java.util.concurrent.TimeUnit
  * - Resúmenes enciclopédicos y conceptos (Wikipedia en español REST API)
  * - Clima en tiempo real (Open-Meteo con coordenadas GPS del usuario)
  *
- * Entrega una síntesis hablada lista para TTS y metadatos completos para que Claude o Groq
- * elaboren respuestas atinadas.
+ * Entrega una síntesis hablada lista para TTS y metadatos completos para que el LLM
+ * elabore respuestas atinadas.
  */
 class WebSearchSkill(private val context: Context) : FifoSkill {
 

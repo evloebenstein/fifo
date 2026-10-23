@@ -12,7 +12,7 @@ import com.google.gson.JsonParser
  * - Mantiene el catálogo en formato ultra-compacto (<1,100 tokens) para respetar el límite de 7,000 ITPM de Groq.
  * - Enriquece semánticamente la herramienta 'recall_past_context' para soportar el pipeline GraphRAG:
  *   recuperación de anécdotas, vestimentas, recetas médicas, qué dijo una persona y detección de lagunas.
- * - Purgó totalmente esquemas de Anthropic Claude, manteniendo pura la cognición con Groq.
+ * - Mantiene un catálogo puro de esquemas OpenAI/Groq, sin dependencias de proveedores retirados.
  */
 class GroqToolCatalog {
 

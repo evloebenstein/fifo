@@ -10,7 +10,7 @@ import com.fifo.voicepipeline.data.FifoDataRepository
  *
  * ARQUITECTURA DE DOBLE CAPA:
  * 1. Capa local (rápida): Los últimos N fragmentos compactos (temas clave, resumen ≤150 palabras)
- *    se inyectan automáticamente en cada llamada a Claude como contexto previo.
+ *    se inyectan automáticamente en cada llamada al LLM como contexto previo.
  * 2. Capa profunda (este skill): Cuando Fifo detecta que el usuario menciona un tema
  *    de nicho o un dato pasado que no está en los fragmentos recientes, invoca este skill
  *    para buscar en la base de datos del servidor la conversación completa y extraer

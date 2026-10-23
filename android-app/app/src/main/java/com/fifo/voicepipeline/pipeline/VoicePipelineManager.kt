@@ -21,8 +21,8 @@ import kotlinx.coroutines.flow.asStateFlow
  *    - Opción A: Micrófono analógico UCC en ESP32-S3 vía Bluetooth LE (BleVoiceClient)
  *    - Opción B: Micrófono integrado del celular (PhoneMicRecorder)
  * 2. Detección de voz (VAD) y fin de frase
- * 3. STT (Whisper OpenAI o Groq)
- * 4. LLM (Claude Anthropic) con respuestas en streaming
+ * 3. STT (Whisper Groq u OpenAI)
+ * 4. LLM (Groq LPU / Qwen) con respuestas en streaming
  * 5. Salida de audio (Parlante del celular):
  *    - TextToSpeech nativo de Android (gratuito, sin costo)
  *    - O OpenAI TTS vía AudioPlayer si se configura API key
@@ -31,7 +31,6 @@ import kotlinx.coroutines.flow.asStateFlow
 class VoicePipelineManager(
     private val context: Context,
     initialGroqApiKey: String = "",
-    initialAnthropicApiKey: String = "",
     initialOpenAiApiKey: String = ""
 ) {
     companion object {
@@ -39,9 +38,6 @@ class VoicePipelineManager(
     }
 
     var groqApiKey: String = initialGroqApiKey
-        private set
-
-    var anthropicApiKey: String = initialAnthropicApiKey
         private set
 
     var openAiApiKey: String = initialOpenAiApiKey
@@ -162,7 +158,7 @@ class VoicePipelineManager(
      * Inicia el pipeline completo:
      * - Conexión Bluetooth automática con el ESP32-S3
      * - Sistema de salida por parlante del celular
-     * - Cliente de APIs de nube (Claude Haiku 4.5)
+     * - Cliente de APIs de nube (Groq LPU + Whisper)
      * - Reconocedor de voz nativo de Google (0 claves requeridas)
      */
     fun start() {
@@ -171,7 +167,6 @@ class VoicePipelineManager(
         val effectiveOpenAiKey = if (openAiApiKey.isNotBlank()) openAiApiKey else if (groqApiKey.startsWith("gsk_")) groqApiKey else ""
         cloudClient = CloudApiClient(
             groqApiKey = groqApiKey,
-            anthropicApiKey = anthropicApiKey,
             openAiApiKey = effectiveOpenAiKey,
             context = context
         )
@@ -898,7 +893,7 @@ class VoicePipelineManager(
         val isSpeakingNow = _state.value == PipelineState.SPEAKING ||
             androidTtsSpeaker?.isSpeaking == true || audioPlayer.isPlaying
 
-        // Si Fifo está procesando en la nube (Groq/Claude) y aún no habla, descartar chunks para no superponer turnos
+        // Si Fifo está procesando en la nube (Groq) y aún no habla, descartar chunks para no superponer turnos
         if (_state.value == PipelineState.PROCESSING && !isSpeakingNow) {
             pcmBuffer.clear()
             synchronized(preRollBuffer) {
@@ -972,7 +967,7 @@ class VoicePipelineManager(
     }
 
     // ═════════════════════════════════════════════════
-    //  Pipeline de IA (Whisper + Claude + TTS)
+    //  Pipeline de IA (Whisper + Groq + TTS)
     // ═════════════════════════════════════════════════
 
     /**
@@ -1308,31 +1303,9 @@ class VoicePipelineManager(
     }
 
     /**
-     * Permite actualizar dinámicamente la clave para Claude (Anthropic).
-     */
-    fun setAnthropicApiKey(key: String) {
-        val trimmed = key.trim()
-        if (trimmed.startsWith("gsk_")) {
-            // El usuario pegó una clave de Groq en el campo general
-            setGroqApiKey(trimmed)
-            return
-        }
-        anthropicApiKey = trimmed
-        cloudClient.anthropicApiKey = trimmed
-        Log.i(TAG, "Nueva API key para Claude configurada: ${trimmed.take(12)}...")
-    }
-
-    /**
-     * Prueba la conexión con el cerebro de IA configurado (Groq o Claude).
+     * Prueba la conexión con el cerebro de IA configurado (Groq).
      */
     suspend fun testConnection(overrideKey: String? = null): Pair<Boolean, String> {
-        return cloudClient.testConnection(overrideKey)
-    }
-
-    /**
-     * Prueba la conexión con Claude o Groq.
-     */
-    suspend fun testClaudeConnection(overrideKey: String? = null): Pair<Boolean, String> {
         return cloudClient.testConnection(overrideKey)
     }
 
@@ -1513,7 +1486,7 @@ class VoicePipelineManager(
                     return@launch
                 }
 
-                consultClaudeAndRespond(query)
+                consultGroqAndRespond(query)
             } finally {
                 isCurrentlyProcessing = false
             }
@@ -1521,7 +1494,7 @@ class VoicePipelineManager(
     }
 
     // ═════════════════════════════════════════════════
-    //  Pipeline de IA (Whisper + Claude + TTS)
+    //  Pipeline de IA (Whisper + Groq + TTS)
     // ═════════════════════════════════════════════════
 
     /**
@@ -1580,7 +1553,7 @@ class VoicePipelineManager(
     }
 
     /**
-     * Transcribe el audio con Whisper y solicita respuesta a Claude.
+     * Transcribe el audio con Whisper y solicita respuesta a Groq.
      */
     private fun processUserAudio(wavAudio: ByteArray, wasCapturedWhileSpeaking: Boolean = false) {
         if (wavAudio.size < 44 + (AudioConfig.SAMPLE_RATE * AudioConfig.BYTES_PER_SAMPLE / 2)) {
@@ -1773,7 +1746,7 @@ class VoicePipelineManager(
                     return@launch
                 }
 
-                consultClaudeAndRespond(query)
+                consultGroqAndRespond(query)
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error en pipeline: ${e.message}", e)
@@ -1785,10 +1758,10 @@ class VoicePipelineManager(
     }
 
     /**
-     * Consulta a Claude y reproduce la respuesta mediante voz,
+     * Consulta a Groq y reproduce la respuesta mediante voz,
      * ejecutando herramientas nativas del teléfono y mutaciones de BD mediante [skillRegistry].
      */
-    private suspend fun consultClaudeAndRespond(query: String) {
+    private suspend fun consultGroqAndRespond(query: String) {
         // 1. Verificación de intención directa por voz (respuesta ultra-rápida sin latencia)
         val directResult = skillRegistry.tryExecuteVoiceIntent(query)
         if (directResult != null) {
@@ -1811,10 +1784,9 @@ class VoicePipelineManager(
             return
         }
 
-        // 2. Si no es un comando directo, consultar al cerebro de IA (Groq LPU / Claude)
+        // 2. Si no es un comando directo, consultar al cerebro de IA (Groq LPU)
         _state.value = PipelineState.PROCESSING
-        val brainName = if (cloudClient.isGroqActive) "Groq" else "Claude"
-        _statusMessage.value = "Consultando a $brainName..."
+        _statusMessage.value = "Consultando a Groq..."
         updateEspDisplay(state = "PENSANDO", transcript = query)
 
         val reply = withTimeoutOrNull(20000L) {
@@ -2174,7 +2146,7 @@ class VoicePipelineManager(
 
     /**
      * Reanuda la locución interrumpida de forma 100% natural, espontánea y humana
-     * sin frases genéricas hardcodeadas, llamando al LLM (Groq / Claude).
+     * sin frases genéricas hardcodeadas, llamando al LLM (Groq).
      */
     private fun resumeInterruptedSpeechNaturally(sentenceToResume: String) {
         scope.launch {
