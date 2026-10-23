@@ -150,10 +150,10 @@ class SqliteMemoryStorageAdapter(private val getDbHelper: () -> FifoDatabaseHelp
     override fun addMemory(userId: String, item: FifoMemoryItem) { getDbHelper()?.addMemory(userId, item) }
     override fun removeMemory(userId: String, id: String) {}
 
-    override fun getReminders(userId: String): List<FifoReminderItem> = getDbHelper()?.getReminders(userId) ?: emptyList()
-    override fun addReminder(userId: String, item: FifoReminderItem) { getDbHelper()?.addReminder(userId, item) }
-    override fun updateReminderCompleted(userId: String, id: String, completed: Boolean) { getDbHelper()?.completeReminder(userId, id, completed) }
-    override fun removeReminder(userId: String, id: String) { getDbHelper()?.deleteReminder(userId, id) }
+    override fun getReminders(userId: String): List<FifoReminderItem> = getDbHelper()?.reminders?.getReminders(userId) ?: emptyList()
+    override fun addReminder(userId: String, item: FifoReminderItem) { getDbHelper()?.reminders?.addReminder(userId, item) }
+    override fun updateReminderCompleted(userId: String, id: String, completed: Boolean) { getDbHelper()?.reminders?.completeReminder(userId, id, completed) }
+    override fun removeReminder(userId: String, id: String) { getDbHelper()?.reminders?.deleteReminder(userId, id) }
 
     override fun getConversations(userId: String): List<PastConversationItem> = getDbHelper()?.getPastConversations(userId) ?: emptyList()
     override fun addConversation(userId: String, item: PastConversationItem) { getDbHelper()?.addPastConversation(userId, item) }

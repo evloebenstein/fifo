@@ -543,7 +543,7 @@ object FifoDataRepository {
         val current = reminders.value
         if (!current.any { it.title.equals(reminder.title, ignoreCase = true) && it.timeStr == reminder.timeStr }) {
             episodicMemoryModule.setDirectReminders(listOf(reminder) + current)
-            dbHelper?.addReminder(userProfile.value.id, reminder)
+            dbHelper?.reminders?.addReminder(userProfile.value.id, reminder)
         }
     }
 
