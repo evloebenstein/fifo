@@ -15,6 +15,10 @@ La decisión completa está en **ADR-0011** (`docs/adr/0011-durable-memory-journ
 
 La implementación SQLite del puerto vive en
 [`../local/SqliteConversationJournal.kt`](../local/SqliteConversationJournal.kt).
+Desde ADR-0015, ese adaptador es dueño del CRUD y
+[`../local/ConversationJournalSchema.kt`](../local/ConversationJournalSchema.kt)
+es dueño de la tabla y el índice; `FifoDatabaseHelper` solo los invoca durante
+`onCreate`/`onUpgrade`/`onOpen`.
 
 ---
 

@@ -1,6 +1,6 @@
 # ADR-0011: Diario durable, cola de consolidación y reparación conversacional
 
-**Status:** Accepted
+**Status:** Accepted; SQL operativo movido a `SqliteConversationJournal` por ADR-0015.
 
 **Date:** 2026-10-22
 
@@ -114,8 +114,9 @@ legacy.
 | `data/memory/ConversationJournal.kt` | **New** — modelo, estados, puerto durable e implementación en memoria |
 | `data/memory/SessionMemoryConsolidator.kt` | **New** — costura del consolidador y fake de pruebas |
 | `data/memory/RepositorySessionMemoryConsolidator.kt` | **New** — consolidación local y backend |
-| `data/local/SqliteConversationJournal.kt` | **New** — adaptador SQLite |
-| `data/local/FifoDatabaseHelper.kt` | **Updated** — DB v7, tabla `conversation_journal`, índice y CRUD |
+| `data/local/SqliteConversationJournal.kt` | **New** - adaptador SQLite; desde ADR-0015 es dueño del CRUD |
+| `data/local/ConversationJournalSchema.kt` | **New** - tabla e índice del diario (ADR-0015) |
+| `data/local/FifoDatabaseHelper.kt` | **Updated** - DB v7; desde ADR-0015 delega esquema y CRUD del diario |
 | `pipeline/session/MemoryCoordinator.kt` | **New** — diario, cola pendiente, reintentos y backoff |
 | `pipeline/session/ConversationRepairPolicy.kt` | **New** — detección de corrección y ventana de 10 s |
 | `pipeline/session/VoiceSession.kt` | **Updated** — journal antes de TTS, corrección y consolidación al dormir |
