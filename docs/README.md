@@ -32,6 +32,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0010](adr/0010-voice-session-pipeline-flag.md) | `VoiceSessionPipeline`, flag de una release y barge-in por contenido. | Aceptado. |
 | [ADR-0011](adr/0011-durable-memory-journal.md) | Diario durable, cola de consolidación y reparación conversacional. | Aceptado. |
 | [ADR-0012](adr/0012-network-adapters-stt-tts.md) | Adaptadores de red para STT/TTS y fachada `CloudApiClient`. | Aceptado. |
+| [ADR-0013](adr/0013-groq-dialog-client.md) | Motor de diálogo Groq separado de la fachada. | Aceptado. |
 
 ---
 

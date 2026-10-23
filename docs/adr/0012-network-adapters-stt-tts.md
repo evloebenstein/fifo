@@ -91,8 +91,8 @@ explícito de HTTP 429 se mantiene dentro de `chatWithGroq`.
 
 **Negative / Trade-offs:**
 
-- `CloudApiClient` sigue concentrando diálogo, contexto y memoria; la siguiente
-  extracción natural es un cliente de diálogo Groq.
+- `CloudApiClient` conserva la extracción de memoria de sesión; el diálogo se
+  extrajo después en ADR-0013.
 - La delegación agrega una indirección mínima en `transcribe()` y `textToSpeech()`.
 - `GROQ_WHISPER_MODEL` vive ahora en el adaptador STT; el facade ya no expone ese
   detalle de implementación.
