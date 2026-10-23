@@ -521,7 +521,7 @@ object FifoDataRepository {
         val current = memories.value
         if (!current.any { it.title.equals(item.title, ignoreCase = true) }) {
             episodicMemoryModule.setDirectMemories(listOf(item) + current)
-            dbHelper?.addMemory(userProfile.value.id, item)
+            dbHelper?.memories?.addMemory(userProfile.value.id, item)
         }
     }
 

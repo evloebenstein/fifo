@@ -146,8 +146,8 @@ class SqliteCommunityStorageAdapter(private val getDbHelper: () -> FifoDatabaseH
  * Adaptador SQLite para la memoria episódica, recordatorios, gustos y grafo relacional.
  */
 class SqliteMemoryStorageAdapter(private val getDbHelper: () -> FifoDatabaseHelper?) : MemoryStorageAdapter {
-    override fun getMemories(userId: String): List<FifoMemoryItem> = getDbHelper()?.getMemories(userId) ?: emptyList()
-    override fun addMemory(userId: String, item: FifoMemoryItem) { getDbHelper()?.addMemory(userId, item) }
+    override fun getMemories(userId: String): List<FifoMemoryItem> = getDbHelper()?.memories?.getMemories(userId) ?: emptyList()
+    override fun addMemory(userId: String, item: FifoMemoryItem) { getDbHelper()?.memories?.addMemory(userId, item) }
     override fun removeMemory(userId: String, id: String) {}
 
     override fun getReminders(userId: String): List<FifoReminderItem> = getDbHelper()?.reminders?.getReminders(userId) ?: emptyList()
