@@ -8,10 +8,11 @@ Cliente de red HTTP para sincronización de datos con el servidor backend FastAP
 
 | Archivo | Rol y Responsabilidad |
 | :--- | :--- |
-| [`FifoApiClient.kt`](FifoApiClient.kt) | **Cliente REST para Datos**: Realiza peticiones HTTP (GET, POST, PUT) usando `OkHttpClient` hacia los endpoints `/api/v1/` del backend. Sincroniza perfiles, recuerdos, recordatorios y amigos en segundo plano. |
+| [`FifoApiClient.kt`](FifoApiClient.kt) | **Cliente REST heredado para Datos**: Sincroniza perfiles, recuerdos, recordatorios y amigos usando `OkHttpClient`. Conserva rutas `/api/...` del contrato antiguo; para features nuevas usa `FifoBackendClient` en `network/`. |
 
 ---
 
 ## 🧭 Reglas de Programación en `remote/`
-1. **Manejo de Errores Silencioso / No Bloqueante:** Si el servidor backend está fuera de línea o el usuario no tiene Wi-Fi, `FifoApiClient` debe fallar silenciosamente o reintentar sin interrumpir la experiencia de usuario (Local-First).
-2. **Timeouts:** Configurar timeouts cortos (5 a 10 segundos) para no retener recursos si el host de la API no responde.
+1. **Preferir `FifoBackendClient`:** este paquete se conserva por compatibilidad. No agregues endpoints nuevos a `FifoApiClient`.
+2. **Manejo de Errores Silencioso / No Bloqueante:** Si el servidor backend está fuera de línea o el usuario no tiene Wi-Fi, `FifoApiClient` debe fallar silenciosamente o reintentar sin interrumpir la experiencia de usuario (Local-First).
+3. **Timeouts:** Configurar timeouts cortos (5 a 10 segundos) para no retener recursos si el host de la API no responde.

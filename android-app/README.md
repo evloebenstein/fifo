@@ -2,7 +2,7 @@
 
 Aplicación nativa de Android para el robot y asistente personal **FIFO**, construida con **Kotlin**, **Jetpack Compose**, **Material 3**, y arquitectura modular reactiva Local-First.
 
-Diseñada con un enfoque de **cero fricción y accesibilidad universal para personas de la tercera edad**, integrando **Google Sign-In Nativo (sin dictar ni escribir correos)**, memoria conversacional en **Groq LPU** y ejecución en segundo plano 24/7 mediante Bluetooth Low Energy (BLE).
+Diseñada con un enfoque de **cero fricción y accesibilidad universal para personas de la tercera edad**, integrando **Google Sign-In Nativo (sin dictar ni escribir correos)**, memoria conversacional durable en SQLite y ejecución en segundo plano 24/7 mediante Bluetooth Low Energy (BLE).
 
 ---
 
@@ -41,9 +41,33 @@ La app utiliza la infraestructura de baja latencia de **Groq LPU** (`qwen/qwen3.
 - **Control Estricto de Cuota (<1,800 tokens):** El tier gratuito de Groq tiene un límite estricto de 6,000 Tokens Por Minuto (TPM). Para evitar errores HTTP 429:
   - Las herramientas de Function Calling fueron compactadas y optimizadas a nivel de tokens.
   - El prompt del sistema se optimizó a menos de 180 tokens.
-  - Historial rodante de 2 turnos con reintentos inteligentes ante 429.
+  - El prompt usa un historial de trabajo de 2 turnos; el diario durable restaura hasta 4 turnos (8 mensajes) al arrancar.
 - **Latencia de Inferencia en Vivo:** **~618 ms** por turno conversacional completo.
 - **Memoria Contextual:** Fifo recuerda el contexto previo sin saturar la ventana de contexto (ejemplo: *"¿hay farmacias cerca?"* seguido de *"llévame allá"* activa la navegación a la farmacia consultada).
+
+---
+
+## 🧠 Arquitectura de Voz y Memoria Durable
+
+La app contiene dos caminos excluyentes, seleccionados por `VoicePipelineModeSelector`:
+
+| Variante | `VOICE_SESSION_ENABLED` | Camino efectivo |
+| :--- | :--- | :--- |
+| `debug` | `false` | `LEGACY` (camino anterior de `VoicePipelineManager`) |
+| `release` | `true` | `SESSION` si hay STT de nube; si no, `LEGACY` |
+
+En `SESSION`, `VoiceSessionPipeline` es la raíz de composición: construye `VoiceSession`,
+`CaptureArbiter`, `AndroidTelephonyPort`, `CallerContextCoordinator` y
+`MemoryCoordinator` + `SqliteConversationJournal` + `RepositorySessionMemoryConsolidator`.
+
+- **Captura con un solo dueño:** `CaptureArbiter` decide entre micrófono normal, modo llamada, BLE o reconocedor nativo. Timbrado y llamada activa comparten `PHONE_CALL`.
+- **VAD y pre-roll:** `SpeechSegmenter` posee el VAD, el pre-roll (~480 ms) y el WAV. El RMS solo anima la boca/OLED.
+- **Barge-in por contenido:** una nueva invocación “Fifo …” o una orden de silencio corta TTS. Un ruido fuerte no; el eco se ignora antes de cualquier acción.
+- **Llamadas:** anuncio local inmediato, enriquecimiento backend en paralelo (~800 ms) y comandos completos *“Fifo contesta”* / *“Fifo cuelga”*. Un desconocido sigue siendo desconocido.
+- **Memoria durable:** cada turno se escribe en `conversation_journal` (SQLite v7) **antes de hablar**. La cola pendiente sobrevive reinicios y se reintenta con backoff de 30 s a 15 min.
+- **Reparación:** una corrección explícita usa ±1 turno; se locuta si el turno anterior tiene ~10 s o menos y, si llega tarde, queda en el diario/OLED sin interrumpir.
+
+La arquitectura completa está en [`docs/README.md`](../docs/README.md).
 
 ---
 
@@ -112,3 +136,18 @@ adb reverse tcp:8090 tcp:8090
 # 5. Ver logs del asistente de voz y Groq en vivo
 adb logcat -s FifoVoiceService:V CloudApiClient:V FifoSkills:V GoogleSignInDialog:V
 ```
+
+### 🧪 Pruebas
+
+```powershell
+# Suite JVM de ambos build types
+.\gradlew.bat testDebugUnitTest
+.\gradlew.bat testReleaseUnitTest
+
+# Compilación del camino de release (SESSION)
+.\gradlew.bat compileReleaseKotlin
+```
+
+La suite actual cubre 173 pruebas por variante, incluyendo captura (`CaptureArbiterTest`),
+telefonía (`TelephonyPortTest`), contexto de llamante, memoria durable, reparación y
+barge-in por transcripción.

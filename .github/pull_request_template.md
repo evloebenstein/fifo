@@ -22,7 +22,7 @@ Describe las pruebas que verifican el correcto funcionamiento del cambio:
 
 ## ✅ Checklist de Calidad
 
-- [ ] Mi código sigue las guías descritas en [CONTRIBUTING.md](CONTRIBUTING.md)
-- [ ] Se respetan los principios de dignidad y accesibilidad de [PRODUCT.md](PRODUCT.md)
+- [ ] Mi código sigue las guías descritas en [CONTRIBUTING.md](../CONTRIBUTING.md)
+- [ ] Se respetan los principios de dignidad y accesibilidad de [PRODUCT.md](../PRODUCT.md)
 - [ ] He actualizado la documentación si los cambios lo ameritan
 - [ ] No se incluyen claves de API ni secretos privados en los commits

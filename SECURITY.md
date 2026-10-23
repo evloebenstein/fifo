@@ -15,7 +15,7 @@ Actualmente mantenemos activamente la rama principal y las siguientes versiones:
 ## Reporte de Vulnerabilidades
 
 Si descubres una posible vulnerabilidad de seguridad o un problema relacionado con:
-- Filtración de claves de API (Groq, Anthropic, OpenAI, etc.).
+- Filtración de claves de API (Groq, OpenAI, etc.).
 - Privacidad en la captura y transmisión de audio PCM o transcripciones.
 - Conexión BLE no autorizada o secuestro de la comunicación ESP32-Android.
 - Datos personales almacenados en la base de datos local del dispositivo (`database/`).

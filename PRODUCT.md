@@ -28,7 +28,8 @@ El hogar: la mesa de noche, el velador, la cocina o el comedor. El usuario puede
 
 ## Capabilities and Constraints
 
-- **Conversación por voz en tiempo real**: Wake-word ("Fifo"), reconocimiento de voz (ASR), motor de diálogo empático con Gemini y síntesis de voz (TTS) fluida en español neutro, depurada de marcadores Markdown o tecnicismos.
+- **Conversación por voz en tiempo real**: Wake-word ("Fifo"), reconocimiento de voz (ASR), motor de diálogo empático sobre Groq LPU (`qwen/qwen3.8-27b`) y síntesis de voz (TTS) fluida en español neutro, depurada de marcadores Markdown o tecnicismos.
+- **Un solo pipeline activo:** `VoicePipelineModeSelector` elige `SESSION` o `LEGACY` según `VOICE_SESSION_ENABLED` y la disponibilidad de STT de nube; nunca se construyen ambos. En release, `VoiceSessionPipeline` compone la sesión, la captura, la telefonía y la memoria durable.
 - **Rostro robot reactivo**: Expresión facial vectorial sincronizada en pantalla OLED (ESP32) y en la app Android (FifoFace) con parpadeo orgánico, apertura de boca modulada por volumen RMS y estados claros (escuchando, pensando, hablando, durmiendo).
 - **Control de privacidad visible e intuitivo**: Botón de silenciamiento de micrófono de acceso directo con señalética inequívoca (rojo suave y texto explicativo) tanto en la app como en el robot.
 - **Conectividad BLE Audio UCC**: Transmisión de voz bidireccional optimizada sobre Bluetooth Low Energy entre el ESP32-S3 y la app Android.
@@ -65,10 +66,10 @@ El hogar: la mesa de noche, el velador, la cocina o el comedor. El usuario puede
 
 ## Autonomous Operation & Real-Time Sync (Cero Intervención Manual)
 
-El adulto mayor interactúa exclusivamente mediante voz con el dispositivo físico Fifo. Fifo opera como agente autónomo con Function Calling (Skills de Claude), ejecutando mutaciones directamente sobre la base de datos (datos demográficos, fecha de nacimiento, gustos, memorias, historias de blog) y disparando herramientas nativas del teléfono (recordatorios de salud, calendario, mapas y llamadas de apoyo). La aplicación Android refleja todos estos cambios en vivo sin que el usuario deba tocar el teléfono.
+El adulto mayor interactúa exclusivamente mediante voz con el dispositivo físico Fifo. Fifo opera como agente autónomo con Function Calling sobre Groq LPU (`qwen/qwen3.8-27b`), ejecutando mutaciones directamente sobre la base de datos (datos demográficos, fecha de nacimiento, gustos, memorias, historias de blog) y disparando herramientas nativas del teléfono (recordatorios de salud, calendario, mapas y llamadas de apoyo). La aplicación Android refleja todos estos cambios en vivo sin que el usuario deba tocar el teléfono.
 
 Para la especificación completa del esquema de base de datos, mapeo de componentes y catálogo de skills, consultar:
-👉 **[FIFO_DATABASE_MAP.md](file:///c:/Users/evloe/OneDrive/Escritorio/fifo/FIFO_DATABASE_MAP.md)**
+👉 **[FIFO_DATABASE_MAP.md](FIFO_DATABASE_MAP.md)**
 
 ## Strict Privacy, Positive Memory Registry & Safeguarding Policy
 
@@ -77,16 +78,16 @@ Para la especificación completa del esquema de base de datos, mapeo de componen
 - **Tolerancia Cero a Contenidos Sexuales**: Queda terminantemente prohibido el registro, almacenamiento o difusión de cualquier contenido con connotación sexual en perfiles, historias o muros comunitarios.
 - **Protocolo de Salvaguarda ante Abuso**: La única excepción a menciones de índole sexual es cuando el usuario exprese haber sufrido o estar sufriendo abuso, violencia o maltrato. En este caso crítico, el contenido jamás se publica públicamente; Fifo brinda contención emocional cálida y, con el consentimiento claro del adulto mayor, facilita la comunicación inmediata con su familiar de confianza o con líneas oficiales de asistencia protegida.
 
-## Dual-Layer Memory Architecture & Zero-Latency Context Recall
+## Durable Memory, Zero-Latency Context & Conversational Repair
 
-- **Capa Servidor (Transcripción Completa y Motor de Patrones)**: La nube almacena la conversación completa con todos los turnos, transcripciones de audio y marcas de tiempo para preservación del patrimonio biográfico del usuario y auditoría. Mediante el endpoint `analyze-and-consolidate`, modelos de IA procesan las charlas para conectar puntos entre personas mencionadas a lo largo del tiempo, sintetizar biografías enriquecidas (`bio_ai`) y categorizar `interest_tags`.
-- **Capa Celular (Memoria Viva On-Device en RAM + SQLite)**: El dispositivo móvil mantiene en memoria inmediata:
-  - **Tags de Intereses Específicos**: Palabras clave de alta afinidad del usuario.
-  - **Fragmentos Cortos de Gustos**: Título y esencia concisa de cada afición para conocimiento instantáneo sin tocar la red.
-  - **Recuerdos Importantes Activos**: Memorias afectivas y notas cotidianas aprendidas.
-  - **Recordatorios Pendientes**: Lista viva de medicamentos, hábitos y compromisos.
-- **Recuperación Dinámica de Nicho (`recall_past_context`)**: Cuando el usuario pregunta por temas específicos pasados o anécdotas antiguas no presentes en la memoria viva, Fifo invoca de forma autónoma su skill de búsqueda profunda en la base de datos central para responder con precisión y sin alucinaciones.
-- **Mutación Autónoma en Tiempo Real**: Fifo puede modificar recordatorios directamente en la app (programar, completar, eliminar o listar), añadir historias de gustos en detalle (`add_taste_story`) y registrar recuerdos afectivos al instante.
+- **Diario durable antes de hablar:** cada turno (usuario + Fifo) se guarda en `conversation_journal` (SQLite v7) antes de la locución. Si la app se cierra después de que Fifo habló, el turno no se pierde.
+- **Cola de consolidación persistente:** si la consolidación falla, el turno queda `PENDING` en disco y se reintenta con backoff exponencial (30 s a 15 min), incluso tras reiniciar la app. Solo pasa a `CONSOLIDATED` cuando el consolidador devuelve `true`.
+- **Capa Servidor (Transcripción Completa y Motor de Patrones):** la nube conserva las conversaciones consolidadas y usa el endpoint `analyze-and-consolidate` para conectar personas mencionadas, sintetizar biografías (`bio_ai`) y categorizar `interest_tags`.
+- **Capa Celular (Memoria Viva On-Device):** tags de intereses, fragmentos cortos de gustos, recuerdos activos, recordatorios pendientes y los últimos turnos restaurados desde el diario (4 turnos / 8 mensajes) para responder sin latencia de red.
+- **Recuperación Dinámica de Nicho (`recall_past_context`):** cuando el usuario pregunta por un tema antiguo fuera de la memoria viva, Fifo consulta la base de datos central bajo demanda.
+- **Reparación conversacional ±1 turno:** una corrección explícita (“te equivocaste”, “eso está mal”, “no era…”) se reconoce sin wake word y se locuta si el turno anterior tiene ~10 s o menos. Si llega tarde, se guarda en diario/OLED sin interrumpir. Un “No” aislado solo cuenta como corrección si el turno anterior quedó marcado `needsRepair`.
+- **La corrección se aprende:** si un turno fue reparado, la consolidación usa la respuesta corregida (`repairText`), no la versión errónea que alcanzó a escucharse.
+- **Mutación Autónoma en Tiempo Real:** Fifo puede modificar recordatorios directamente en la app (programar, completar, eliminar o listar), añadir historias de gustos en detalle (`add_taste_story`) y registrar recuerdos afectivos al instante.
 
 ## Fifo Amigos: Red Comunitaria & Matchmaking por Afinidad de Tags
 
@@ -106,10 +107,11 @@ Para la especificación completa del esquema de base de datos, mapeo de componen
 ## Alexa-Style Invisible Phone Architecture: Hands-Free Telephony & Hardware Control
 
 - **El Celular como Cerebro Invisible**: El adulto mayor nunca necesita desbloquear la pantalla, navegar menús ni abrir aplicaciones complejas. Fifo gestiona las tareas del teléfono por voz como un parlante inteligente Alexa pero con la movilidad y sensores del celular.
-- **Gestión Proactiva de Llamadas Telefónicas y Captura Concurrente**:
-  - Fifo anuncia en voz alta y clara quién llama consultando la agenda de contactos (*"¡Lucía! Le está llamando Carmen (Hija)..."*).
-  - Captura de audio concurrente en llamadas celulares y VoIP (WhatsApp, Google Meet, WeChat, Zoom) utilizando `MediaRecorder.AudioSource.VOICE_RECOGNITION` y supresión de ruido por hardware, asegurando que el micrófono nunca sea silenciado por las políticas de `AudioPolicy` de Android.
-  - Comandos directos de voz: *"Fifo, contesta"* o simplemente *"contesta / atiende"* durante el timbrado, y *"Fifo, cuelga / cortar llamada"* durante la llamada activa.
+- **Gestión Proactiva de Llamadas Telefónicas y Captura Sellada**:
+  - Fifo anuncia en voz alta y clara quién llama consultando primero el nombre que ya conoce el teléfono (`CallerContextProvider.local()`) y enriqueciendo en paralelo contra el backend (~800 ms).
+  - El anuncio usa nombre y parentesco; no lee temas recientes ni notas contextuales. Un caller ID con nombre pero sin registro sigue siendo desconocido y no se le inventa parentesco.
+  - `CaptureArbiter` decide la fuente de captura: durante una llamada la ruta es `PHONE_CALL`, nunca `SpeechRecognizer`. Timbrado y llamada activa no reconfiguran el micrófono.
+  - Comandos completos de voz: *“Fifo contesta”* durante el timbrado y *“Fifo cuelga”* durante la llamada activa. El escudo de eco se evalúa antes de la acción, así que el propio anuncio no puede contestar ni colgar.
 - **Modo de Escucha Continua ("Fifo sigue escuchando")**:
   - Permite encadenar preguntas o conversar libremente sin tener que repetir el comando de activación "Fifo" en cada frase.
   - Margen de silencio extendido a 120 segundos para respetar las pausas naturales al hablar del adulto mayor.

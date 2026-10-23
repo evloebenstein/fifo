@@ -7,12 +7,12 @@
 
 ## 📑 Tabla de Contenidos
 1. [Flujo de Arquitectura Global](#1-flujo-de-arquitectura-global)
-2. [Esquema de Base de Datos (Tablas y Colecciones)](#2-esquema-de-base-de-datos-tablas-y-colecciones)
+2. [Esquema de Base de Datos (Tablas)](#2-esquema-de-base-de-datos-tablas)
 3. [Matriz de Mapeo: Pantallas de la App ↔ Base de Datos ↔ Acciones de Voz de Fifo](#3-matriz-de-mapeo-pantallas-de-la-app--base-de-datos--acciones-de-voz-de-fifo)
 4. [Sistema de Skills y Herramientas del Teléfono para Fifo](#4-sistema-de-skills-y-herramientas-del-teléfono-para-fifo)
-5. [Guía de Implementación Técnica (Firestore / Supabase / SQLite Room)](#5-guía-de-implementación-técnica)
+5. [Guía de Implementación Técnica (Kotlin / SQLite / MySQL / FastAPI)](#5-guía-de-implementación-técnica)
 6. [Reglas de Privacidad y Manejo de Información Sensible](#6-reglas-de-privacidad-y-manejo-de-información-sensible)
-7. [Arquitectura de Memoria de Doble Capa: Servidor Completo vs. Celular Compacto](#7-arquitectura-de-memoria-de-doble-capa-servidor-completo-vs-celular-compacto)
+7. [Arquitectura de Memoria Durable, Contexto y Reparación](#7-arquitectura-de-memoria-durable-contexto-y-reparación)
 8. [Modo Celular, Rastreo del Robot y Navegación GPS (Maps y Waze)](#8-modo-celular-rastreo-del-robot-y-navegación-gps-maps-y-waze)
 9. [Skills del Dispositivo Móvil](#9-skills-del-dispositivo-móvil-y-control-de-hardware)
 10. [Resumen de Herramientas (Skills) Disponibles](#10-resumen-de-herramientas-skills-disponibles-para-el-cerebro-ia)
@@ -35,15 +35,15 @@
 ┌────────────────────────────────────────────────────────────────────────┐
 │                   2. CAPTURA Y PIPELINE DE VOZ                         │
 │   • ESP32-S3 (Mic UCC I2S + Filtro IIR + Noise Gate) vía BLE           │
-│   • VAD & Wake Word ("FIFO")                                           │
-│   • Speech-To-Text (Whisper / Google Voice Recognizer)                 │
+│   • CaptureArbiter: PHONE_NORMAL / PHONE_CALL / BLE_MIC / NATIVE       │
+│   • SpeechSegmenter: VAD + pre-roll + WAV                              │
+│   • Speech-To-Text (Whisper turbo / Google Voice Recognizer)           │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│             3. CEREBRO IA CON FUNCTION CALLING (GROQ LPU / CLAUDE)     │
-│   • Modelo Principal: Groq LPU (GPT-OSS 120B / LLaMA 3.3 Versatile)    │
-│   • Modelo Fallback: Claude Haiku 4.5                                  │
+│             3. CEREBRO IA CON FUNCTION CALLING (GROQ LPU)              │
+│   • Modelo Principal: Groq LPU (qwen/qwen3.8-27b)                      │
 │   • System Prompt empático para tercera edad                           │
 │   • Catálogo de Skills (Tools API con JSON Schema)                     │
 │   • El modelo decide qué Tool ejecutar según lo conversado             │
@@ -62,7 +62,7 @@
                   │                                       ▼
                   │                    ┌─────────────────────────────────┐
                   │                    │   5. BASE DE DATOS CENTRAL      │
-                  │                    │ (Firestore / Supabase / Cloud)  │
+                  │                    │ (MySQL 8.4 + FastAPI + SQLite)  │
                   │                    └──────────────────┬──────────────┘
                   │                                       │ Snapshot
                   │                                       ▼ Listener
@@ -85,11 +85,11 @@
 
 ---
 
-## 2. Esquema de Base de Datos (Tablas y Colecciones)
+## 2. Esquema de Base de Datos (Tablas)
 
-A continuación se define la estructura de datos en formato relacional / NoSQL (compatible con **Firebase Firestore**, **Supabase / PostgreSQL** o **Android Room**).
+A continuación se define la estructura de datos relacional usada por **MySQL 8.4** en el backend y por **SQLite v7** en la app Android.
 
-### 2.1. Colección: `users`
+### 2.1. Tabla: `users`
 Contiene la identidad principal de la persona y sus datos demográficos básicos.
 
 | Campo | Tipo | Requerido | Descripción | Ejemplo |
@@ -126,7 +126,7 @@ Contiene la identidad principal de la persona y sus datos demográficos básicos
 
 ---
 
-### 2.2. Colección: `user_profiles`
+### 2.2. Tabla: `user_profiles`
 Información enriquecida gestionada por la IA a partir de las charlas.
 
 | Campo | Tipo | Requerido | Descripción | Ejemplo |
@@ -141,7 +141,7 @@ Información enriquecida gestionada por la IA a partir de las charlas.
 
 ---
 
-### 2.3. Colección: `tastes` (Gustos e Intereses)
+### 2.3. Tabla: `tastes` (Gustos e Intereses)
 Intereses y aficiones descubiertos orgánicamente por Fifo en sus charlas diarias.
 
 | Campo | Tipo | Requerido | Descripción | Ejemplo |
@@ -156,7 +156,7 @@ Intereses y aficiones descubiertos orgánicamente por Fifo en sus charlas diaria
 
 ---
 
-### 2.4. Colección: `taste_stories` (Gustos en Detalle / Mini-Blogs)
+### 2.4. Tabla: `taste_stories` (Gustos en Detalle / Mini-Blogs)
 Historias detalladas y artículos de blog que Fifo redacta automáticamente sobre los gustos del usuario (sin incluir información privada sensible).
 
 | Campo | Tipo | Requerido | Descripción | Ejemplo |
@@ -176,7 +176,7 @@ Historias detalladas y artículos de blog que Fifo redacta automáticamente sobr
 
 ---
 
-### 2.5. Colección: `social_posts` (Fifo Amigos)
+### 2.5. Tabla: `social_posts` (Fifo Amigos)
 Publicaciones que el usuario comparte con otros amigos mayores en la comunidad Fifo.
 
 | Campo | Tipo | Requerido | Descripción | Ejemplo |
@@ -196,7 +196,7 @@ Publicaciones que el usuario comparte con otros amigos mayores en la comunidad F
 
 ---
 
-### 2.6. Colección: `reminders_and_events` (Recordatorios y Calendario)
+### 2.6. Tabla: `reminders_and_events` (Recordatorios y Calendario)
 Recordatorios de salud, bienestar, familia y eventos de calendario programados por voz.
 
 | Campo | Tipo | Requerido | Descripción | Ejemplo |
@@ -213,7 +213,7 @@ Recordatorios de salud, bienestar, familia y eventos de calendario programados p
 
 ---
 
-### 2.7. Colección: `past_conversations` y `memories`
+### 2.7. Tabla: `past_conversations` y `memories`
 Bitácora de bienestar y recuerdos entrañables aprendidos por Fifo.
 
 * **`past_conversations`**:
@@ -233,7 +233,7 @@ Bitácora de bienestar y recuerdos entrañables aprendidos por Fifo.
 
 ---
 
-### 2.8. Colección: `device_locations` (Rastreo del Robot Fifo y Última Conexión GPS)
+### 2.8. Tabla: `device_locations` (Rastreo del Robot Fifo y Última Conexión GPS)
 Registra la última ubicación geográfica conocida y proximidad del robot físico Fifo.
 
 | Campo | Tipo | Requerido | Descripción | Ejemplo |
@@ -247,6 +247,31 @@ Registra la última ubicación geográfica conocida y proximidad del robot físi
 | `last_known_address` | `String` | Sí | Dirección de la última desconexión | `"Av. Providencia 1234, Santiago"` |
 | `last_known_room` | `String` | Sí | Habitación sugerida en la casa | `"Cerca del Living / Mesa de noche"` |
 | `signal_strength_rssi`| `Int` | Sí | Intensidad de señal BLE en dBm | `-64` |
+
+---
+
+### 2.9. Tabla: `conversation_journal` (SQLite v7, diario durable)
+
+Registra cada turno completo antes de la locución. Es la fuente de continuidad de la
+memoria del camino `SESSION` y sobrevive al cierre de la app.
+
+| Campo | Tipo | Requerido | Descripción |
+| :--- | :--- | :---: | :--- |
+| `id` | `TEXT` (PK) | Sí | ID estable del turno. |
+| `user_id` | `TEXT` | Sí | Usuario dueño del turno. |
+| `session_id` | `TEXT` | Sí | Sesión que produjo el turno. |
+| `user_text` | `TEXT` | Sí | Texto del usuario. |
+| `assistant_text` | `TEXT` | Sí | Respuesta original de Fifo. |
+| `created_at` | `INTEGER` | Sí | Epoch ms; base para la ventana de reparación. |
+| `status` | `TEXT` | Sí | `PENDING` o `CONSOLIDATED`. |
+| `attempts` | `INTEGER` | Sí | Intentos fallidos de consolidación. |
+| `next_attempt_at` | `INTEGER` | Sí | Epoch ms del próximo intento (backoff). |
+| `last_error` | `TEXT?` | No | Último error de consolidación. |
+| `needs_repair` | `INTEGER` | Sí | Marca el turno como posible error del agente. |
+| `repair_text` | `TEXT?` | No | Respuesta corregida; la consolidación la prefiere. |
+| `repaired_at` | `INTEGER?` | No | Epoch ms de la reparación. |
+
+Índice: `idx_conversation_journal_pending (status, next_attempt_at, created_at)`.
 
 ---
 
@@ -350,7 +375,11 @@ Fifo cuenta con un sistema de **Skills (Herramientas / Function Calling)** que l
 
 ---
 
-### 4.2. Definición JSON Schema para Claude (Anthropic Tools API)
+### 4.2. Definición de Referencia de Skills (JSON Schema)
+
+> El catálogo de producción vive en `skills/GroqToolCatalog.kt` y se envía a Groq con
+> el formato de tools compatible con OpenAI. El siguiente JSON es una referencia
+> funcional de los argumentos, no el contrato literal del adaptador.
 
 ```json
 [
@@ -505,19 +534,15 @@ FifoDataRepository.updateDemographics(
 ```
 Esto emite de inmediato el nuevo valor en el `StateFlow`, lo que provoca que `ProfileScreen`, `HomeScreen` y el diálogo de edición se recompongan instantáneamente sin intervención del usuario.
 
-### 5.2. Conexión con Backend Remoto (Firestore / Supabase)
-1. **Escucha en tiempo real (Realtime Snapshots):**
-   ```kotlin
-   firestore.collection("users").document(userId)
-       .addSnapshotListener { snapshot, error ->
-           if (snapshot != null && snapshot.exists()) {
-               val user = snapshot.toObject(UserEntity::class.java)
-               FifoDataRepository.updateFromRemote(user)
-           }
-       }
-   ```
+### 5.2. Conexión con Backend Remoto (FastAPI / MySQL)
+1. **Consolidación de sesión:**
+   `RepositorySessionMemoryConsolidator` envía los turnos a
+   `FifoBackendClient.analyzeAndConsolidateSession()` y persiste el resultado localmente.
+   El backend usa `POST /users/{user_id}/conversations/analyze-and-consolidate`.
 2. **Offline-first con persistencia:**
-   Habilitar caché local de Firestore o Room SQLite para que el robot y la app funcionen incluso si la conexión a internet es inestable.
+   SQLite v7 es la fuente local. El diario `conversation_journal` guarda los turnos antes
+   de hablar y la cola pendiente se reintenta con backoff; si la red falla, la app sigue
+   funcionando y consolida cuando vuelve la conexión.
 
 ---
 
@@ -578,24 +603,29 @@ Fifo **únicamente extrae y registra de forma autónoma y proactiva**:
 
 ---
 
-## 7. Arquitectura de Memoria de Doble Capa: Servidor Completo vs. Celular Compacto
+## 7. Arquitectura de Memoria Durable, Contexto y Reparación
 
-### 7.1 Filosofía de Diseño: Latencia Cero y Contexto Infinito
+### 7.1 Filosofía de Diseño: Latencia Cero, Diario Durable y Contexto Infinito
 
 En un asistente de voz para adultos mayores, **cada 100 milisegundos de latencia adicional degradan severamente la experiencia**. Si el robot debe descargar cientos de kilobytes de transcripciones previas antes de formular una respuesta, la pausa se percibe como una desconexión o un fallo del sistema.
 
-Para resolver este desafío, Fifo implementa una **Arquitectura de Memoria de Doble Capa**:
+Fifo separa tres responsabilidades:
+
+1. **Diario durable local (`conversation_journal`, SQLite v7):** cada turno se escribe antes de hablar y sobrevive al cierre de la app. Es la fuente de continuidad.
+2. **Memoria viva on-device:** fragmentos compactos, gustos, recuerdos y recordatorios para responder sin red.
+3. **Memoria profunda en el servidor:** conversaciones consolidadas y recuperación GraphRAG bajo demanda.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                        SERVIDOR (Cloud / Supabase)                     │
-│  Colección: `conversations_full`                                       │
-│  • Guarda la transcripción ÍNTEGRA de cada sesión de voz               │
-│  • Cada turno de usuario y de Fifo con audio_duration y timestamps    │
-│  • Permite análisis longitudinal, auditoría y respaldo total           │
+│                     DIARIO DURABLE (SQLite v7)                         │
+│  Tabla: `conversation_journal`                                         │
+│  • Turno usuario + Fifo escrito ANTES de la locución                   │
+│  • `PENDING` → cola de consolidación persistente                       │
+│  • `CONSOLIDATED` cuando el consolidador devuelve `true`               │
+│  • `needs_repair`, `repair_text`, `repaired_at`                        │
 └───────────────────────────────────┬────────────────────────────────────┘
-                                    │ Extracción offline de
-                                    │ entidades, temas y resumen
+                                    │ MemoryCoordinator
+                                    │ (backoff 30 s → 15 min)
                                     ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │                        CELULAR (On-Device Cache)                       │
@@ -603,8 +633,8 @@ Para resolver este desafío, Fifo implementa una **Arquitectura de Memoria de Do
 │  • Solo fragmentos livianos (≤150 palabras cada uno)                   │
 │  • Temas clave: ["orquídeas", "riego por inmersión", "balcón"]         │
 │  • Personas mencionadas: ["Lucía", "abuela Rosa", "nieto Tomás"]       │
-│  • Se inyecta una ventana de los últimos 5 fragmentos en el prompt     │
-│  ➜ RESULTADO: Latencia mínima (<600 ms) en el 95% de las charlas       │
+│  • Se inyectan los últimos fragmentos y 4 turnos restaurados           │
+│  ➜ RESULTADO: Latencia mínima (<600 ms) en el 95% de las charlas        │
 └───────────────────────────────────┬────────────────────────────────────┘
                                     │
                                     │ Si el usuario pregunta por un
@@ -681,7 +711,7 @@ data class ConversationFragment(
 )
 ```
 
-#### Ventana de Contexto Compacto Inyectada en Claude (`FifoDataRepository.buildCompactContextWindow`):
+#### Ventana de Contexto Compacto Inyectada en el LLM (`FifoDataRepository.buildCompactContextWindow`):
 ```text
 === CONTEXTO PREVIO DEL USUARIO (fragmentos compactos) ===
 Nombre: Lucía González | Edad: 68 | Ciudad: Santiago, Chile
@@ -708,9 +738,9 @@ Resumen: Conversaron sobre la música clásica y los nocturnos de Chopin. Su nie
 
 1. **El usuario menciona un tema de nicho antiguo:**  
    *"Fifo, ¿te acuerdas qué condimento me dijiste que le echara a la masa de las empanadas cuando hablamos el mes pasado?"*
-2. **Claude evalúa su contexto actual:**  
-   En la ventana de fragmentos compactos no aparece la receta de empanadas del mes pasado (solo están los últimos 5 resúmenes).
-3. **Claude invoca `recall_past_context`:**  
+2. **El LLM evalúa su contexto actual:**
+   En la ventana de fragmentos compactos no aparece la receta de empanadas del mes pasado (solo están los resúmenes recientes y los últimos turnos restaurados).
+3. **El LLM invoca `recall_past_context`:**
    ```json
    {
      "name": "recall_past_context",
@@ -727,6 +757,19 @@ Resumen: Conversaron sobre la música clásica y los nocturnos de Chopin. Su nie
 6. **Balance Óptimo:**  
    - 95% de las charlas: Latencia ultra-baja (payload liviano sin overhead).
    - 5% de las charlas que requieren memoria profunda: Recuperación quirúrgica sin alucinaciones ni pérdidas de contexto.
+
+---
+
+### 7.5 Diario durable, cola de consolidación y reparación
+
+- **Escritura antes de hablar:** `VoiceSession` genera la respuesta y llama a `SessionMemory.recordTurn()` antes de `speakResponse`. Si el diario falla, la locución continúa; la memoria nunca bloquea la conversación.
+- **Cola en disco:** un turno nace `PENDING`. `MemoryCoordinator` lo marca `CONSOLIDATED` solo cuando el consolidador devuelve `true`. Si falla, conserva `attempts`, `next_attempt_at` y `last_error`.
+- **Backoff exponencial:** 30 s, 60 s, 120 s… hasta un máximo de 15 min. El bucle de reintento arranca con la pipeline y sobrevive reinicios porque lee de SQLite.
+- **Extracción recuperable:** `CloudApiClient.extractSessionMemoryChecked()` distingue un fallo de red/parseo (excepción → reintento) de “no había nada que recordar” (`null` → consolidado sin inventar memoria).
+- **Consolidación con IDs estables:** `RepositorySessionMemoryConsolidator` deriva IDs del primer `JournalEntry.id`, así un reintento no duplica fragmentos ni conversaciones.
+- **Reparación ±1 turno:** `ConversationRepairPolicy` reconoce correcciones explícitas y un “No” aislado solo si el turno anterior quedó `needsRepair`. Si el turno original tiene ~10 s o menos, la corrección se locuta y reemplaza el TTS en curso; si llega tarde, se guarda en diario/OLED sin interrumpir.
+- **La corrección se aprende:** la consolidación usa `repairText` cuando existe, no la respuesta errónea que alcanzó a escucharse.
+- **Contexto restaurado:** al arrancar `VoiceSessionPipeline`, se limpia el historial en RAM de `CloudApiClient` y se repueblan los últimos 4 turnos del diario (8 mensajes).
 
 ---
 
@@ -789,10 +832,10 @@ Fifo integra el módulo de geolocalización y navegación nativa del teléfono p
 ├─────────────────────────────────────────────────────────────────────────────┤
 │                                                                             │
 │  [1. LLAMADAS TELEFÓNICAS MANOS LIBRES]                                     │
-│  • FifoPhoneCallReceiver + FifoCallManager (TelephonyManager API 34)        │
-│  • Detección inmediata de RINGING + Lookup de Contactos (ContactsContract) │
-│  • Anuncio hablado proactivo: "¡Lucía! Le está llamando Carmen (Hija)..."   │
-│  • Comandos de voz directos: "Fifo contesta" (altavoz activado) / "cuelga"  │
+│  • FifoPhoneCallReceiver + AndroidTelephonyPort + FifoCallManager (API 34)  │
+│  • CallerContextProvider.local() inmediato + enrich() backend (~800 ms)    │
+│  • Anuncio: nombre/parentesco; nunca lee temas recientes                  │
+│  • Comandos completos: "Fifo contesta" / "Fifo cuelga"                     │
 │                                                                             │
 │  [2. MODO ESCUCHA CONTINUA ("Fifo sigue escuchando")]                      │
 │  • Estado reactivo: FifoDataRepository.isContinuousListening                │
@@ -817,13 +860,15 @@ Fifo integra el módulo de geolocalización y navegación nativa del teléfono p
 ### 9.1 Manejo de Llamadas Telefónicas (`manage_phone_call`)
 
 - **Detección y Anuncio Proactivo:**
-  Cuando el teléfono recibe una llamada entrante, el `FifoCallManager` intercepta el evento `EXTRA_STATE_RINGING`. Si la agenda telefónica contiene el número, obtiene el nombre del contacto (`"Carmen (Hija)"` o `"Dr. Soto"`). Fifo interrumpe suavemente cualquier actividad y anuncia por voz:  
-  *"¡Lucía! Le está llamando Carmen (Hija). ¿Desea que conteste o que cuelgue?"*
+  Cuando el teléfono recibe una llamada entrante, `FifoPhoneCallReceiver` notifica a `FifoCallManager`. `CallerContextProvider.local()` resuelve de inmediato el nombre que ya conoce el teléfono o el grafo local; en paralelo, `enrich()` consulta el backend con timeout de ~800 ms. Fifo anuncia con `CallerContext.announcementText()`:
+  *"Le está llamando Carmen, su hija. Diga 'Fifo contesta' o 'Fifo cuelga'."*
+  Un caller ID sin registro sigue siendo desconocido y no se le inventa parentesco. El anuncio no lee `recentTopics` ni notas contextuales.
 - **Acciones Disponibles:**
-  1. `answer`: Invoca `TelecomManager.acceptRingingCall()`, activa el modo `AudioManager.MODE_IN_COMMUNICATION` y conmuta a `isSpeakerphoneOn = true`. El usuario puede conversar de inmediato al aire sin acercar el teléfono a su oreja.
-  2. `hangup`: Invoca `TelecomManager.endCall()` y confirma verbalmente: *"He colgado la llamada."*
-  3. `status`: Informa si hay una llamada en curso o sonando.
+  1. `answer`: Invoca la acción de `TelephonyPort`/`FifoCallManager` para aceptar la llamada y activar el altavoz. Solo se ejecuta si hay timbrado.
+  2. `hangup`: Invoca la acción de colgado y confirma verbalmente: *"He colgado la llamada."* Solo se ejecuta si hay llamada.
+  3. `status`: Informa si hay una llamada en curso o sonando usando `CallSnapshot`.
   4. `call`: Marca automáticamente al contacto solicitado usando la agenda del teléfono.
+- **Reglas de voz:** contestar/colgar exige la frase completa *“Fifo contesta”* / *“Fifo cuelga”*. El escudo de eco se evalúa antes de la acción; el propio anuncio contiene esas frases y no puede auto-contestar.
 
 ### 9.2 Modo de Escucha Continua ("Fifo sigue escuchando")
 
@@ -866,7 +911,7 @@ A continuación se resume el catálogo unificado de tools registradas en `FifoSk
 6. `find_fifo_device`: Rastrear el robot perdido mediante sonido ("beep") o coordenadas GPS previas.
 7. `get_current_location`: Informa la calle, comuna y ciudad actual por voz.
 8. `open_navigation_directions`: Guía de ruta hablada paso a paso o apertura de Maps/Waze.
-9. `manage_phone_call`: Anuncia llamadas, contesta en altavoz manos libres o cuelga.
+9. `manage_phone_call`: Anuncia llamadas con contexto local/backend, contesta con *“Fifo contesta”* o cuelga con *“Fifo cuelga”*.
 10. `control_device_hardware`: Linterna, volumen, batería y hora del celular.
 
 ---

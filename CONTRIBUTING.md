@@ -8,7 +8,7 @@ Toda contribución —ya sea en código, documentación, corrección de bugs o i
 
 ## 1. Principios Éticos y de Producto (Lectura Obligatoria)
 
-Antes de realizar cambios, por favor revisa [PRODUCT.md](PRODUCT.md) y [FIFO_DATABASE_MAP.md](FIFO_DATABASE_MAP.md). Cualquier contribución debe alinearse con estos principios:
+Antes de realizar cambios, por favor revisa [PRODUCT.md](PRODUCT.md), [FIFO_DATABASE_MAP.md](FIFO_DATABASE_MAP.md), [AGENTS.md](AGENTS.md) y [GLOSSARY.md](GLOSSARY.md). Los ADR de [docs/adr/](docs/adr/) son la fuente de verdad de la arquitectura. Cualquier contribución debe alinearse con estos principios:
 
 1. **Dignidad y Paciencia ante todo**: Fifo interactúa con personas mayores. Jamás se deben apresurar sus pausas al hablar, ni cortar sus respuestas bruscamente, ni generar respuestas frías o despersonalizadas.
 2. **Accesibilidad sin Concesiones**:
@@ -28,14 +28,17 @@ Antes de realizar cambios, por favor revisa [PRODUCT.md](PRODUCT.md) y [FIFO_DAT
 El proyecto está organizado en módulos desacoplados:
 
 - `android-app/`: Aplicación nativa en Kotlin con Jetpack Compose.
-  - `pipeline/`: Canalización de voz en tiempo real (`VoicePipelineManager.kt`), VAD, Whisper STT, TTS y control de estados.
-  - `audio/`: Grabadores de micrófono (`PhoneMicRecorder.kt`), TTS nativo (`AndroidTtsSpeaker.kt`), cancelador de eco y validación de coherencia.
-  - `skills/`: Registro de herramientas ejecutables por voz (`FifoSkillRegistry.kt`) como mapas, llamadas, recordatorios, linterna, etc.
-  - `telephony/`: Gestor de telefonía inteligente (`FifoCallManager.kt`) con anuncios por voz y captura concurrente.
-  - `data/`: Modelos de datos y repositorio reactivo (`FifoDataRepository.kt`).
-- `esp32-firmware/`: Código C++ para microcontroladores ESP32 con audio I2S (micrófono INMP441, amplificador MAX98357A), pantalla OLED SSD1306 y enlace BLE.
+  - `pipeline/`: Núcleo de voz. `VoicePipelineManager` es la fachada; `VoicePipelineModeSelector` elige `LEGACY` o `SESSION`; `VoiceSessionPipeline` compone la sesión, la captura, la telefonía y la memoria durable.
+  - `pipeline/session/`: `VoiceSession`, `SpeechSegmenter` (VAD/pre-roll/WAV), `CaptureArbiter` (dueño de la captura), `MemoryCoordinator` y `ConversationRepairPolicy`.
+  - `audio/`: Primitivas de audio (`PhoneMicRecorder`, VAD, buffer PCM, TTS nativo y sanitización). No llamar a `PhoneMicRecorder` fuera de `CaptureArbiter`.
+  - `telephony/`: `TelephonyPort`, `AndroidTelephonyPort`, `FifoCallManager` y contexto de llamante en dos fases.
+  - `data/`: Repositorio reactivo, módulos de dominio, diario durable (`data/memory`) y SQLite v7 (`data/local`).
+  - `skills/`: Registro de herramientas ejecutables por voz (`FifoSkillRegistry`).
+  - `network/`: BLE, Groq STT/LLM, backend y extracción de memoria.
+- `esp32-firmware/`: Código C++ para ESP32 con audio I2S, pantalla OLED SSD1306 y enlace BLE.
 - `database/`: Definiciones de esquemas SQLite, mapeos relacionales y memoria a largo plazo.
-- `backend/`: Servicios auxiliares en la nube (si aplica).
+- `backend/`: API FastAPI y esquema MySQL para consolidación y sincronización.
+- `docs/adr/`: Decisiones de arquitectura (ADR-0001 a ADR-0011).
 
 ---
 
@@ -69,10 +72,10 @@ gradlew.bat assembleDebug       # En Windows
 El APK resultante se genera en `android-app/app/build/outputs/apk/debug/app-debug.apk`.
 
 ### Claves de API y Variables de Entorno
-Fifo utiliza servicios de IA (Groq LPU para inferencia ultra-rápida, Anthropic Claude para razonamiento y OpenAI Whisper para STT).
+Fifo usa **Groq LPU** para STT (`whisper-large-v3-turbo`) y LLM (`qwen/qwen3.8-27b`). Opcionalmente, `OPENAI_API_KEY` habilita Whisper de OpenAI como alternativa de STT. No se requiere clave para el TTS nativo de Android.
 
 >  **IMPORTANTE: NUNCA subas claves de API al repositorio.**
-> Las claves se configuran localmente en la app a través del menú de Ajustes o en archivos locales no rastreados por git.
+> Las claves se configuran localmente en `android-app/local.properties` o en los Ajustes de la app. `local.properties` está excluido por `.gitignore`.
 
 ---
 
@@ -96,11 +99,30 @@ Utilizamos el estándar de Conventional Commits para mantener un historial limpi
 
 ## 5. Pruebas de la Canalización de Voz (Voice Pipeline)
 
-Si realizas cambios en `VoicePipelineManager.kt` o en la captura de audio, verifica siempre:
-1. **Wake-Word estricto**: Fifo no debe activarse ni responder a personas hablando en segundo plano a menos que digan *"Fifo"*, se presione el botón manual, esté en modo continuo o responda a una pregunta directa que Fifo formuló.
-2. **Barge-In inteligente**: Mientras Fifo habla, ruidos fuertes o murmullos no deben cortar su voz. Solo debe callarse si el usuario dice *"Fifo silencio"*, *"cállate"*, *"para"*, o inicia una nueva consulta con *"Fifo ..."*.
-3. **Filtro Anti-Eco**: La propia voz de Fifo saliendo del altavoz no debe activar el reconocedor de voz.
-4. **Llamadas telefónicas**: La captura de voz debe seguir operativa durante llamadas sin interferir con la conversación del usuario.
+Antes de abrir un PR, ejecuta las pruebas JVM de ambos build types:
+
+```powershell
+cd android-app
+.\gradlew.bat testDebugUnitTest
+.\gradlew.bat testReleaseUnitTest
+.\gradlew.bat compileReleaseKotlin
+```
+
+Si tocas `pipeline/`, `audio/`, `telephony/` o `data/memory/`, verifica siempre:
+
+1. **Un solo pipeline:** `VoicePipelineManager` construye `VoiceSessionPipeline` o inicializa el legacy, nunca ambos. Debug usa `LEGACY`; release usa `SESSION` si hay STT de nube.
+2. **Un solo dueño de captura:** `CaptureArbiter` decide entre micrófono, BLE, llamada o reconocedor nativo. No llames a `PhoneMicRecorder` desde la sesión, UI o servicio.
+3. **Un solo dueño de VAD/pre-roll:** `SpeechSegmenter`. No agregues un segundo VAD en el facade.
+4. **Wake-word estricto:** Fifo no responde a conversaciones ajenas salvo wake word, botón manual, modo continuo o follow-up de una pregunta directa.
+5. **Barge-in por contenido:** ruidos fuertes o RMS no cortan la locución. Solo una nueva invocación “Fifo …” o una orden de silencio.
+6. **Eco antes de acción:** el eco del anuncio de timbrado no puede contestar ni colgar. Los comandos exigen *“Fifo contesta”* / *“Fifo cuelga”*.
+7. **Llamadas:** la ruta es `PHONE_CALL`; nunca `SpeechRecognizer` durante una llamada. Timbrado y activo no reconfiguran el micrófono.
+8. **Memoria:** cada turno se journaliza antes de `speakResponse`; la cola pendiente vive en `conversation_journal`; la consolidación usa backoff y `repairText` cuando corresponde.
+9. **Reparación:** ±1 turno, ventana de ~10 s; un “No” aislado solo cuenta tras `needsRepair`.
+
+Las pruebas de verdad incluyen `CaptureArbiterTest`, `SpeechSegmenterTest`, `VoiceSessionTest`,
+`TelephonyPortTest`, `CallerContextProviderTest`, `CallerContextCoordinatorTest`,
+`MemoryCoordinatorTest`, `ConversationRepairPolicyTest` y `VoiceSessionMemoryTest`.
 
 ---
 
@@ -113,10 +135,11 @@ Si realizas cambios en `VoicePipelineManager.kt` o en la captura de audio, verif
    # o
    git checkout -b fix/filtro-ruido-esp32
    ```
-3. **Realiza tus cambios y verifica la compilación**:
+3. **Realiza tus cambios y verifica la compilación y las pruebas**:
    ```bash
    cd android-app
-   ./gradlew compileDebugKotlin
+   ./gradlew compileDebugKotlin testDebugUnitTest
+   ./gradlew compileReleaseKotlin testReleaseUnitTest
    ```
 4. **Haz commit de tus cambios** respetando las convenciones:
    ```bash
@@ -136,7 +159,7 @@ Si realizas cambios en `VoicePipelineManager.kt` o en la captura de audio, verif
 ## 7. Reporte de Errores y Sugerencias
 
 Si encuentras un error o tienes una idea para mejorar la experiencia de los adultos mayores:
-- Abre un **Issue** en GitHub detallando los pasos para reproducir el comportamiento, modelo del dispositivo Android y logs relevantes (`adb logcat -s FifoVoicePipeline`).
+- Abre un **Issue** en GitHub detallando los pasos para reproducir el comportamiento, modelo del dispositivo Android y logs relevantes (`adb logcat -s FifoVoiceService:V VoicePipelineManager:V CloudApiClient:V`).
 - Sé empático y constructivo en la discusión.
 
 ¡Gracias por ayudarnos a construir una tecnología más humana y accesible para nuestros mayores! 👴👵💙

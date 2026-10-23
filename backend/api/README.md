@@ -1,6 +1,6 @@
 # 🚀 REST API Service (`backend/api/`)
 
-Microservicio REST escrito en **Python 3.11** con **FastAPI** y `mysql-connector-python`. Actúa como puente entre la aplicación Android de Fifo, los modelos de lenguaje (Claude / Gemini / Groq) y la base de datos relacional MySQL 8.4 LTS.
+Microservicio REST escrito en **Python 3.11** con **FastAPI** y `mysql-connector-python`. Actúa como puente entre la aplicación Android de Fifo, los modelos de lenguaje de **Groq** (Qwen/Llama, con Gemini opcional para consolidación) y la base de datos relacional MySQL 8.4 LTS.
 
 ---
 
@@ -38,7 +38,7 @@ Microservicio REST escrito en **Python 3.11** con **FastAPI** y `mysql-connector
 - `GET /api/v1/friends/compatible/{user_id}`: Algoritmo de afinidad por coincidencia de `interest_tags`, edad y ciudad.
 
 ### 5. Consolidación de Sesión Conversacional
-- `POST /api/v1/session/consolidate`: Recibe los turnos de diálogo emitidos en la app móvil y extrae automáticamente recuerdos, historias de gustos, nuevos contactos y recordatorios en un solo paso atómico.
+- `POST /users/{user_id}/conversations/analyze-and-consolidate`: Recibe los turnos de diálogo emitidos en la app móvil y extrae automáticamente recuerdos, historias de gustos, nuevos contactos y recordatorios en un solo paso atómico.
 
 ---
 

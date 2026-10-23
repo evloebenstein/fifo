@@ -1,6 +1,9 @@
 # 📦 Data Layer (`com.fifo.voicepipeline.data`)
 
-Capa de datos de Fifo. Ver **ADR-0002** (`docs/adr/0002-data-repository-modularization.md`) para la descomposición modular.
+Capa de datos de Fifo. Ver **ADR-0002**
+(`docs/adr/0002-data-repository-modularization.md`) para la descomposición modular y
+**ADR-0011** (`docs/adr/0011-durable-memory-journal.md`) para la memoria durable del
+camino `SESSION`.
 
 ---
 
@@ -8,13 +11,15 @@ Capa de datos de Fifo. Ver **ADR-0002** (`docs/adr/0002-data-repository-modulari
 
 | Archivo / Carpeta | Rol |
 | :--- | :--- |
-| [`FifoDataRepository.kt`](FifoDataRepository.kt) | **Fachada de delegación** 100% backward-compatible hacia los tres módulos de dominio. Expone todos los `StateFlow` para la UI. **Retiene directamente la telefonía** (`incomingCall`, `setIncomingCall`, `answerCurrentCall`, `hangupCurrentCall`) — invariante de ADR-0002, no mover. |
-| [`modules/UserIdentityModule.kt`](modules/UserIdentityModule.kt) | Perfil de usuario, identidad, bio generada por IA, tags de intereses. Costura: `UserStorageAdapter`. |
+| [`FifoDataRepository.kt`](FifoDataRepository.kt) | **Fachada de delegación** backward-compatible hacia los módulos de dominio. Expone los `StateFlow` para la UI. **Retiene directamente la telefonía** (`incomingCall`, `setIncomingCall`, `answerCurrentCall`, `hangupCurrentCall`) — invariante de ADR-0002. |
+| [`modules/UserIdentityModule.kt`](modules/UserIdentityModule.kt) | Perfil de usuario, identidad, bio generada por IA y tags de intereses. Costura: `UserStorageAdapter`. |
 | [`modules/CommunityModule.kt`](modules/CommunityModule.kt) | Actividades comunitarias (`ActividadComunitaria`) y red de `FifoAmigos`. Costura: `CommunityStorageAdapter`. |
-| [`modules/EpisodicMemoryModule.kt`](modules/EpisodicMemoryModule.kt) | Memoria episódica dual-capa: contexto on-device (<80 tokens) + recuperación GraphRAG en backend. Costura: `MemoryStorageAdapter`. |
-| [`modules/SqliteStorageAdapters.kt`](modules/SqliteStorageAdapters.kt) | Adaptadores SQLite de producción para los tres módulos. |
-| [`local/FifoDatabaseHelper.kt`](local/FifoDatabaseHelper.kt) | Helper SQLite: esquema, migraciones y acceso de bajo nivel. |
-| [`remote/FifoApiClient.kt`](remote/FifoApiClient.kt) | **Deprecado para nuevas features** — `FifoBackendClient` en `network/` es la fuente preferida. Mantiene sincronización legacy de recuerdos. |
+| [`modules/EpisodicMemoryModule.kt`](modules/EpisodicMemoryModule.kt) | Memoria episódica: fragmentos compactos on-device y recuperación GraphRAG en backend. Costura: `MemoryStorageAdapter`. |
+| [`modules/SqliteStorageAdapters.kt`](modules/SqliteStorageAdapters.kt) | Adaptadores SQLite de producción para los módulos de dominio. |
+| [`memory/`](memory/README.md) | **Memoria durable del camino nuevo:** `JournalEntry`, puerto `ConversationJournal`, consolidación local/backend y fake JVM. |
+| [`local/FifoDatabaseHelper.kt`](local/FifoDatabaseHelper.kt) | Helper SQLite v7: esquema, migraciones y CRUD de bajo nivel. Incluye `conversation_journal`. |
+| [`local/SqliteConversationJournal.kt`](local/SqliteConversationJournal.kt) | Adaptador durable de `ConversationJournal`: append, recientes, pendientes, reintentos y reparación. |
+| [`remote/FifoApiClient.kt`](remote/FifoApiClient.kt) | **Deprecado para nuevas features** — `FifoBackendClient` en `network/` es la fuente preferida. Mantiene sincronización legacy. |
 | [`FifoContentFilter.kt`](FifoContentFilter.kt) | Filtro de contenido sensible antes de persistir en memoria. |
 
 ---
@@ -30,6 +35,14 @@ FifoDataRepository (fachada)
     ├─► CommunityModule ────► SqliteCommunityStorageAdapter ──► SQLite
     └─► EpisodicMemoryModule ─► SqliteMemoryStorageAdapter ──► SQLite
                                        └──► FifoBackendClient ──► Backend MySQL (GraphRAG)
+
+VoiceSessionPipeline
+    └─► MemoryCoordinator
+          ├─► SqliteConversationJournal ──► conversation_journal (SQLite v7)
+          └─► RepositorySessionMemoryConsolidator
+                ├─► CloudApiClient.extractSessionMemoryChecked()
+                ├─► FifoDataRepository (fragmentos, conversaciones, recuerdos, gustos)
+                └─► FifoBackendClient.analyzeAndConsolidateSession()
 ```
 
 ---
@@ -37,5 +50,7 @@ FifoDataRepository (fachada)
 ## Invariantes
 
 1. **Telefonía en la fachada:** `incomingCall` y sus mutaciones permanecen en `FifoDataRepository`. No mover a ningún módulo de dominio. Ver ADR-0002.
-2. **Actualizaciones atómicas:** Siempre insertar en SQLite antes de actualizar el `StateFlow`.
-3. **Tests sin Android:** Los tres módulos de dominio son 100% testables en JVM puro con los adaptadores `InMemory*`.
+2. **Actualizaciones atómicas:** insertar en SQLite antes de actualizar el `StateFlow`.
+3. **Tests sin Android:** los módulos de dominio son testables en JVM con los adaptadores `InMemory*`.
+4. **Un solo dueño de la memoria durable:** `VoiceSessionPipeline` compone `MemoryCoordinator`, el diario y el consolidador. `VoiceSession` solo ve `SessionMemory`; el facade legacy no crea otro coordinador.
+5. **El diario es la fuente de continuidad:** `CloudApiClient.conversationHistory` es solo una caché de contexto (últimos 8 mensajes); al arrancar se repuebla desde los últimos 4 turnos del diario.
