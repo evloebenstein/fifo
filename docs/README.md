@@ -41,6 +41,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0019](adr/0019-taste-dao.md) | DAO de gustos e historias de gustos fuera del helper. | Aceptado. |
 | [ADR-0020](adr/0020-reminder-dao.md) | DAO de recordatorios y eventos fuera del helper. | Aceptado. |
 | [ADR-0021](adr/0021-memory-dao.md) | DAO de recuerdos fuera del helper. | Aceptado. |
+| [ADR-0022](adr/0022-social-post-dao.md) | DAO de publicaciones sociales fuera del helper. | Aceptado. |
 
 ---
 

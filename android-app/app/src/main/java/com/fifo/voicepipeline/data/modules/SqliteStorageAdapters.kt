@@ -128,16 +128,16 @@ class SqliteCommunityStorageAdapter(private val getDbHelper: () -> FifoDatabaseH
     }
 
     override fun getSocialPosts(): List<UserSocialPost> {
-        return getDbHelper()?.getSocialPosts() ?: emptyList()
+        return getDbHelper()?.socialPosts?.getSocialPosts() ?: emptyList()
     }
 
     override fun addSocialPost(post: UserSocialPost, userId: String): Boolean {
-        getDbHelper()?.addSocialPost(post, userId)
+        getDbHelper()?.socialPosts?.addSocialPost(post, userId)
         return true
     }
 
     override fun removeSocialPost(postId: String): Boolean {
-        getDbHelper()?.deleteSocialPost(postId)
+        getDbHelper()?.socialPosts?.deleteSocialPost(postId)
         return true
     }
 }
