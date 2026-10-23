@@ -70,7 +70,7 @@ object FifoApiClient {
             val dbHelper = FifoDatabaseHelper.getInstance(context)
 
             // 1. Sincronizar Perfil
-            val profile = dbHelper.getUserProfile(userId)
+            val profile = dbHelper.userProfile.getUserProfile(userId)
             val profileJson = gson.toJson(mapOf(
                 "full_name" to profile.fullName,
                 "birth_date" to profile.birthDate,

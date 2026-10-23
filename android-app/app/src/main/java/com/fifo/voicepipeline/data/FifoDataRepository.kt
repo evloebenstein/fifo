@@ -302,7 +302,7 @@ object FifoDataRepository {
                 return@withContext true
             }
             // Buscar en SQLite local por email, username, full_name o id
-            val localUserId = dbHelper?.findUserIdByIdentifier(identifier)
+            val localUserId = dbHelper?.userProfile?.findUserIdByIdentifier(identifier)
             if (localUserId != null) {
                 val prefs = context.applicationContext.getSharedPreferences("fifo_prefs", android.content.Context.MODE_PRIVATE)
                 prefs.edit().putString("active_user_id", localUserId).putBoolean("has_completed_setup", true).apply()

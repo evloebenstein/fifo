@@ -108,7 +108,7 @@ fun OnboardingScreen(
     var usernameHandle by remember {
         val dbHelper = FifoDatabaseHelper.getInstance(context)
         val initialRec = if (fullName.isNotBlank()) {
-            dbHelper.recommendAvailableUsernames(fullName, email).firstOrNull()
+            dbHelper.userProfile.recommendAvailableUsernames(fullName, email).firstOrNull()
         } else null
         val base = initialGoogleUser?.email?.substringBefore('@')?.filter { it.isLetterOrDigit() || it == '_' }
             ?: ""
@@ -129,7 +129,7 @@ fun OnboardingScreen(
                 .takeIf { it.isNotBlank() && !it.equals("Usuario", ignoreCase = true) }
                 ?: ""
             fullName = parsedName
-            val recs = FifoDatabaseHelper.getInstance(context).recommendAvailableUsernames(if (fullName.isNotBlank()) fullName else "amigo", gUser.email)
+            val recs = FifoDatabaseHelper.getInstance(context).userProfile.recommendAvailableUsernames(if (fullName.isNotBlank()) fullName else "amigo", gUser.email)
             usernameHandle = recs.firstOrNull() ?: ("@" + gUser.email.substringBefore('@').filter { it.isLetterOrDigit() || it == '_' }.lowercase().ifBlank { "amigo" })
             currentPhase = SetupPhase.FIFO_QUESTION_NAME_ID
             android.widget.Toast.makeText(context, "¡Cuenta de Google vinculada!", android.widget.Toast.LENGTH_SHORT).show()
@@ -381,7 +381,7 @@ fun OnboardingScreen(
                         android.widget.Toast.makeText(context, nameMod.message ?: "Por favor ingresa un nombre y apellido válido", android.widget.Toast.LENGTH_SHORT).show()
                         return@Button
                     }
-                    val recs = FifoDatabaseHelper.getInstance(context).recommendAvailableUsernames(fullName, email)
+                    val recs = FifoDatabaseHelper.getInstance(context).userProfile.recommendAvailableUsernames(fullName, email)
                     if (recs.isNotEmpty()) {
                         usernameHandle = recs.first()
                     } else {
@@ -418,7 +418,7 @@ fun OnboardingScreen(
             var suggestionBatch by remember { mutableStateOf(0) }
             val recommendedUsernames = remember(fullName, email, suggestionBatch) {
                 if (fullName.isNotBlank() && !fullName.equals("Usuario", ignoreCase = true)) {
-                    dbHelper.recommendAvailableUsernames(fullName, email, suggestionBatch)
+                    dbHelper.userProfile.recommendAvailableUsernames(fullName, email, suggestionBatch)
                 } else emptyList()
             }
 
@@ -429,7 +429,7 @@ fun OnboardingScreen(
             }
 
             val cleanHandle = usernameHandle.trim().removePrefix("@").lowercase()
-            val isHandleTaken = remember(cleanHandle) { dbHelper.isUsernameTaken(cleanHandle) }
+            val isHandleTaken = remember(cleanHandle) { dbHelper.userProfile.isUsernameTaken(cleanHandle) }
             val firstName = fullName.trim().split("\\s+".toRegex()).firstOrNull()?.replaceFirstChar { it.uppercase() } ?: ""
 
             val nameModeration = remember(fullName) {
@@ -500,7 +500,7 @@ fun OnboardingScreen(
                     val oldRecs = recommendedUsernames
                     fullName = newName
                     val newRecs = if (newName.isNotBlank() && !newName.equals("Usuario", ignoreCase = true)) {
-                        dbHelper.recommendAvailableUsernames(newName, email, suggestionBatch)
+                        dbHelper.userProfile.recommendAvailableUsernames(newName, email, suggestionBatch)
                     } else emptyList()
                     if (newRecs.isNotEmpty() && (usernameHandle.isBlank() || usernameHandle == "@" || usernameHandle.equals("@usuario", ignoreCase = true) || oldRecs.contains(usernameHandle))) {
                         usernameHandle = newRecs.first()

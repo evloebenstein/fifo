@@ -8,12 +8,12 @@ import com.fifo.voicepipeline.ui.model.*
  */
 class SqliteUserStorageAdapter(private val getDbHelper: () -> FifoDatabaseHelper?) : UserStorageAdapter {
     override fun getUserProfile(userId: String): UserProfileData {
-        return getDbHelper()?.getUserProfile(userId) ?: UserProfileData(id = userId)
+        return getDbHelper()?.userProfile?.getUserProfile(userId) ?: UserProfileData(id = userId)
     }
 
     override fun saveUserProfile(profile: UserProfileData) {
         val helper = getDbHelper() ?: return
-        helper.updateDemographics(
+        helper.userProfile.updateDemographics(
             userId = profile.id,
             fullName = profile.fullName,
             username = profile.username,
@@ -24,10 +24,10 @@ class SqliteUserStorageAdapter(private val getDbHelper: () -> FifoDatabaseHelper
             city = profile.city
         )
         if (profile.bioAi.isNotBlank()) {
-            helper.updateBio(profile.id, profile.bioAi)
+            helper.userProfile.updateBio(profile.id, profile.bioAi)
         }
         if (profile.interestTags.isNotEmpty()) {
-            helper.updateInterestTags(profile.id, profile.interestTags)
+            helper.userProfile.updateInterestTags(profile.id, profile.interestTags)
         }
     }
 
@@ -41,7 +41,7 @@ class SqliteUserStorageAdapter(private val getDbHelper: () -> FifoDatabaseHelper
         city: String?
     ) {
         val estimatedAge = if (birthYear != null) (2026 - birthYear) else null
-        getDbHelper()?.updateDemographics(
+        getDbHelper()?.userProfile?.updateDemographics(
             userId = userId,
             fullName = fullName,
             username = username,
@@ -54,11 +54,11 @@ class SqliteUserStorageAdapter(private val getDbHelper: () -> FifoDatabaseHelper
     }
 
     override fun updateBio(userId: String, bio: String) {
-        getDbHelper()?.updateBio(userId, bio)
+        getDbHelper()?.userProfile?.updateBio(userId, bio)
     }
 
     override fun updateInterestTags(userId: String, tags: List<String>) {
-        getDbHelper()?.updateInterestTags(userId, tags)
+        getDbHelper()?.userProfile?.updateInterestTags(userId, tags)
     }
 
     override fun findUserByEmailOrId(email: String, googleId: String): String? {
@@ -78,7 +78,7 @@ class SqliteUserStorageAdapter(private val getDbHelper: () -> FifoDatabaseHelper
     }
 
     override fun findUserByIdentifier(identifier: String): String? {
-        return getDbHelper()?.findUserIdByIdentifier(identifier)
+        return getDbHelper()?.userProfile?.findUserIdByIdentifier(identifier)
     }
 
     override fun getAllUsers(): List<UserProfileData> {
@@ -90,7 +90,7 @@ class SqliteUserStorageAdapter(private val getDbHelper: () -> FifoDatabaseHelper
                 while (cursor.moveToNext()) {
                     val id = cursor.getString(0)
                     if (!id.isNullOrBlank()) {
-                        list.add(helper.getUserProfile(id))
+                        list.add(helper.userProfile.getUserProfile(id))
                     }
                 }
             }
