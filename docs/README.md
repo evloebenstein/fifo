@@ -35,6 +35,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0013](adr/0013-groq-dialog-client.md) | Motor de diálogo Groq separado de la fachada. | Aceptado. |
 | [ADR-0014](adr/0014-session-memory-extractor.md) | Extractor de memoria de sesión y modelos en `data/memory`. | Aceptado. |
 | [ADR-0015](adr/0015-conversation-journal-owns-sql.md) | El diario durable es dueño de su esquema y CRUD SQLite. | Aceptado. |
+| [ADR-0016](adr/0016-community-activity-dao.md) | DAO de actividades comunitarias fuera del helper central. | Aceptado. |
 
 ---
 

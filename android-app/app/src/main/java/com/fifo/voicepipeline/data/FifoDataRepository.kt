@@ -51,7 +51,7 @@ object FifoDataRepository {
                 // Cargar estado inicial inmediatamente mediante los módulos del dominio
                 userIdentityModule.loadUser(activeUserId)
                 episodicMemoryModule.loadUserData(activeUserId)
-                helper.seedDefaultCommunityActivitiesIfEmpty(activeUserId)
+                helper.communityActivities.seedDefaultCommunityActivitiesIfEmpty(activeUserId)
                 communityModule.loadInitialData(activeUserId)
                 _deviceLocation.value = helper.getDeviceLocation()
                 android.util.Log.i("FifoDataRepository", "Base de datos relacional SQLite cargada con éxito en el dispositivo para $activeUserId")
@@ -125,7 +125,7 @@ object FifoDataRepository {
 
         userIdentityModule.loadUser(newUserId)
         episodicMemoryModule.loadUserData(newUserId)
-        helper.seedDefaultCommunityActivitiesIfEmpty(newUserId)
+        helper.communityActivities.seedDefaultCommunityActivitiesIfEmpty(newUserId)
         communityModule.loadInitialData(newUserId)
 
         syncFromBackend(newUserId)
@@ -1117,7 +1117,7 @@ object FifoDataRepository {
         )
 
         communityModule.createCommunityActivity(item)
-        dbHelper?.joinCommunityActivity(newId, currentUserId)
+        dbHelper?.communityActivities?.joinCommunityActivity(newId, currentUserId)
 
         // Sincronizar con el backend remoto en segundo plano
         repositoryScope.launch {

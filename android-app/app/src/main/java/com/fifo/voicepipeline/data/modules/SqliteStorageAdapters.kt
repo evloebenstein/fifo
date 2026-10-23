@@ -104,26 +104,26 @@ class SqliteUserStorageAdapter(private val getDbHelper: () -> FifoDatabaseHelper
  */
 class SqliteCommunityStorageAdapter(private val getDbHelper: () -> FifoDatabaseHelper?) : CommunityStorageAdapter {
     override fun getCommunityActivities(userId: String): List<CommunityActivityItem> {
-        return getDbHelper()?.getCommunityActivities(userId) ?: emptyList()
+        return getDbHelper()?.communityActivities?.getCommunityActivities(userId) ?: emptyList()
     }
 
     override fun saveCommunityActivity(activity: CommunityActivityItem): Boolean {
-        getDbHelper()?.addCommunityActivity(activity)
+        getDbHelper()?.communityActivities?.addCommunityActivity(activity)
         return true
     }
 
     override fun deleteCommunityActivity(activityId: String): Boolean {
-        getDbHelper()?.deleteCommunityActivity(activityId)
+        getDbHelper()?.communityActivities?.deleteCommunityActivity(activityId)
         return true
     }
 
     override fun joinActivity(activityId: String, userId: String): Boolean {
-        getDbHelper()?.joinCommunityActivity(activityId, userId)
+        getDbHelper()?.communityActivities?.joinCommunityActivity(activityId, userId)
         return true
     }
 
     override fun leaveActivity(activityId: String, userId: String): Boolean {
-        getDbHelper()?.leaveCommunityActivity(activityId, userId)
+        getDbHelper()?.communityActivities?.leaveCommunityActivity(activityId, userId)
         return true
     }
 
