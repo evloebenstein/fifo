@@ -53,7 +53,7 @@ object FifoDataRepository {
                 episodicMemoryModule.loadUserData(activeUserId)
                 helper.communityActivities.seedDefaultCommunityActivitiesIfEmpty(activeUserId)
                 communityModule.loadInitialData(activeUserId)
-                _deviceLocation.value = helper.getDeviceLocation()
+                _deviceLocation.value = helper.deviceLocation.getDeviceLocation()
                 android.util.Log.i("FifoDataRepository", "Base de datos relacional SQLite cargada con éxito en el dispositivo para $activeUserId")
 
                 // Sincronizar libreta de contactos del teléfono celular en segundo plano si hay permiso
@@ -950,7 +950,7 @@ object FifoDataRepository {
             isBeeping = if (!connected) false else current.isBeeping
         )
         _deviceLocation.value = updatedLoc
-        dbHelper?.updateDeviceLocation(loc = updatedLoc, userId = userProfile.value.id)
+        dbHelper?.deviceLocation?.updateDeviceLocation(loc = updatedLoc, userId = userProfile.value.id)
 
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.patchDeviceLocation(
@@ -973,7 +973,7 @@ object FifoDataRepository {
     fun triggerDeviceBeep(beeping: Boolean) {
         val updatedLoc = _deviceLocation.value.copy(isBeeping = beeping)
         _deviceLocation.value = updatedLoc
-        dbHelper?.updateDeviceLocation(loc = updatedLoc, userId = userProfile.value.id)
+        dbHelper?.deviceLocation?.updateDeviceLocation(loc = updatedLoc, userId = userProfile.value.id)
 
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.patchDeviceLocation(

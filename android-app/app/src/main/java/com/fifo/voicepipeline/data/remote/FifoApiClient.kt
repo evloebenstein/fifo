@@ -112,7 +112,7 @@ object FifoApiClient {
             }
 
             // 3. Enviar ubicación del robot
-            val devLoc = dbHelper.getDeviceLocation()
+            val devLoc = dbHelper.deviceLocation.getDeviceLocation()
             val locJson = gson.toJson(mapOf(
                 "is_connected" to devLoc.isConnected,
                 "last_connected_time" to devLoc.lastConnectedTime,
