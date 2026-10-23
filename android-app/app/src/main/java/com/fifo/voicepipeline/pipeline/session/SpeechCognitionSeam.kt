@@ -99,6 +99,27 @@ interface SpeechCognitionAdapter {
     ): String
 
     suspend fun generateNaturalResumption(interruptedSentence: String): String
+
+    /**
+     * Genera una respuesta breve que reconoce el error del turno anterior y
+     * responde a la corrección del usuario. La ventana de ±1 turno ya fue
+     * decidida por [ConversationRepairPolicy]; aquí solo se redacta.
+     */
+    suspend fun generateRepairTurn(
+        correctionText: String,
+        previousUserText: String,
+        previousAssistantText: String
+    ): String {
+        val prompt = buildString {
+            append("El usuario está corrigiendo un turno anterior de la conversación.\n")
+            append("Usuario antes: ").append(previousUserText).append("\n")
+            append("Fifo respondió: ").append(previousAssistantText).append("\n")
+            append("Corrección actual del usuario: ").append(correctionText).append("\n")
+            append("Reconoce el error con calidez y responde a la corrección en una sola frase natural, ")
+            append("sin justificarte de más y sin inventar datos nuevos.")
+        }
+        return generateDialogTurn(prompt, null)
+    }
 }
 
 /**
@@ -126,6 +147,14 @@ class GroqSpeechCognitionAdapter(
     override suspend fun generateNaturalResumption(interruptedSentence: String): String {
         return delegate.generateNaturalResumption(interruptedSentence)
     }
+
+    override suspend fun generateRepairTurn(
+        correctionText: String,
+        previousUserText: String,
+        previousAssistantText: String
+    ): String {
+        return delegate.generateRepairTurn(correctionText, previousUserText, previousAssistantText)
+    }
 }
 
 /**
@@ -137,6 +166,7 @@ class InMemorySpeechCognitionAdapter : SpeechCognitionAdapter {
     var transcriptionToReturn: String = "Fifo ¿cómo estás?"
     var responseToReturn: String = "Hola, estoy muy bien, gracias por preguntar."
     var resumptionToReturn: String = "Como te estaba diciendo, podemos continuar."
+    var repairResponseToReturn: String = "Tienes razón, me equivoqué. Gracias por corregirme."
 
     // Simulación de invocación de herramientas (Skills) en tests
     var simulatedToolToInvoke: String? = null
@@ -147,6 +177,7 @@ class InMemorySpeechCognitionAdapter : SpeechCognitionAdapter {
     val transcribedAudios = mutableListOf<ByteArray>()
     val receivedQueries = mutableListOf<String>()
     val resumptionRequests = mutableListOf<String>()
+    val repairRequests = mutableListOf<Triple<String, String, String>>()
 
     override suspend fun transcribe(
         wavData: ByteArray,
@@ -183,5 +214,14 @@ class InMemorySpeechCognitionAdapter : SpeechCognitionAdapter {
     override suspend fun generateNaturalResumption(interruptedSentence: String): String {
         resumptionRequests.add(interruptedSentence)
         return resumptionToReturn
+    }
+
+    override suspend fun generateRepairTurn(
+        correctionText: String,
+        previousUserText: String,
+        previousAssistantText: String
+    ): String {
+        repairRequests.add(Triple(correctionText, previousUserText, previousAssistantText))
+        return repairResponseToReturn
     }
 }

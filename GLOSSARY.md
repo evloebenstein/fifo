@@ -82,6 +82,26 @@ _Avoid_: CallerResolver, ContactLookup
 Observador externo de `TelephonyPort` que emite el contexto local al instante, lanza el enriquecimiento en paralelo y descarta resultados de llamadas que ya terminaron. No inicia ni detiene la telefonía.
 _Avoid_: CallOrchestrator, PhoneSession
 
+**ConversationJournal**:
+Diario durable de turnos completos (usuario + Fifo). Se escribe antes de la locución y sobrevive al cierre de la app. En producción es SQLite; en pruebas, memoria.
+_Avoid_: ChatLog, HistoryBuffer, SessionCache
+
+**JournalEntry**:
+Un turno persistido en el diario con estado `PENDING` o `CONSOLIDATED`, intentos de consolidación, próximo intento y datos de reparación (`needsRepair`, `repairText`).
+_Avoid_: ChatMessage, TurnRecord
+
+**MemoryCoordinator**:
+Orquestador de la memoria durable. Escribe turnos, mantiene la cola persistente, reintenta consolidaciones con backoff exponencial y restaura los turnos recientes en `CloudApiClient`. VoiceSession solo ve la costura `SessionMemory`.
+_Avoid_: MemoryManager, PersistenceService
+
+**PendingConsolidationQueue**:
+Cola de turnos `PENDING` cuyo backoff ya venció. Vive en `conversation_journal`, no en RAM; un reinicio de la app la recupera.
+_Avoid_: RetryCache, ConsolidationList
+
+**ConversationRepair**:
+Corrección de un turno anterior usando la ventana de ±1 turno. Si el turno original tiene ~10 s o menos, la corrección se locuta; si llega tarde, se guarda en diario y OLED sin interrumpir.
+_Avoid_: Retraction, UndoMessage, CorrectionCommand
+
 ### Comunidad y Memoria
 
 **ActividadComunitaria**:

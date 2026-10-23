@@ -285,7 +285,21 @@ REGLAS:
     /**
      * Extrae un resumen estructurado y datos para la memoria de Fifo (SQLite) al finalizar la sesión.
      */
-    suspend fun extractSessionMemory(turns: List<Pair<String, String>>): SessionMemoryConsolidation? {
+    suspend fun extractSessionMemory(turns: List<Pair<String, String>>): SessionMemoryConsolidation? =
+        extractSessionMemoryInternal(turns, failOnError = false)
+
+    /**
+     * Variante para la cola durable: distingue "no había nada que recordar"
+     * (null) de un fallo de red/parseo (excepción), para que el coordinador
+     * pueda reintentar con backoff en lugar de descartar el turno.
+     */
+    suspend fun extractSessionMemoryChecked(turns: List<Pair<String, String>>): SessionMemoryConsolidation? =
+        extractSessionMemoryInternal(turns, failOnError = true)
+
+    private suspend fun extractSessionMemoryInternal(
+        turns: List<Pair<String, String>>,
+        failOnError: Boolean
+    ): SessionMemoryConsolidation? {
         if (turns.isEmpty()) return null
         val conversationText = turns.joinToString("\n") { (user, fifo) ->
             "Usuario: $user\nFifo: $fifo"
@@ -357,11 +371,15 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
                 } else null
             } catch (e: Exception) {
                 Log.w(TAG, "Error extrayendo memoria de sesión en Groq: ${e.message}")
+                if (failOnError) throw e
                 null
             }
         } else null
 
         if (jsonResponse.isNullOrBlank()) {
+            if (failOnError && isGroqActive) {
+                throw java.io.IOException("Groq no devolvió memoria de sesión")
+            }
             return null
         }
 
@@ -422,6 +440,7 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
             )
         } catch (e: Exception) {
             Log.e(TAG, "Error parseando JSON de consolidación: ${e.message}", e)
+            if (failOnError) throw e
             null
         }
     }

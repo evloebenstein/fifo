@@ -2,6 +2,8 @@ package com.fifo.voicepipeline.pipeline.session
 
 import android.content.Context
 import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.data.local.SqliteConversationJournal
+import com.fifo.voicepipeline.data.memory.RepositorySessionMemoryConsolidator
 import com.fifo.voicepipeline.network.CloudApiClient
 import com.fifo.voicepipeline.pipeline.MicSource
 import com.fifo.voicepipeline.skills.FifoSkillRegistry
@@ -54,6 +56,13 @@ internal class VoiceSessionPipeline(
     private val outbound = AndroidAudioHardwareAdapter(context, scope)
     private val inbound = AndroidAudioHardwareInboundAdapter(context)
 
+    private val memory = MemoryCoordinator(
+        journal = SqliteConversationJournal(context.applicationContext),
+        consolidator = RepositorySessionMemoryConsolidator(cloudClient),
+        scope = scope,
+        userIdProvider = { FifoDataRepository.userProfile.value.id }
+    )
+
     val session = VoiceSession(
         scope = scope,
         outboundAdapter = outbound,
@@ -61,7 +70,8 @@ internal class VoiceSessionPipeline(
         skillRegistry = skillRegistry,
         callState = telephony.callState,
         onCallAction = { action -> handleCallAction(action) },
-        initialMicMuted = initialMicMuted
+        initialMicMuted = initialMicMuted,
+        memory = memory
     )
 
     val state: StateFlow<com.fifo.voicepipeline.pipeline.PipelineState> = session.state
@@ -86,6 +96,8 @@ internal class VoiceSessionPipeline(
         callerContext.start()
         inbound.setMicMuted(session.isMicMuted.value)
         inbound.setCallMode(telephony.callState.value.hasCall)
+        memory.start()
+        restoreRecentConversation()
         session.resetSession()
         session.sleep()
         observeCallState()
@@ -106,6 +118,7 @@ internal class VoiceSessionPipeline(
         telephony.stop()
         inbound.stopCapture()
         session.resetSession()
+        memory.stop()
         outbound.shutdown()
         announcedRinging = false
         lastCallPhase = CallPhase.NONE
@@ -149,6 +162,23 @@ internal class VoiceSessionPipeline(
     fun clearConversation() {
         cloudClient.clearHistory()
         session.resetSession()
+    }
+
+    /**
+     * El historial en RAM de CloudApiClient se pierde al reiniciar. El diario
+     * durable es la fuente de continuidad: restauramos los últimos 4 turnos
+     * (8 mensajes) antes de aceptar la primera consulta de la nueva sesión.
+     */
+    private fun restoreRecentConversation() {
+        cloudClient.clearHistory()
+        val recent = try {
+            memory.recentTurns(4)
+        } catch (_: Exception) {
+            emptyList()
+        }
+        recent.asReversed().forEach { turn ->
+            cloudClient.recordTurn(turn.userText, turn.repairText ?: turn.assistantText)
+        }
     }
 
     private fun observeCallState() {

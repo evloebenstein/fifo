@@ -44,6 +44,16 @@ Estas reglas son invariantes de Fifo. Si un cambio las rompe, el cambio está ma
 - **Usa `CallerContextCoordinator` como observador de `TelephonyPort`.** No metas telefonía dentro de `VoiceSession`.
 - **Pruebas de verdad:** `CallerContextProviderTest` y `CallerContextCoordinatorTest` cubren conocido/desconocido, timeout, cancelación y anuncio sin temas recientes.
 
+## Memoria y reparación
+
+- **El turno se journaliza antes de hablar.** `VoiceSession` llama a `SessionMemory.recordTurn()` antes de `speakResponse`. No muevas la escritura después del TTS: un cierre de la app no puede perder lo que el usuario ya escuchó.
+- **`MemoryCoordinator` es el dueño de la cola pendiente.** La cola vive en `conversation_journal` (SQLite), no en RAM. Un turno solo pasa a `CONSOLIDATED` cuando el consolidador devuelve `true`; los fallos conservan `attempts`, `nextAttemptAt` y backoff exponencial.
+- **`VoiceSession` solo ve `SessionMemory`.** No le agregues SQLite, HTTP, backend ni reloj de pared. La composición de `SqliteConversationJournal` y `RepositorySessionMemoryConsolidator` vive en `VoiceSessionPipeline`.
+- **No consolides desde el facade legacy.** La memoria durable es del camino `VoiceSessionPipeline`; `VoicePipelineManager` no construye un segundo coordinador ni duplica la cola.
+- **La reparación usa ±1 turno y una ventana de ~10 s.** `ConversationRepairPolicy` decide; si el turno anterior está dentro de la ventana, la corrección se locuta y reemplaza cualquier TTS en curso. Si llega tarde, se guarda en diario/OLED pero no se habla.
+- **Un “No” aislado no es una corrección.** Solo cuenta cuando el turno anterior quedó `needsRepair`. No conviertas una respuesta natural a una pregunta en una reparación.
+- **Pruebas de verdad:** `MemoryCoordinatorTest`, `ConversationRepairPolicyTest` y `VoiceSessionMemoryTest` cubren durabilidad, backoff, reinicio, journal antes de hablar y reparación.
+
 ## Camino legacy
 
 - `VOICE_SESSION_ENABLED` está apagado en debug y encendido en release. El legacy sigue siendo el camino de debug y el fallback sin STT de nube; se borra en la release siguiente.
@@ -57,3 +67,4 @@ Estas reglas son invariantes de Fifo. Si un cambio las rompe, el cambio está ma
 - Términos de dominio: `GLOSSARY.md`.
 - La costura de audio está descrita en `docs/adr/0008-capture-arbiter-telephony-port.md`.
 - El flag y la composición del camino nuevo están descritos en `docs/adr/0010-voice-session-pipeline-flag.md`.
+- La memoria durable, la cola de pendientes y la reparación están descritas en `docs/adr/0011-durable-memory-journal.md`.

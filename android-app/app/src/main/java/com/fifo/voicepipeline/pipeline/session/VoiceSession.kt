@@ -1,8 +1,10 @@
 package com.fifo.voicepipeline.pipeline.session
 
+import com.fifo.voicepipeline.data.memory.JournalEntry
 import com.fifo.voicepipeline.pipeline.PipelineState
 import com.fifo.voicepipeline.skills.FifoSkillRegistry
 import com.fifo.voicepipeline.telephony.CallSnapshot
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -47,7 +49,9 @@ class VoiceSession(
     var skillRegistry: FifoSkillRegistry? = null,
     private val callState: StateFlow<CallSnapshot>? = null,
     private val onCallAction: ((CallAction) -> Boolean)? = null,
-    initialMicMuted: Boolean = false
+    initialMicMuted: Boolean = false,
+    private val memory: SessionMemory? = null,
+    private val nowProvider: () -> Long = System::currentTimeMillis
 ) {
     // ── Estados observables para la UI / Servicios ──────────────
     val state: StateFlow<PipelineState> = turnOrchestrator.state
@@ -228,6 +232,7 @@ class VoiceSession(
             val text = rawText.trim()
             if (text.isBlank()) return@launch
 
+            val now = nowProvider()
             val isSpeakingNow = turnOrchestrator.state.value == PipelineState.SPEAKING ||
                 speechOutbound.isSpeaking
             val isEcho = turnOrchestrator.isEchoOfLastSpokenSentence(text, isSpeakingNow)
@@ -235,6 +240,13 @@ class VoiceSession(
             val isFollowUp = turnOrchestrator.expectFollowUp.value
             val isBargeIn = turnOrchestrator.isWaitingForBargeInResolution
             val isWakeWord = turnOrchestrator.isWakeWord(text)
+            val previousTurn = try {
+                memory?.recentTurns(1)?.firstOrNull()
+            } catch (_: Exception) {
+                null
+            }
+            val isCorrection = previousTurn != null &&
+                ConversationRepairPolicy.isCorrection(text, previousTurn)
 
             // Silencio gana al escudo de eco: el usuario puede repetir las mismas
             // palabras que acaba de decir Fifo para detenerlo.
@@ -271,8 +283,10 @@ class VoiceSession(
                 return@launch
             }
 
-            // Si no dijo "Fifo" y no estamos en follow-up ni en barge-in, descartar audio ambiental
-            if (!isWakeWord && !isFollowUp && !isBargeIn) {
+            // Si no dijo "Fifo" y no estamos en follow-up, barge-in ni reparación,
+            // descartar audio ambiental. La corrección se acepta sin wake word solo
+            // cuando existe un turno anterior y la política la reconoce.
+            if (!isWakeWord && !isFollowUp && !isBargeIn && !isCorrection) {
                 _statusMessage.value = "Audio ambiental descartado"
                 return@launch
             }
@@ -292,6 +306,14 @@ class VoiceSession(
             // Evaluar si es orden de reposo ("duérmete", "a dormir")
             val isSleepCommand = turnOrchestrator.isSleepCommand(text)
             val cleanedQuery = turnOrchestrator.extractQuery(text)
+
+            // Reparación ±1: el turno anterior y esta corrección son el contexto.
+            // Se corrige el turno anterior y se registra la corrección como un
+            // turno nuevo para que la memoria conserve ambos lados del cambio.
+            if (isCorrection && previousTurn != null) {
+                handleCorrection(previousTurn, text, cleanedQuery, now, isSpeakingNow)
+                return@launch
+            }
 
             // Si fue una interrupción pero solo dijo "Fifo" y nada más, reanudar de forma natural con LLM
             if (effectiveBargeIn && (cleanedQuery.isBlank() || cleanedQuery.equals("fifo", ignoreCase = true))) {
@@ -319,14 +341,102 @@ class VoiceSession(
 
             val response = speechCognition.generateDialogTurn(queryForLlm, skillRegistry)
 
+            // El turno se escribe en disco antes de que empiece la locución. Si
+            // la respuesta es un error operativo, queda marcada para reparación.
+            recordTurnSafely(
+                userText = text,
+                assistantText = response,
+                needsRepair = ConversationRepairPolicy.isAgentError(response)
+            )
+
             // Si era una orden de descanso/dormir, habla la despedida empática del LLM y luego va a dormir
             if (isSleepCommand) {
                 speakResponse(response) {
                     turnOrchestrator.goToSleep()
+                    memory?.requestConsolidation()
                 }
             } else {
                 speakResponse(response)
             }
+        }
+    }
+
+    /**
+     * Repara el turno anterior con el contexto de la corrección actual.
+     *
+     * Si el turno original todavía está dentro de la ventana de ~10 s, la
+     * corrección se locuta. Si no, se guarda en memoria y se muestra en OLED
+     * para no interrumpir al usuario con una corrección tardía.
+     */
+    private suspend fun handleCorrection(
+        previousTurn: JournalEntry,
+        rawText: String,
+        cleanedQuery: String,
+        now: Long,
+        isSpeakingNow: Boolean
+    ) {
+        val shouldSpeak = ConversationRepairPolicy.canSpeakCorrection(previousTurn, now)
+        turnOrchestrator.clearBargeInResolution()
+
+        // Una corrección vigente puede llegar mientras Fifo todavía habla: la
+        // nueva respuesta reemplaza a la anterior y no se encola sobre ella.
+        // Una corrección tardía no interrumpe la locución en curso.
+        if (shouldSpeak) {
+            speechOutbound.stopAndCaptureInterrupted()
+            turnOrchestrator.onProcessingStarted()
+        }
+        _statusMessage.value = "Corrigiendo..."
+
+        val repair = try {
+            speechCognition.generateRepairTurn(
+                correctionText = cleanedQuery.ifBlank { rawText },
+                previousUserText = previousTurn.userText,
+                previousAssistantText = previousTurn.repairText ?: previousTurn.assistantText
+            )
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+
+        if (repair.isNullOrBlank()) {
+            _statusMessage.value = "No pude corregir eso ahora"
+            if (shouldSpeak || !isSpeakingNow) turnOrchestrator.wakeUpExplicitly()
+            return
+        }
+
+        val repairedAt = nowProvider()
+        try {
+            memory?.markRepaired(previousTurn.id, repair, repairedAt)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // La corrección hablada no depende de que el diario esté disponible.
+        }
+        recordTurnSafely(
+            userText = rawText,
+            assistantText = repair,
+            needsRepair = false
+        )
+
+        if (shouldSpeak) {
+            speakResponse(repair)
+        } else {
+            _aiResponse.value = repair
+            _statusMessage.value = "Corrección guardada"
+            if (!isSpeakingNow) turnOrchestrator.wakeUpExplicitly()
+        }
+    }
+
+    /** La conversación nunca se cae porque el diario no pueda escribir. */
+    private fun recordTurnSafely(userText: String, assistantText: String, needsRepair: Boolean) {
+        try {
+            memory?.recordTurn(userText, assistantText, needsRepair)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            // La locución continúa; el turno se reintentará en la próxima sesión
+            // solo si el diario alcanzó a persistirlo.
         }
     }
 
@@ -420,6 +530,7 @@ class VoiceSession(
         turnOrchestrator.goToSleep()
         _statusMessage.value = "Fifo durmiendo · Diga 'Fifo'"
         _rmsLevel.value = 0.0
+        memory?.requestConsolidation()
     }
 
     /** Actualiza el texto de estado desde el coordinador de telefonía. */
@@ -433,5 +544,6 @@ class VoiceSession(
         _transcription.value = ""
         _aiResponse.value = ""
         _statusMessage.value = "Fifo listo · Diga 'Fifo'"
+        memory?.requestConsolidation()
     }
 }

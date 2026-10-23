@@ -6,6 +6,8 @@ import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
+import com.fifo.voicepipeline.data.memory.JournalEntry
+import com.fifo.voicepipeline.data.memory.JournalStatus
 import com.fifo.voicepipeline.ui.model.*
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -16,7 +18,8 @@ import java.util.UUID
  *
  * Implementa el esquema relacional de 01_schema.sql en el dispositivo móvil:
  * - Tablas: users, user_profiles, tastes, taste_stories, social_posts,
- *           reminders_and_events, past_conversations, memories, device_locations.
+ *           reminders_and_events, past_conversations, memories, device_locations,
+ *           conversation_journal (diario durable de turnos).
  * - Persistencia permanente de los datos del adulto mayor (100% offline).
  * - Sincronizable con el backend MySQL contenerizado.
  */
@@ -26,7 +29,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
     companion object {
         private const val TAG = "FifoDatabaseHelper"
         private const val DATABASE_NAME = "fifo_local.db"
-        private const val DATABASE_VERSION = 6
+        private const val DATABASE_VERSION = 7
         private val gson = Gson()
 
         @Volatile
@@ -288,6 +291,9 @@ class FifoDatabaseHelper private constructor(context: Context) :
             )
         """.trimIndent())
 
+        // 15. conversation_journal (diario durable de turnos + cola pendiente)
+        createConversationJournalTable(db)
+
         // Sembrar datos iniciales
         seedInitialData(db)
     }
@@ -398,6 +404,37 @@ class FifoDatabaseHelper private constructor(context: Context) :
                 )
             """.trimIndent())
         }
+        if (oldVersion < 7) {
+            createConversationJournalTable(db)
+        }
+    }
+
+    /**
+     * Diario durable de turnos. `status` distingue la cola pendiente de lo ya
+     * consolidado; `next_attempt_at` implementa el backoff entre reintentos.
+     */
+    private fun createConversationJournalTable(db: SQLiteDatabase) {
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS conversation_journal (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                user_text TEXT NOT NULL,
+                assistant_text TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                attempts INTEGER NOT NULL DEFAULT 0,
+                next_attempt_at INTEGER NOT NULL DEFAULT 0,
+                last_error TEXT,
+                needs_repair INTEGER NOT NULL DEFAULT 0,
+                repair_text TEXT,
+                repaired_at INTEGER
+            )
+        """.trimIndent())
+        db.execSQL("""
+            CREATE INDEX IF NOT EXISTS idx_conversation_journal_pending
+            ON conversation_journal(status, next_attempt_at, created_at)
+        """.trimIndent())
     }
 
     override fun onOpen(db: SQLiteDatabase) {
@@ -458,6 +495,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         } catch (_: Exception) {
             // Columna ya existe
         }
+        createConversationJournalTable(db)
     }
 
 
@@ -1565,6 +1603,131 @@ class FifoDatabaseHelper private constructor(context: Context) :
             )
             initial.forEach { addCommunityActivity(it) }
         }
+    }
+
+    // ── Diario durable de turnos ───────────────────────────────
+
+    fun insertJournalEntry(entry: JournalEntry): Long {
+        val cv = ContentValues().apply {
+            put("id", entry.id)
+            put("user_id", entry.userId)
+            put("session_id", entry.sessionId)
+            put("user_text", entry.userText)
+            put("assistant_text", entry.assistantText)
+            put("created_at", entry.createdAt)
+            put("status", entry.status.name)
+            put("attempts", entry.attempts)
+            put("next_attempt_at", entry.nextAttemptAt)
+            if (entry.lastError == null) putNull("last_error") else put("last_error", entry.lastError)
+            put("needs_repair", if (entry.needsRepair) 1 else 0)
+            if (entry.repairText == null) putNull("repair_text") else put("repair_text", entry.repairText)
+            if (entry.repairedAt == null) putNull("repaired_at") else put("repaired_at", entry.repairedAt)
+        }
+        return writableDatabase.insertWithOnConflict(
+            "conversation_journal",
+            null,
+            cv,
+            SQLiteDatabase.CONFLICT_REPLACE
+        )
+    }
+
+    fun getRecentJournalEntries(limit: Int): List<JournalEntry> {
+        val list = mutableListOf<JournalEntry>()
+        readableDatabase.rawQuery(
+            "SELECT * FROM conversation_journal ORDER BY created_at DESC, rowid DESC LIMIT ?",
+            arrayOf(limit.coerceAtLeast(0).toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) list.add(readJournalEntry(cursor))
+        }
+        return list
+    }
+
+    fun getPendingJournalEntries(now: Long, limit: Int): List<JournalEntry> {
+        val list = mutableListOf<JournalEntry>()
+        readableDatabase.rawQuery(
+            "SELECT * FROM conversation_journal " +
+                "WHERE status = ? AND next_attempt_at <= ? " +
+                "ORDER BY created_at ASC, rowid ASC LIMIT ?",
+            arrayOf(JournalStatus.PENDING.name, now.toString(), limit.coerceAtLeast(0).toString())
+        ).use { cursor ->
+            while (cursor.moveToNext()) list.add(readJournalEntry(cursor))
+        }
+        return list
+    }
+
+    fun markJournalConsolidated(id: String) {
+        val cv = ContentValues().apply {
+            put("status", JournalStatus.CONSOLIDATED.name)
+            putNull("last_error")
+        }
+        writableDatabase.update("conversation_journal", cv, "id = ?", arrayOf(id))
+    }
+
+    fun markJournalRetry(id: String, attempts: Int, nextAttemptAt: Long, error: String) {
+        val cv = ContentValues().apply {
+            put("status", JournalStatus.PENDING.name)
+            put("attempts", attempts)
+            put("next_attempt_at", nextAttemptAt)
+            put("last_error", error)
+        }
+        writableDatabase.update("conversation_journal", cv, "id = ?", arrayOf(id))
+    }
+
+    fun markJournalNeedsRepair(id: String) {
+        writableDatabase.update(
+            "conversation_journal",
+            ContentValues().apply { put("needs_repair", 1) },
+            "id = ?",
+            arrayOf(id)
+        )
+    }
+
+    fun markJournalRepaired(id: String, repairText: String, repairedAt: Long) {
+        val cv = ContentValues().apply {
+            // Una corrección puede llegar después de que el turno ya se había
+            // consolidado. Se reencola para que la memoria aprenda la versión
+            // corregida; los IDs estables evitan duplicar fragmentos/conversaciones.
+            put("status", JournalStatus.PENDING.name)
+            put("attempts", 0)
+            put("next_attempt_at", 0L)
+            putNull("last_error")
+            put("needs_repair", 0)
+            put("repair_text", repairText)
+            put("repaired_at", repairedAt)
+        }
+        writableDatabase.update("conversation_journal", cv, "id = ?", arrayOf(id))
+    }
+
+    private fun readJournalEntry(cursor: Cursor): JournalEntry {
+        fun text(column: String): String = cursor.getString(cursor.getColumnIndexOrThrow(column))
+        fun nullableText(column: String): String? {
+            val index = cursor.getColumnIndexOrThrow(column)
+            return if (cursor.isNull(index)) null else cursor.getString(index)
+        }
+        fun nullableLong(column: String): Long? {
+            val index = cursor.getColumnIndexOrThrow(column)
+            return if (cursor.isNull(index)) null else cursor.getLong(index)
+        }
+        val status = try {
+            JournalStatus.valueOf(text("status"))
+        } catch (_: Exception) {
+            JournalStatus.PENDING
+        }
+        return JournalEntry(
+            id = text("id"),
+            userId = text("user_id"),
+            sessionId = text("session_id"),
+            userText = text("user_text"),
+            assistantText = text("assistant_text"),
+            createdAt = cursor.getLong(cursor.getColumnIndexOrThrow("created_at")),
+            status = status,
+            attempts = cursor.getInt(cursor.getColumnIndexOrThrow("attempts")),
+            nextAttemptAt = cursor.getLong(cursor.getColumnIndexOrThrow("next_attempt_at")),
+            lastError = nullableText("last_error"),
+            needsRepair = cursor.getInt(cursor.getColumnIndexOrThrow("needs_repair")) == 1,
+            repairText = nullableText("repair_text"),
+            repairedAt = nullableLong("repaired_at")
+        )
     }
 }
 
