@@ -10,7 +10,8 @@ La versión actual del esquema es **v7**.
 | Archivo | Rol y Responsabilidad |
 | :--- | :--- |
 | [`FifoDatabaseHelper.kt`](FifoDatabaseHelper.kt) | **Manejador SQLite (`SQLiteOpenHelper`)**: crea y migra las tablas locales, ofrece CRUD tipado de las tablas que aún no tienen DAO, transacciones y soporte multi-usuario con `user_id`. En v7 agrega `conversation_journal` sin tocar las tablas existentes; desde ADR-0015/0016/0017 delega el diario, las actividades comunitarias y la identidad. |
-| [`UserProfileDao.kt`](UserProfileDao.kt) | DAO de `users` y `user_profiles`: perfil, búsqueda por identificador, demografía, bio, intereses, verificación y recomendación de usernames (ADR-0017). |
+| [`UserProfileDao.kt`](UserProfileDao.kt) | DAO de `users` y `user_profiles`: perfil, búsqueda por identificador, demografía, bio, intereses y verificación de usernames (ADR-0017). Delega la recomendación en `UsernameRecommender`. |
+| [`UsernameRecommender.kt`](UsernameRecommender.kt) | Política pura de recomendación de usernames: normalización, buckets, filtro de contenido y unicidad inyectada (ADR-0018). |
 | [`CommunityActivityDao.kt`](CommunityActivityDao.kt) | DAO de `community_activities` y `activity_participants`: consulta, alta, join/leave, borrado y siembra inicial (ADR-0016). |
 | [`ConversationJournalSchema.kt`](ConversationJournalSchema.kt) | Esquema del diario durable: `CREATE TABLE` de `conversation_journal` e índice `idx_conversation_journal_pending`. |
 | [`SqliteConversationJournal.kt`](SqliteConversationJournal.kt) | Implementación durable de `ConversationJournal`: dueña del CRUD; inserta turnos, consulta recientes/pendientes, marca consolidación, reintentos y reparaciones. |
@@ -65,3 +66,4 @@ drenar la cola pendiente sin escanear toda la tabla.
 3. **Cierre de cursores:** usar siempre `use { cursor -> ... }` para evitar fugas al leer SQLite.
 4. **Diario antes de hablar:** `SqliteConversationJournal.append()` es síncrono y se llama antes de `speakResponse`; no mover esa escritura después del TTS.
 5. **DAOs por agregado:** cuando un agregado tiene un límite claro, su SQL operativo vive en un DAO del directorio; `FifoDatabaseHelper` solo lo compone y conserva el esquema/migraciones globales.
+6. **Políticas puras fuera del DAO:** la lógica de decisión sin SQLite (por ejemplo `UsernameRecommender`) vive en un objeto puro y recibe la consulta de unicidad como función.

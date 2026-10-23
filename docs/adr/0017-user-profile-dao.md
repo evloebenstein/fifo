@@ -1,6 +1,6 @@
 # ADR-0017: DAO de identidad local fuera del helper central
 
-**Status:** Accepted
+**Status:** Accepted; recomendación extraída a `UsernameRecommender` por ADR-0018.
 
 **Date:** 2026-10-23
 

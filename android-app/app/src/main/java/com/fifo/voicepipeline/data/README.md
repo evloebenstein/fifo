@@ -18,7 +18,8 @@ camino `SESSION`.
 | [`modules/SqliteStorageAdapters.kt`](modules/SqliteStorageAdapters.kt) | Adaptadores SQLite de producción para los módulos de dominio. |
 | [`memory/`](memory/README.md) | **Memoria durable del camino nuevo:** `JournalEntry`, puerto `ConversationJournal`, consolidación local/backend y fake JVM. |
 | [`local/FifoDatabaseHelper.kt`](local/FifoDatabaseHelper.kt) | Helper SQLite v7: esquema global, migraciones y CRUD de las tablas de dominio que aún no tienen DAO. Compone el diario, la identidad y las actividades comunitarias. |
-| [`local/UserProfileDao.kt`](local/UserProfileDao.kt) | DAO de identidad local: perfil, demografía, bio, intereses y usernames (ADR-0017). |
+| [`local/UserProfileDao.kt`](local/UserProfileDao.kt) | DAO de identidad local: perfil, demografía, bio, intereses y verificación de usernames (ADR-0017). |
+| [`local/UsernameRecommender.kt`](local/UsernameRecommender.kt) | Política pura de recomendación de usernames (ADR-0018). |
 | [`local/CommunityActivityDao.kt`](local/CommunityActivityDao.kt) | DAO de actividades comunitarias e inscripciones (ADR-0016). |
 | [`local/ConversationJournalSchema.kt`](local/ConversationJournalSchema.kt) | Esquema del diario durable: tabla `conversation_journal` e índice de la cola pendiente. |
 | [`local/SqliteConversationJournal.kt`](local/SqliteConversationJournal.kt) | Adaptador durable de `ConversationJournal`: dueño del CRUD, append, recientes, pendientes, reintentos y reparación. |
