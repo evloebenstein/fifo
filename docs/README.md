@@ -31,6 +31,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0009](adr/0009-caller-context-provider.md) | `CallerContextProvider`: anuncio local inmediato y enriquecimiento backend en paralelo. | Aceptado. |
 | [ADR-0010](adr/0010-voice-session-pipeline-flag.md) | `VoiceSessionPipeline`, flag de una release y barge-in por contenido. | Aceptado. |
 | [ADR-0011](adr/0011-durable-memory-journal.md) | Diario durable, cola de consolidación y reparación conversacional. | Aceptado. |
+| [ADR-0012](adr/0012-network-adapters-stt-tts.md) | Adaptadores de red para STT/TTS y fachada `CloudApiClient`. | Aceptado. |
 
 ---
 

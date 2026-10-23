@@ -13,17 +13,17 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
-import java.io.IOException
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
 
 /**
- * Cliente para las APIs de nube del pipeline de voz:
- * - Whisper (Groq LPU) → Speech-to-Text
- * - Groq LPU (Qwen 27B) → LLM Agent
- * - OpenAI TTS → Text-to-Speech
+ * Fachada de las APIs de nube del pipeline de voz.
  *
- * Implementa [SpeechCognitionAdapter] desacoplado para pruebas y ejecución unificada.
+ * Conserva el contrato histórico de [SpeechCognitionAdapter] y del diálogo,
+ * mientras delega STT y TTS en adaptadores especializados:
+ * - [GroqSpeechToTextClient] → transcripción Whisper.
+ * - [OpenAiTextToSpeechClient] → audio PCM a 16 kHz.
+ *
+ * El LLM, la orquestación de herramientas, el contexto y la extracción de
+ * memoria siguen aquí porque comparten historial y dependen del catálogo de skills.
  */
 class CloudApiClient(
     var groqApiKey: String = "",
@@ -51,18 +51,10 @@ class CloudApiClient(
 
         // ── Endpoints ───────────────────────────────
         private const val GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
-        private const val GROQ_WHISPER_URL = "https://api.groq.com/openai/v1/audio/transcriptions"
-        private const val WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions"
-        private const val TTS_URL = "https://api.openai.com/v1/audio/speech"
 
         // ── Modelos ──────────────────────────────────
         // Modelo principal de Groq: Qwen 27B (activo y disponible en esta cuenta de Groq)
         const val GROQ_PRIMARY_MODEL = "qwen/qwen3.8-27b"
-        const val GROQ_WHISPER_MODEL = "whisper-large-v3-turbo"
-
-        private const val WHISPER_MODEL = "whisper-1"
-        private const val TTS_MODEL = "tts-1"
-        private const val TTS_VOICE = "nova"
 
         // ── System prompt ultra-compacto del robot Fifo (optimizado para voz y bajo consumo de tokens) ──
         private const val SYSTEM_PROMPT = """Eres Fifo, asistente robótico y compañero empático para adultos mayores.
@@ -87,53 +79,19 @@ REGLAS:
          *   palabras breves como "sí", "no", "ok", "gracias" se tratan como respuestas
          *   conversacionales reales y NO se descartan como alucinaciones.
          */
-        fun isWhisperHallucination(rawText: String, allowShortResponses: Boolean = false): Boolean {
-            val norm = java.text.Normalizer.normalize(rawText.lowercase().trim(), java.text.Normalizer.Form.NFD)
-                .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-                .replace(Regex("[^a-z0-9\\s]"), " ")
-                .replace(Regex("\\s+"), " ")
-                .trim()
-
-            if (norm.isBlank() || norm.length <= 1) return true
-
-            // Alucinaciones absolutas: frases que Whisper genera sistemáticamente ante silencio
-            // o ruido de video/TV. Siempre se descartan, sin importar el contexto.
-            val absoluteHallucinations = setOf(
-                "gracias por ver", "gracias por ver el video",
-                "gracias por ver este video", "gracias por mirar", "gracias por su atencion",
-                "subtitulos realizados por la comunidad de amara org",
-                "subtitulos por la comunidad de amara org", "amara org", "amara",
-                "suscribete", "suscribete al canal", "suscribanse", "dale like y suscribete",
-                "dale like", "compartir", "comenta",
-                "thank you for watching", "thanks for watching", "thank you",
-                "conex", "conexion", "conexion con el robot fifo", "conectro",
-                "filin gud", "filin", "you", "bye", "bye bye",
-                "musica", "aplausos", "continuara",
-                "conversacion de bunos", "conversacion", "oh", "ah", "eh"
-            )
-            if (absoluteHallucinations.contains(norm)) return true
-
-            // Palabras breves ambiguas: pueden ser respuestas reales ("sí", "no", "gracias")
-            // o alucinaciones ante silencio. Solo se descartan si Fifo NO espera una respuesta.
-            if (!allowShortResponses) {
-                val ambiguousShortWords = setOf(
-                    "si", "no", "ok", "okay", "gracias", "muchas gracias",
-                    "bueno", "dale", "claro", "perfecto"
-                )
-                if (ambiguousShortWords.contains(norm)) return true
-            }
-
-            return false
-        }
+        fun isWhisperHallucination(rawText: String, allowShortResponses: Boolean = false): Boolean =
+            WhisperHallucinationFilter.isHallucination(rawText, allowShortResponses)
     }
 
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-        .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
-        .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-        .build()
-
     private val gson = Gson()
+
+    private val speechToText = GroqSpeechToTextClient(
+        groqKeyProvider = { effectiveGroqKey },
+        openAiKeyProvider = { openAiApiKey }
+    )
+    private val speechSynthesis = OpenAiTextToSpeechClient(
+        apiKeyProvider = { openAiApiKey }
+    )
 
     /** Historial de conversación para contexto */
     private val conversationHistory = mutableListOf<Map<String, String>>()
@@ -154,73 +112,7 @@ REGLAS:
         wavData: ByteArray,
         language: String,
         allowShortResponses: Boolean
-    ): String {
-        val groqKey = effectiveGroqKey
-        val openKey = openAiApiKey.trim()
-
-        val (authKey, endpoint, model) = when {
-            groqKey.isNotBlank() -> Triple(groqKey, GROQ_WHISPER_URL, GROQ_WHISPER_MODEL)
-            openKey.isNotBlank() && !openKey.startsWith("sk-ant-") -> {
-                if (openKey.startsWith("gsk_")) {
-                    Triple(openKey, GROQ_WHISPER_URL, GROQ_WHISPER_MODEL)
-                } else {
-                    Triple(openKey, WHISPER_URL, WHISPER_MODEL)
-                }
-            }
-            else -> {
-                Log.w(TAG, "No hay API key válida para Whisper (Groq u OpenAI).")
-                return "[KEY_STT_FALTANTE]"
-            }
-        }
-
-        // El prompt de Whisper ayuda a guiarlo hacia transcripción de conversación directa
-        // en lugar de frases de relleno de video de YouTube.
-        val whisperPrompt = if (allowShortResponses) {
-            "Conversación en español. El usuario responde brevemente a una pregunta. Transcribir exactamente lo que dice."
-        } else {
-            "Conversación en español con asistente de voz. Transcribir el comando o pregunta del usuario."
-        }
-
-        val requestBody = MultipartBody.Builder()
-            .setType(MultipartBody.FORM)
-            .addFormDataPart(
-                "file",
-                "audio.wav",
-                wavData.toRequestBody("audio/wav".toMediaType())
-            )
-            .addFormDataPart("model", model)
-            .addFormDataPart("language", language)
-            .addFormDataPart("prompt", whisperPrompt)
-            .build()
-
-        val request = Request.Builder()
-            .url(endpoint)
-            .header("Authorization", "Bearer $authKey")
-            .post(requestBody)
-            .build()
-
-        return try {
-            val response = httpClient.newCall(request).executeSuspend()
-            val body = response.body?.string() ?: ""
-
-            if (!response.isSuccessful) {
-                Log.e(TAG, "Whisper error ($model) ${response.code}: $body")
-                return "[Error de transcripción]"
-            }
-
-            val json = JsonParser.parseString(body).asJsonObject
-            val text = json.get("text")?.asString?.trim() ?: ""
-            Log.i(TAG, "Transcripción ($model): '$text'")
-            if (isWhisperHallucination(text, allowShortResponses = allowShortResponses)) {
-                Log.w(TAG, "Alucinación de silencio/ruido de Whisper descartada: '$text' (allowShortResponses=$allowShortResponses)")
-                return ""
-            }
-            text
-        } catch (e: Exception) {
-            Log.e(TAG, "Error en transcripción: ${e.message}", e)
-            "[Error de conexión]"
-        }
-    }
+    ): String = speechToText.transcribe(wavData, language, allowShortResponses)
 
     // ═════════════════════════════════════════════════
     //  2. LLM AGENT (Groq LPU - Qwen 27B)
@@ -360,7 +252,7 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
                     .post(jsonBody.toRequestBody("application/json".toMediaType()))
                     .build()
 
-                val response = httpClient.newCall(request).executeSuspend()
+                val response = fifoHttpClient.newCall(request).executeSuspend()
                 val body = response.body?.string() ?: ""
                 if (response.isSuccessful) {
                     val root = JsonParser.parseString(body).asJsonObject
@@ -572,7 +464,7 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
             .build()
 
         return try {
-            val response = httpClient.newCall(request).executeSuspend()
+            val response = fifoHttpClient.newCall(request).executeSuspend()
             val body = response.body?.string() ?: ""
 
             if (!response.isSuccessful) {
@@ -707,7 +599,7 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
                         .post(followUpBody.toRequestBody("application/json".toMediaType()))
                         .build()
 
-                    val followUpResp = httpClient.newCall(followUpReq).executeSuspend()
+                    val followUpResp = fifoHttpClient.newCall(followUpReq).executeSuspend()
                     val followUpBodyStr = followUpResp.body?.string() ?: ""
                     if (followUpResp.isSuccessful && followUpBodyStr.isNotBlank()) {
                         val followUpJson = JsonParser.parseString(followUpBodyStr).asJsonObject
@@ -773,7 +665,7 @@ Responde ÚNICAMENTE un objeto JSON válido con los siguientes campos:
                                 .header("User-Agent", "FifoVoiceApp/1.0 (Android; okhttp)")
                                 .post(finalBody.toRequestBody("application/json".toMediaType()))
                                 .build()
-                            val finalResp = httpClient.newCall(finalReq).executeSuspend()
+                            val finalResp = fifoHttpClient.newCall(finalReq).executeSuspend()
                             val finalBodyStr = finalResp.body?.string() ?: ""
                             if (finalResp.isSuccessful && finalBodyStr.isNotBlank()) {
                                 val fJson = JsonParser.parseString(finalBodyStr).asJsonObject
@@ -848,7 +740,7 @@ Genera ÚNICAMENTE 1 oración concisa para hablar en voz alta por voz, sin intro
                     .post(jsonBody.toRequestBody("application/json".toMediaType()))
                     .build()
 
-                val response = httpClient.newCall(request).executeSuspend()
+                val response = fifoHttpClient.newCall(request).executeSuspend()
                 val body = response.body?.string() ?: ""
                 if (response.isSuccessful && body.isNotBlank()) {
                     val root = JsonParser.parseString(body).asJsonObject
@@ -912,7 +804,7 @@ Genera ÚNICAMENTE 1 oración concisa para hablar en voz alta por voz, sin intro
             .build()
 
         return try {
-            val response = httpClient.newCall(request).executeSuspend()
+            val response = fifoHttpClient.newCall(request).executeSuspend()
             val body = response.body?.string() ?: ""
             if (response.isSuccessful) {
                 Pair(true, "¡Conexión exitosa con Groq! (Cerebro LPU activo: Qwen 27B)")
@@ -981,7 +873,7 @@ Genera ÚNICAMENTE 1 oración concisa para hablar en voz alta por voz, sin intro
         val fullResponse = StringBuilder()
         val sentenceBuffer = StringBuilder()
 
-        val factory = EventSources.createFactory(httpClient)
+        val factory = EventSources.createFactory(fifoHttpClient)
         factory.newEventSource(request, object : EventSourceListener() {
             override fun onEvent(
                 eventSource: EventSource,
@@ -1059,108 +951,16 @@ Genera ÚNICAMENTE 1 oración concisa para hablar en voz alta por voz, sin intro
 
     /**
      * Convierte texto a audio PCM usando OpenAI TTS.
-     * Retorna PCM crudo (sin header) a 24kHz 16-bit mono.
+     * Retorna PCM crudo (sin header) a 16 kHz, listo para el parlante o el ESP32.
      *
      * @param text Texto a sintetizar
      * @return ByteArray con PCM crudo, o null si falla
      */
-    suspend fun textToSpeech(text: String): ByteArray? {
-        if (text.isBlank()) return null
-        if (openAiApiKey.isEmpty()) {
-            Log.w(TAG, "No hay API key de OpenAI — TTS no disponible")
-            return null
-        }
-
-        val jsonBody = """
-        {
-            "model": "$TTS_MODEL",
-            "input": ${gson.toJson(text)},
-            "voice": "$TTS_VOICE",
-            "response_format": "pcm",
-            "speed": 1.0
-        }
-        """.trimIndent()
-
-        val request = Request.Builder()
-            .url(TTS_URL)
-            .header("Authorization", "Bearer $openAiApiKey")
-            .header("Content-Type", "application/json")
-            .post(jsonBody.toRequestBody("application/json".toMediaType()))
-            .build()
-
-        return try {
-            val response = httpClient.newCall(request).executeSuspend()
-            if (!response.isSuccessful) {
-                Log.e(TAG, "TTS error ${response.code}: ${response.body?.string()}")
-                return null
-            }
-
-            val pcm24k = response.body?.bytes() ?: return null
-            Log.i(TAG, "TTS generó ${pcm24k.size} bytes de audio PCM")
-
-            // Resample de 24kHz → 16kHz para el ESP32
-            resample24kTo16k(pcm24k)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error en TTS: ${e.message}", e)
-            null
-        }
-    }
-
-    /**
-     * Resample simple de 24kHz → 16kHz.
-     * Toma 2 de cada 3 muestras (ratio 2:3).
-     * Para calidad de voz conversacional, esto es suficiente.
-     */
-    private fun resample24kTo16k(pcm24k: ByteArray): ByteArray {
-        val shortBuffer = ByteBuffer.wrap(pcm24k)
-            .order(ByteOrder.LITTLE_ENDIAN)
-            .asShortBuffer()
-
-        val inputSamples = shortBuffer.remaining()
-        val outputSamples = (inputSamples * 2) / 3
-        val output = ByteBuffer.allocate(outputSamples * 2)
-            .order(ByteOrder.LITTLE_ENDIAN)
-
-        val shortOut = output.asShortBuffer()
-
-        // Interpolación lineal simple
-        var srcPos = 0.0
-        val ratio = 24000.0 / 16000.0  // 1.5
-
-        for (i in 0 until outputSamples) {
-            val idx = srcPos.toInt()
-            if (idx >= inputSamples - 1) break
-
-            val frac = srcPos - idx
-            val s0 = shortBuffer.get(idx).toInt()
-            val s1 = shortBuffer.get(idx + 1).toInt()
-            val interpolated = (s0 + (s1 - s0) * frac).toInt().toShort()
-
-            shortOut.put(interpolated)
-            srcPos += ratio
-        }
-
-        return output.array().copyOf(shortOut.position() * 2)
-    }
+    suspend fun textToSpeech(text: String): ByteArray? = speechSynthesis.synthesize(text)
 
     /** Limpia el historial de conversación. */
     fun clearHistory() {
         conversationHistory.clear()
-    }
-
-    /** Extensión para ejecutar OkHttp calls de forma suspendible. */
-    private suspend fun Call.executeSuspend(): Response {
-        return kotlinx.coroutines.suspendCancellableCoroutine { continuation ->
-            enqueue(object : Callback {
-                override fun onResponse(call: Call, response: Response) {
-                    continuation.resumeWith(Result.success(response))
-                }
-                override fun onFailure(call: Call, e: IOException) {
-                    continuation.resumeWith(Result.failure(e))
-                }
-            })
-            continuation.invokeOnCancellation { cancel() }
-        }
     }
 }
 
