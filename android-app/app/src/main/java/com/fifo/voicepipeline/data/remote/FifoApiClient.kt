@@ -105,7 +105,7 @@ object FifoApiClient {
                     for (item in serverTastes) {
                         val name = item["name"] as? String
                         if (!name.isNullOrBlank()) {
-                            dbHelper.addTaste(userId, name)
+                            dbHelper.tastes.addTaste(userId, name)
                         }
                     }
                 }

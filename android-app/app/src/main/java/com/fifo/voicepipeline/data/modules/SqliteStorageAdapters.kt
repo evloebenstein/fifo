@@ -159,13 +159,13 @@ class SqliteMemoryStorageAdapter(private val getDbHelper: () -> FifoDatabaseHelp
     override fun addConversation(userId: String, item: PastConversationItem) { getDbHelper()?.addPastConversation(userId, item) }
     override fun removeConversation(userId: String, id: String) { getDbHelper()?.deletePastConversation(userId, id) }
 
-    override fun getTastes(userId: String): List<String> = getDbHelper()?.getTastes(userId) ?: emptyList()
-    override fun addTaste(userId: String, taste: String) { getDbHelper()?.addTaste(userId, taste) }
-    override fun removeTaste(userId: String, taste: String) { getDbHelper()?.removeTaste(userId, taste) }
+    override fun getTastes(userId: String): List<String> = getDbHelper()?.tastes?.getTastes(userId) ?: emptyList()
+    override fun addTaste(userId: String, taste: String) { getDbHelper()?.tastes?.addTaste(userId, taste) }
+    override fun removeTaste(userId: String, taste: String) { getDbHelper()?.tastes?.removeTaste(userId, taste) }
 
-    override fun getTasteStories(userId: String): List<FifoTasteStory> = getDbHelper()?.getTasteStories(userId) ?: emptyList()
-    override fun addTasteStory(userId: String, story: FifoTasteStory) { getDbHelper()?.addTasteStory(userId, story) }
-    override fun removeTasteStory(userId: String, id: String) { getDbHelper()?.deleteTasteStory(userId, id) }
+    override fun getTasteStories(userId: String): List<FifoTasteStory> = getDbHelper()?.tastes?.getTasteStories(userId) ?: emptyList()
+    override fun addTasteStory(userId: String, story: FifoTasteStory) { getDbHelper()?.tastes?.addTasteStory(userId, story) }
+    override fun removeTasteStory(userId: String, id: String) { getDbHelper()?.tastes?.deleteTasteStory(userId, id) }
 
     override fun getRelationalContacts(userId: String): List<RelationalContact> = getDbHelper()?.getRelationalContacts(userId) ?: emptyList()
     override fun addOrUpdateRelationalContact(userId: String, contact: RelationalContact) { getDbHelper()?.addOrUpdateRelationalContact(userId, contact) }

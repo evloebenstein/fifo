@@ -275,7 +275,7 @@ object FifoDataRepository {
                     put("interest_tags", com.google.gson.Gson().toJson(initialTastes))
                 }
                 dbHelper?.writableDatabase?.insertWithOnConflict("user_profiles", null, cvProf, android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE)
-                initialTastes.forEach { t -> dbHelper?.addTaste(newUserId, t) }
+                initialTastes.forEach { t -> dbHelper?.tastes?.addTaste(newUserId, t) }
             }
 
             switchUserProfile(context, newUserId)
@@ -532,7 +532,7 @@ object FifoDataRepository {
         val current = tasteStories.value
         if (!current.any { it.title.equals(story.title, ignoreCase = true) }) {
             episodicMemoryModule.setDirectTasteStories(listOf(story) + current)
-            dbHelper?.addTasteStory(userProfile.value.id, story)
+            dbHelper?.tastes?.addTasteStory(userProfile.value.id, story)
         }
     }
 

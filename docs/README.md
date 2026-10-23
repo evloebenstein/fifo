@@ -38,6 +38,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0016](adr/0016-community-activity-dao.md) | DAO de actividades comunitarias fuera del helper central. | Aceptado. |
 | [ADR-0017](adr/0017-user-profile-dao.md) | DAO de identidad local (`users` + `user_profiles`) fuera del helper. | Aceptado. |
 | [ADR-0018](adr/0018-username-recommender-policy.md) | Recomendación de usernames como política pura y testeable. | Aceptado. |
+| [ADR-0019](adr/0019-taste-dao.md) | DAO de gustos e historias de gustos fuera del helper. | Aceptado. |
 
 ---
 
