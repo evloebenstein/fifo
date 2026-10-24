@@ -1,15 +1,10 @@
 package com.fifo.voicepipeline.data.local
 
-import android.content.ContentValues
 import android.content.Context
-import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
 import android.util.Log
-import com.fifo.voicepipeline.ui.model.*
 import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
-import java.util.UUID
 
 /**
  * Base de datos relacional SQLite local de FIFO para Android.
@@ -367,7 +362,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
         ConversationJournalSchema.create(db)
 
         // Sembrar datos iniciales
-        seedInitialData(db)
+        seedInitialData()
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
@@ -543,7 +538,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
     }
 
 
-    private fun seedInitialData(db: SQLiteDatabase) {
+    private fun seedInitialData() {
         // Base de datos limpia: los datos reales se crean dinámicamente en el onboarding o se sincronizan desde el backend.
     }
 
