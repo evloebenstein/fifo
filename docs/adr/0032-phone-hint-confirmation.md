@@ -173,7 +173,7 @@ métodos del repositorio.
   `SpeechSegmenter`, barge-in, eco, telefonía ni memoria durable.
 - No se agrega funcionalidad al camino legacy: sus menciones no traen
   `conversationId` y siguen sin generar indicios.
-- No se modifica `FifoTecallManager`, `AndroidTelephonyPort` ni ningún flujo de
+- No se modifica `FifoCallManager`, `AndroidTelephonyPort` ni ningún flujo de
   llamada.
 - No se envía `ContactPhoneHint` al backend. `postRelationalContact` y
   `syncRelationalContactsBatch` siguen serializando solo `RelationalContact`.
