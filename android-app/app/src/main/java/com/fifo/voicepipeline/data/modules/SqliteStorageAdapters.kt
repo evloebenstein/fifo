@@ -170,8 +170,8 @@ class SqliteMemoryStorageAdapter(private val getDbHelper: () -> FifoDatabaseHelp
     override fun getRelationalContacts(userId: String): List<RelationalContact> = getDbHelper()?.getRelationalContacts(userId) ?: emptyList()
     override fun addOrUpdateRelationalContact(userId: String, contact: RelationalContact) { getDbHelper()?.addOrUpdateRelationalContact(userId, contact) }
 
-    override fun getDailyRoutines(userId: String): List<DailyRoutine> = getDbHelper()?.getDailyRoutines(userId) ?: emptyList()
-    override fun addOrUpdateDailyRoutine(userId: String, routine: DailyRoutine) { getDbHelper()?.addOrUpdateDailyRoutine(userId, routine) }
+    override fun getDailyRoutines(userId: String): List<DailyRoutine> = getDbHelper()?.dailyRoutines?.getDailyRoutines(userId) ?: emptyList()
+    override fun addOrUpdateDailyRoutine(userId: String, routine: DailyRoutine) { getDbHelper()?.dailyRoutines?.addOrUpdateDailyRoutine(userId, routine) }
 
     override fun getConversationFragments(userId: String): List<ConversationFragment> = getDbHelper()?.conversationFragments?.getConversationFragments(userId) ?: emptyList()
     override fun addConversationFragment(userId: String, fragment: ConversationFragment) { getDbHelper()?.conversationFragments?.addConversationFragment(userId, fragment) }

@@ -89,6 +89,11 @@ class FifoDatabaseHelper private constructor(context: Context) :
         gson = gson
     )
 
+    val dailyRoutines = DailyRoutineDao(
+        readableDatabase = { readableDatabase },
+        writableDatabase = { writableDatabase }
+    )
+
     override fun onCreate(db: SQLiteDatabase) {
         Log.i(TAG, "Creando tablas relacionales de Fifo en SQLite...")
 
@@ -524,7 +529,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
 
 
     // ══════════════════════════════════════════════════════════
-    //  LECTURAS Y ESCRITURAS DE CONTACTOS RELACIONALES Y RUTINAS
+    //  LECTURAS Y ESCRITURAS DE CONTACTOS RELACIONALES
     // ══════════════════════════════════════════════════════════
 
     private fun parseStringList(raw: String?): List<String> {
@@ -649,48 +654,6 @@ class FifoDatabaseHelper private constructor(context: Context) :
         }
     }
 
-    fun getDailyRoutines(userId: String): List<DailyRoutine> {
-        val list = mutableListOf<DailyRoutine>()
-        readableDatabase.rawQuery(
-            "SELECT id, routine_name, category, time_anchor, typical_time_str, frequency_rule, confidence_score, notes, is_active FROM user_daily_routines WHERE user_id = ? AND is_active = 1 ORDER BY typical_time_str ASC, confidence_score DESC",
-            arrayOf(userId)
-        ).use { cursor ->
-            while (cursor.moveToNext()) {
-                list.add(
-                    DailyRoutine(
-                        id = cursor.getString(0) ?: "",
-                        routineName = cursor.getString(1) ?: "",
-                        category = cursor.getString(2) ?: "medication",
-                        timeAnchor = cursor.getString(3) ?: "morning",
-                        typicalTimeStr = cursor.getString(4),
-                        frequencyRule = cursor.getString(5) ?: "daily",
-                        confidenceScore = cursor.getFloat(6),
-                        notes = cursor.getString(7),
-                        isActive = cursor.getInt(8) == 1
-                    )
-                )
-            }
-        }
-        return list
-    }
-
-    fun addOrUpdateDailyRoutine(userId: String, routine: DailyRoutine) {
-        val cv = ContentValues().apply {
-            put("id", routine.id.ifBlank { "rtn_${UUID.randomUUID().toString().take(8)}" })
-            put("user_id", userId)
-            put("routine_name", routine.routineName)
-            put("category", routine.category)
-            put("time_anchor", routine.timeAnchor)
-            put("typical_time_str", routine.typicalTimeStr)
-            put("frequency_rule", routine.frequencyRule)
-            put("confidence_score", routine.confidenceScore)
-            put("notes", routine.notes)
-            put("is_active", if (routine.isActive) 1 else 0)
-        }
-        writableDatabase.insertWithOnConflict("user_daily_routines", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
-    }
-
-
     // ── Sincronización Remota (MySQL API -> SQLite) ───────────
 
     fun bulkUpsertSyncBundle(userId: String, bundle: com.fifo.voicepipeline.network.FifoBackendClient.SyncedUserBundle) {
@@ -769,7 +732,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
 
             // 11. Rutinas diarias
             bundle.dailyRoutines?.forEach { rtn ->
-                addOrUpdateDailyRoutine(userId, rtn)
+                dailyRoutines.addOrUpdateDailyRoutine(userId, rtn)
             }
 
             db.setTransactionSuccessful()
