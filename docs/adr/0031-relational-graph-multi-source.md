@@ -156,6 +156,28 @@ crea apariciones.
 El camino legacy de consolidación (`VoicePipelineManager`) sigue llamando sin
 `conversationId`; no se le agregó funcionalidad nueva.
 
+### 6. Lectura y visualización de la procedencia
+
+La procedencia no se queda en SQLite. `FifoDataRepository` expone dos lecturas
+delegadas en `ContactAppearanceDao`:
+
+```kotlin
+fun getContactAppearances(contactId: String): List<ContactAppearance>
+fun getContactAppearancesByContact(): Map<String, List<ContactAppearance>>
+```
+
+La segunda agrupa todas las apariciones del usuario y evita una consulta por
+tarjeta. `ActivitiesScreen` la carga en `Dispatchers.IO` dentro de un
+`LaunchedEffect(liveContacts)` y muestra bajo cada persona una etiqueta neutral:
+
+```text
+Visto en Libreta · FifoAmigos · Conversación
+```
+
+La UI solo lee: no crea apariciones, no modifica contactos y no toca telefonía.
+Si aparece una fuente nueva para un contacto sin que cambie la lista de
+contactos, la etiqueta se actualiza al reabrir el diálogo.
+
 ---
 
 ## Files Changed
@@ -163,12 +185,13 @@ El camino legacy de consolidación (`VoicePipelineManager`) sigue llamando sin
 | File | Change |
 |---|---|
 | `data/contacts/RelationalGraphCoordinator.kt` | **New** — fusión multi-fuente y generación de apariciones |
-| `data/local/ContactAppearanceDao.kt` | **New** — persistencia local append-only |
+| `data/local/ContactAppearanceDao.kt` | **New** — persistencia local append-only y lecturas por contacto |
 | `ui/model/FifoModels.kt` | **Updated** — `ContactSource` y `ContactAppearance` |
-| `data/FifoDataRepository.kt` | **Updated** — delega la fusión y conecta las tres fuentes |
+| `data/FifoDataRepository.kt` | **Updated** — delega la fusión, conecta las tres fuentes y expone lecturas |
 | `data/local/FifoDatabaseHelper.kt` | **Updated** — SQLite v8, esquema/migración y DAO |
 | `data/memory/RepositorySessionMemoryConsolidator.kt` | **Updated** — pasa `conversationId` |
 | `ui/screens/FriendsScreen.kt` | **Updated** — ingesta de recomendaciones en IO |
+| `ui/screens/ActivitiesScreen.kt` | **Updated** — etiqueta de procedencia en la tarjeta de contacto |
 | `test/.../data/contacts/RelationalGraphCoordinatorTest.kt` | **New** — 10 pruebas JVM |
 | `data/README.md` | **Updated** — coordinador, DAO y flujo |
 | `data/local/README.md` | **Updated** — SQLite v8 y tabla nueva |
@@ -195,6 +218,8 @@ El camino legacy de consolidación (`VoicePipelineManager`) sigue llamando sin
 
 - El grafo responde “¿quién es?”, “¿dónde apareció?” y “¿cómo se relaciona?”
   con datos de tres fuentes.
+- La procedencia ya es visible en la tarjeta de contacto, sin agregar una
+  pantalla nueva.
 - La fusión es pura y testeable en JVM; la fachada deja de contener 180 líneas
   de política relacional.
 - Las apariciones son idempotentes: reingestar la libreta, FifoAmigos o la misma
@@ -213,6 +238,8 @@ El camino legacy de consolidación (`VoicePipelineManager`) sigue llamando sin
   pueden usar para llamar hasta que el usuario los asocie manualmente.
 - La coincidencia de menciones sigue siendo por nombre/rol, no por identidad
   única; dos personas homónimas podrían fusionarse.
+- La etiqueta de procedencia se refresca cuando cambia la lista de contactos;
+  una aparición aislada sin cambio de contacto aparece al reabrir el diálogo.
 
 ---
 

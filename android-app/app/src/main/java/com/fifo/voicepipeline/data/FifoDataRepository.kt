@@ -642,6 +642,24 @@ object FifoDataRepository {
         }
     }
 
+    /**
+     * Devuelve las apariciones registradas de un contacto, es decir, dónde
+     * apareció esa persona: libreta, FifoAmigos, conversación o llamada.
+     *
+     * La procedencia es local (`contact_appearances`) y no viaja al backend.
+     */
+    fun getContactAppearances(contactId: String): List<ContactAppearance> =
+        dbHelper?.contactAppearances?.getAppearances(userProfile.value.id, contactId) ?: emptyList()
+
+    /**
+     * Devuelve todas las apariciones del usuario agrupadas por contacto.
+     * Evita una consulta por tarjeta al mostrar la procedencia del grafo.
+     */
+    fun getContactAppearancesByContact(): Map<String, List<ContactAppearance>> =
+        dbHelper?.contactAppearances?.getAllAppearances(userProfile.value.id)
+            ?.groupBy { it.contactId }
+            ?: emptyMap()
+
     private val relationalGraph = com.fifo.voicepipeline.data.contacts.RelationalGraphCoordinator()
 
     private fun nowIso(): String =

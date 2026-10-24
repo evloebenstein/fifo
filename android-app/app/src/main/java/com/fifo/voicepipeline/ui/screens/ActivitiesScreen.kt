@@ -31,7 +31,10 @@ import androidx.compose.ui.platform.LocalContext
 import com.fifo.voicepipeline.audio.NativeSpeechRecognizer
 import com.fifo.voicepipeline.data.FifoDataRepository
 import com.fifo.voicepipeline.ui.model.CommunityActivityItem
+import com.fifo.voicepipeline.ui.model.ContactSource
 import com.fifo.voicepipeline.ui.theme.FifoColors
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -988,9 +991,13 @@ fun ActivitiesScreen(
     // ── DIALOG 2: INVITA A TUS AMIGOS A UNA ACTIVIDAD ──────────────
     selectedActivityForInvite?.let { act ->
         val liveContacts by FifoDataRepository.relationalContacts.collectAsState()
-        val friendsList = remember(liveContacts) {
-            liveContacts.map { c ->
-                Triple(c.contactName, c.relationshipRole.ifBlank { "Contacto" }, c.contextualMemory ?: "Vínculo de confianza")
+        var contactSources by remember {
+            mutableStateOf<Map<String, List<ContactSource>>>(emptyMap())
+        }
+        LaunchedEffect(liveContacts) {
+            contactSources = withContext(Dispatchers.IO) {
+                FifoDataRepository.getContactAppearancesByContact()
+                    .mapValues { (_, appearances) -> appearances.map { it.source }.distinct() }
             }
         }
 
@@ -1081,7 +1088,7 @@ fun ActivitiesScreen(
                             verticalArrangement = Arrangement.spacedBy(10.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            if (friendsList.isEmpty()) {
+                            if (liveContacts.isEmpty()) {
                                 item {
                                     Surface(
                                         color = Color.White,
@@ -1119,7 +1126,11 @@ fun ActivitiesScreen(
                                 }
                             }
 
-                            items(friendsList) { (fName, fRole, fMemory) ->
+                            items(liveContacts) { contact ->
+                                val fName = contact.contactName
+                                val fRole = contact.relationshipRole.ifBlank { "Contacto" }
+                                val fMemory = contact.contextualMemory ?: "Vínculo de confianza"
+                                val sources = contactSources[contact.id].orEmpty()
                                 val isChecked = fName in selectedFriendsForInvite
                                 Surface(
                                     onClick = {
@@ -1156,6 +1167,22 @@ fun ActivitiesScreen(
                                             Text(fName, fontWeight = FontWeight.Bold, fontSize = 14.sp, color = FifoColors.LightTextPrimary)
                                             Text(fRole, fontSize = 11.sp, color = FifoColors.LightTextSecondary)
                                             Text(fMemory, fontSize = 10.sp, color = FifoColors.LightTextMuted, maxLines = 1)
+                                            if (sources.isNotEmpty()) {
+                                                Surface(
+                                                    color = FifoColors.BlueSoftPill,
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    modifier = Modifier.padding(top = 3.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "Visto en " + sources.map(::contactSourceLabel).joinToString(" · "),
+                                                        fontSize = 9.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = FifoColors.NavyPrimary,
+                                                        maxLines = 1,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
                                         }
 
                                         Checkbox(
@@ -1195,4 +1222,15 @@ fun ActivitiesScreen(
             }
         }
     }
+}
+
+/**
+ * Etiqueta breve y neutral para mostrar de dónde conoce Fifo a una persona.
+ */
+private fun contactSourceLabel(source: ContactSource): String = when (source) {
+    ContactSource.PHONE_CONTACT -> "Libreta"
+    ContactSource.FIFO_FRIEND -> "FifoAmigos"
+    ContactSource.CONVERSATION -> "Conversación"
+    ContactSource.CALL -> "Llamada"
+    ContactSource.MANUAL -> "Manual"
 }

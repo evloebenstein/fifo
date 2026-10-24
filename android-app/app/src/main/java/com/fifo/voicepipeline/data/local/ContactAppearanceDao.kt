@@ -29,7 +29,9 @@ class ContactAppearanceDao(
                     put("source", appearance.source.name)
                     put("source_id", appearance.sourceId)
                     put("snippet", appearance.snippet)
-                    put("occurred_at", appearance.occurredAt.ifBlank { null })
+                    if (appearance.occurredAt.isNotBlank()) {
+                        put("occurred_at", appearance.occurredAt)
+                    }
                 }
                 db.insertWithOnConflict(TABLE, null, values, SQLiteDatabase.CONFLICT_IGNORE)
             }

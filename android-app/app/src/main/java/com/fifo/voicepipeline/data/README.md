@@ -75,4 +75,4 @@ VoiceSessionPipeline
 3. **Tests sin Android:** los módulos de dominio son testables en JVM con los adaptadores `InMemory*`.
 4. **Un solo dueño de la memoria durable:** `VoiceSessionPipeline` compone `MemoryCoordinator`, el diario y el consolidador. `VoiceSession` solo ve `SessionMemory`; el facade legacy no crea otro coordinador.
 5. **El diario es la fuente de continuidad:** `CloudApiClient.conversationHistory` es solo una caché de contexto (últimos 8 mensajes); al arrancar se repuebla desde los últimos 4 turnos del diario.
-6. **Un solo dueño de la fusión relacional:** `RelationalGraphCoordinator` decide cómo se combinan libreta, FifoAmigos y menciones. `FifoDataRepository` solo compone y persiste; la procedencia es local (`contact_appearances`) y no viaja al backend.
+6. **Un solo dueño de la fusión relacional:** `RelationalGraphCoordinator` decide cómo se combinan libreta, FifoAmigos y menciones. `FifoDataRepository` solo compone y persiste; la procedencia es local (`contact_appearances`), no viaja al backend y se lee con `getContactAppearancesByContact()`.

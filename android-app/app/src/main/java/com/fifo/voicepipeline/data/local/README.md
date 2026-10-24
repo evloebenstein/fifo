@@ -20,7 +20,7 @@ La versión actual del esquema es **v8**.
 | [`ConversationFragmentDao.kt`](ConversationFragmentDao.kt) | DAO de `conversation_fragments`: listado, alta y codec JSON (ADR-0025). |
 | [`DailyRoutineDao.kt`](DailyRoutineDao.kt) | DAO de `user_daily_routines`: rutinas activas y upsert (ADR-0026). |
 | [`RelationalContactDao.kt`](RelationalContactDao.kt) | DAO de `user_contacts_relational`: lectura, fusión e ingesta por lotes (ADR-0027). |
-| [`ContactAppearanceDao.kt`](ContactAppearanceDao.kt) | DAO de `contact_appearances`: procedencia append-only del grafo relacional, sin FK para sobrevivir a los reemplazos del contacto (ADR-0031). |
+| [`ContactAppearanceDao.kt`](ContactAppearanceDao.kt) | DAO de `contact_appearances`: procedencia append-only del grafo relacional, con lecturas por contacto y sin FK para sobrevivir a los reemplazos (ADR-0031). |
 | [`SyncBundleWriter.kt`](SyncBundleWriter.kt) | Escritor transaccional del bundle remoto: perfil y agregados en una sola transacción (ADR-0028). |
 | [`UsernameRecommender.kt`](UsernameRecommender.kt) | Política pura de recomendación de usernames: normalización, buckets, filtro de contenido y unicidad inyectada (ADR-0018). |
 | [`CommunityActivityDao.kt`](CommunityActivityDao.kt) | DAO de `community_activities` y `activity_participants`: consulta, alta, join/leave, borrado y siembra inicial (ADR-0016). |
