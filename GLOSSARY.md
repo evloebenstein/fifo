@@ -123,3 +123,7 @@ _Avoid_: Evento, Log, Historial
 **Persona cercana**:
 Rol por defecto de una persona mencionada en conversación cuando Fifo no puede inferir un parentesco. Es una descripción neutral, no una afirmación de familiaridad.
 _Avoid_: Familiar, Amigo, Conocido
+
+**Indicio telefónico**:
+Número que aparece explícito en el contexto de una persona mencionada y que `PhoneHintExtractor` asocia solo si el contacto no tiene teléfono. No reemplaza la libreta ni se considera un número verificado.
+_Avoid_: Teléfono confirmado, Contacto verificado

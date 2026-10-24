@@ -91,4 +91,4 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 - **Memoria antes de hablar:** `conversation_journal` se escribe antes de `speakResponse`.
 - **Barge-in por contenido:** el RMS no corta locuciones; el eco se ignora antes de cualquier acción.
 - **Comandos de llamada completos:** *“Fifo contesta”* / *“Fifo cuelga”*.
-- **Grafo relacional multi-fuente:** libreta, FifoAmigos y menciones se fusionan en `RelationalGraphCoordinator`; la procedencia vive solo en `contact_appearances` y se muestra como “Visto en…” en la tarjeta de contacto.
+- **Grafo relacional multi-fuente:** libreta, FifoAmigos y menciones se fusionan en `RelationalGraphCoordinator`; la procedencia vive solo en `contact_appearances` y se muestra como “Visto en…” en la tarjeta de contacto. Los teléfonos solo se toman de números explícitos y nunca reemplazan la libreta.

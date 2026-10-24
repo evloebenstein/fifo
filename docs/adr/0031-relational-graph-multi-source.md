@@ -178,6 +178,27 @@ La UI solo lee: no crea apariciones, no modifica contactos y no toca telefonía.
 Si aparece una fuente nueva para un contacto sin que cambie la lista de
 contactos, la etiqueta se actualiza al reabrir el diálogo.
 
+### 7. Indicios telefónicos explícitos
+
+`PhoneHintExtractor` complementa las menciones sin convertirlas en una agenda
+inventada:
+
+- solo actúa si el contacto **no tiene** teléfono;
+- solo se aplica en el camino nuevo, cuando la mención trae `conversationId`;
+  el camino legacy conserva su comportamiento anterior;
+- acepta secuencias de 8 a 15 dígitos;
+- exige una palabra clave (`teléfono`, `celular`, `número`, `WhatsApp`,
+  `llámame`, `márca(me)`) o un prefijo internacional (`+`, `00`, `56`);
+- rechaza años, fechas `YYYYMMDD`, números demasiado cortos/largos y dígitos
+  repetidos;
+- normaliza móviles chilenos de 9 dígitos a `+56...`;
+- nunca sobrescribe un teléfono conocido por la libreta.
+
+Un número citado en el mismo fragmento se asocia a la persona mencionada. Si el
+fragmento mezcla a esa persona con un tercero (“Marta me pasó el teléfono de su
+hija…”), el número puede quedar asociado a Marta: es un **indicio**, no una
+identidad verificada, y el usuario puede corregirlo.
+
 ---
 
 ## Files Changed
@@ -185,6 +206,7 @@ contactos, la etiqueta se actualiza al reabrir el diálogo.
 | File | Change |
 |---|---|
 | `data/contacts/RelationalGraphCoordinator.kt` | **New** — fusión multi-fuente y generación de apariciones |
+| `data/contacts/PhoneHintExtractor.kt` | **New** — extracción conservadora de teléfonos explícitos en menciones |
 | `data/local/ContactAppearanceDao.kt` | **New** — persistencia local append-only y lecturas por contacto |
 | `ui/model/FifoModels.kt` | **Updated** — `ContactSource` y `ContactAppearance` |
 | `data/FifoDataRepository.kt` | **Updated** — delega la fusión, conecta las tres fuentes y expone lecturas |
@@ -192,7 +214,8 @@ contactos, la etiqueta se actualiza al reabrir el diálogo.
 | `data/memory/RepositorySessionMemoryConsolidator.kt` | **Updated** — pasa `conversationId` |
 | `ui/screens/FriendsScreen.kt` | **Updated** — ingesta de recomendaciones en IO |
 | `ui/screens/ActivitiesScreen.kt` | **Updated** — etiqueta de procedencia en la tarjeta de contacto |
-| `test/.../data/contacts/RelationalGraphCoordinatorTest.kt` | **New** — 10 pruebas JVM |
+| `test/.../data/contacts/RelationalGraphCoordinatorTest.kt` | **New** — 15 pruebas JVM |
+| `test/.../data/contacts/PhoneHintExtractorTest.kt` | **New** — 14 pruebas JVM de números explícitos |
 | `data/README.md` | **Updated** — coordinador, DAO y flujo |
 | `data/local/README.md` | **Updated** — SQLite v8 y tabla nueva |
 | `docs/README.md` | **Updated** — índice de ADR |
@@ -203,7 +226,9 @@ contactos, la etiqueta se actualiza al reabrir el diálogo.
 
 - No cambian voz, `VoiceSession`, `VoiceSessionPipeline`, `CaptureArbiter`,
   `SpeechSegmenter`, barge-in, eco, telefonía ni memoria durable.
-- No cambia el camino legacy: no recibe apariciones ni fusiones nuevas.
+- No cambia el camino legacy: no recibe apariciones ni fusiones nuevas, y
+  tampoco extrae indicios telefónicos porque sus menciones no traen
+  `conversationId`.
 - No se agrega funcionalidad nueva a `VoicePipelineManager`.
 - No se envía procedencia al backend ni se modifica ningún endpoint.
 - No se elimina `contact_conversation_mentions`; queda como tabla histórica sin
@@ -218,6 +243,8 @@ contactos, la etiqueta se actualiza al reabrir el diálogo.
 
 - El grafo responde “¿quién es?”, “¿dónde apareció?” y “¿cómo se relaciona?”
   con datos de tres fuentes.
+- Un teléfono citado explícitamente se asocia sin pedirle al usuario que lo
+  transcriba, y la libreta siempre tiene prioridad.
 - La procedencia ya es visible en la tarjeta de contacto, sin agregar una
   pantalla nueva.
 - La fusión es pura y testeable en JVM; la fachada deja de contener 180 líneas
@@ -240,6 +267,10 @@ contactos, la etiqueta se actualiza al reabrir el diálogo.
   única; dos personas homónimas podrían fusionarse.
 - La etiqueta de procedencia se refresca cuando cambia la lista de contactos;
   una aparición aislada sin cambio de contacto aparece al reabrir el diálogo.
+- Un teléfono extraído de una mención no está verificado por el usuario ni por
+  la libreta; puede requerir corrección manual. Además, al guardarse en
+  `phoneNumber`, sigue el mismo camino de sincronización que un contacto; solo
+  la procedencia (`contact_appearances`) es local.
 
 ---
 

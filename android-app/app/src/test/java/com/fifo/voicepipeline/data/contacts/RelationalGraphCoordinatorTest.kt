@@ -236,4 +236,97 @@ class RelationalGraphCoordinatorTest {
         assertEquals(first.contacts.single().id, second.contacts.single().id)
         assertFalse(first.contacts.single().id.isBlank())
     }
+
+    @Test
+    fun `una mencion con telefono explicito lo asocia al contacto`() {
+        val existing = RelationalContact(
+            id = "ctc_rel_marta",
+            contactName = "Marta",
+            phoneNumber = null,
+            relationshipRole = "Vecina",
+            closenessScore = 0.7f,
+            contextualMemory = "Su vecina."
+        )
+
+        val merge = coordinator.mergeSessionMentions(
+            current = listOf(existing),
+            mentions = listOf(
+                MentionedPersonExtraction(
+                    name = "Marta",
+                    contextSnippet = "Mi vecina Marta me dio su celular 9 1234 5678.",
+                    closenessDelta = 0.05f
+                )
+            ),
+            conversationId = "conv_abc"
+        )
+
+        assertEquals("+56912345678", merge.contacts.single().phoneNumber)
+    }
+
+    @Test
+    fun `una mencion no reemplaza el telefono conocido`() {
+        val merge = coordinator.mergeSessionMentions(
+            current = listOf(phoneContact()),
+            mentions = listOf(
+                MentionedPersonExtraction(
+                    name = "Marta",
+                    contextSnippet = "Su nuevo teléfono es 9 8765 4321."
+                )
+            ),
+            conversationId = "conv_abc"
+        )
+
+        assertEquals("+56911112222", merge.contacts.single().phoneNumber)
+    }
+
+    @Test
+    fun `una mencion nueva con telefono explicito lo guarda`() {
+        val merge = coordinator.mergeSessionMentions(
+            current = emptyList(),
+            mentions = listOf(
+                MentionedPersonExtraction(
+                    name = "Lucas",
+                    inferredRole = "Nieto",
+                    contextSnippet = "Mi nieto Lucas me dio su celular +56 9 1111 2222."
+                )
+            ),
+            conversationId = "conv_abc"
+        )
+
+        val created = merge.contacts.single()
+        assertEquals("Nieto", created.relationshipRole)
+        assertEquals("+56911112222", created.phoneNumber)
+    }
+
+    @Test
+    fun `una mencion sin numero no inventa telefono`() {
+        val merge = coordinator.mergeSessionMentions(
+            current = emptyList(),
+            mentions = listOf(
+                MentionedPersonExtraction(
+                    name = "Lucas",
+                    contextSnippet = "Mi nieto Lucas me llamó ayer."
+                )
+            ),
+            conversationId = "conv_abc"
+        )
+
+        assertNull(merge.contacts.single().phoneNumber)
+    }
+
+    @Test
+    fun `el camino sin conversacion no extrae telefono`() {
+        val merge = coordinator.mergeSessionMentions(
+            current = emptyList(),
+            mentions = listOf(
+                MentionedPersonExtraction(
+                    name = "Lucas",
+                    contextSnippet = "Mi nieto Lucas me dio su celular +56 9 1111 2222."
+                )
+            ),
+            conversationId = null
+        )
+
+        assertNull(merge.contacts.single().phoneNumber)
+    }
 }

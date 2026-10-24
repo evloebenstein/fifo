@@ -30,6 +30,8 @@ data class RelationalGraphMerge(
  *
  * No inventa parentescos: una recomendación de FifoAmigos entra como
  * `Amigo de FifoAmigos`, y una mención sin rol entra como `Persona cercana`.
+ * Tampoco inventa teléfonos: una mención solo asocia un número explícito y
+ * nunca reemplaza el que ya conoce la libreta ([PhoneHintExtractor]).
  */
 class RelationalGraphCoordinator {
 
@@ -161,6 +163,7 @@ class RelationalGraphCoordinator {
         val contacts = current.toMutableList()
         val changed = mutableListOf<RelationalContact>()
         val appearances = mutableListOf<ContactAppearance>()
+        val allowPhoneHint = !conversationId.isNullOrBlank()
 
         mentions.forEach { mention ->
             val mentionName = mention.name.trim()
@@ -187,6 +190,14 @@ class RelationalGraphCoordinator {
                     existing.relationshipRole
                 }
                 val updated = existing.copy(
+                    phoneNumber = if (allowPhoneHint) {
+                        PhoneHintExtractor.extract(
+                            snippet = mention.contextSnippet,
+                            currentPhone = existing.phoneNumber
+                        ) ?: existing.phoneNumber
+                    } else {
+                        existing.phoneNumber
+                    },
                     closenessScore = newScore,
                     mentionCount = existing.mentionCount + 1,
                     relationshipRole = newRole,
@@ -202,7 +213,11 @@ class RelationalGraphCoordinator {
                 val created = RelationalContact(
                     id = "ctc_rel_${newContactSuffix(mentionName)}",
                     contactName = mentionName,
-                    phoneNumber = null,
+                    phoneNumber = if (allowPhoneHint) {
+                        PhoneHintExtractor.extract(mention.contextSnippet)
+                    } else {
+                        null
+                    },
                     relationshipRole = mention.inferredRole ?: "Persona cercana",
                     closenessScore = 0.65f,
                     trustTier = 3,
