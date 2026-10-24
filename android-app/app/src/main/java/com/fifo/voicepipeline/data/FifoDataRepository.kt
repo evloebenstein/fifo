@@ -739,7 +739,7 @@ object FifoDataRepository {
         episodicMemoryModule.setDirectRelationalContacts(currentList.sortedByDescending { it.closenessScore })
 
         // Persistir en SQLite local
-        dbHelper?.syncDeviceContactsBatch(userProfile.value.id, toSaveInDb)
+        dbHelper?.relationalContacts?.syncDeviceContactsBatch(userProfile.value.id, toSaveInDb)
 
         // Sincronizar en segundo plano con el Backend MySQL
         repositoryScope.launch {
@@ -843,7 +843,7 @@ object FifoDataRepository {
 
         // Persistir en SQLite y Backend
         for (c in modifiedOrCreated) {
-            dbHelper?.addOrUpdateRelationalContact(userProfile.value.id, c)
+            dbHelper?.relationalContacts?.addOrUpdateRelationalContact(userProfile.value.id, c)
             repositoryScope.launch {
                 com.fifo.voicepipeline.network.FifoBackendClient.postRelationalContact(userProfile.value.id, c)
             }

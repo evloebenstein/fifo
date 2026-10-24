@@ -46,6 +46,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0024](adr/0024-past-conversation-dao.md) | DAO de conversaciones pasadas fuera del helper. | Aceptado. |
 | [ADR-0025](adr/0025-conversation-fragment-dao.md) | DAO de fragmentos de conversación fuera del helper. | Aceptado. |
 | [ADR-0026](adr/0026-daily-routine-dao.md) | DAO de rutinas diarias fuera del helper. | Aceptado. |
+| [ADR-0027](adr/0027-relational-contact-dao.md) | DAO de contactos relacionales fuera del helper. | Aceptado. |
 
 ---
 
