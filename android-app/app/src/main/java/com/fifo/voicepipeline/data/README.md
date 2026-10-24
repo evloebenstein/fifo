@@ -19,7 +19,8 @@ camino `SESSION`.
 | [`memory/`](memory/README.md) | **Memoria durable del camino nuevo:** `JournalEntry`, puerto `ConversationJournal`, consolidación local/backend y fake JVM. |
 | [`contacts/RelationalGraphCoordinator.kt`](contacts/RelationalGraphCoordinator.kt) | Política pura de fusión multi-fuente del grafo relacional: libreta, FifoAmigos y menciones (ADR-0031). |
 | [`contacts/PhoneHintExtractor.kt`](contacts/PhoneHintExtractor.kt) | Extracción conservadora de teléfonos explícitos en menciones; nunca sobrescribe la libreta ni escribe `phoneNumber` (ADR-0031, ADR-0032). |
-| [`local/FifoDatabaseHelper.kt`](local/FifoDatabaseHelper.kt) | Helper SQLite v9: esquema global, migraciones, singleton y composición de DAOs. Ya no contiene SQL operativo de dominio ni la sincronización del bundle. |
+| [`local/FifoSchema.kt`](local/FifoSchema.kt) | **Fuente única del esquema SQLite v9**: DDL de tablas e índices, versión y sentencias de creación, reparación y migración (ADR-0033). |
+| [`local/FifoDatabaseHelper.kt`](local/FifoDatabaseHelper.kt) | Helper SQLite: singleton, composición de DAOs y ejecución de las sentencias de `FifoSchema`. Ya no contiene DDL, SQL operativo de dominio ni la sincronización del bundle. |
 | [`local/UserProfileDao.kt`](local/UserProfileDao.kt) | DAO de identidad local: perfil, demografía, bio, intereses, verificación de usernames y upsert del perfil sincronizado (ADR-0017, ADR-0028). |
 | [`local/UsernameRecommender.kt`](local/UsernameRecommender.kt) | Política pura de recomendación de usernames (ADR-0018). |
 | [`local/TasteDao.kt`](local/TasteDao.kt) | DAO de gustos e historias de gustos (ADR-0019). |
@@ -80,3 +81,4 @@ VoiceSessionPipeline
 5. **El diario es la fuente de continuidad:** `CloudApiClient.conversationHistory` es solo una caché de contexto (últimos 8 mensajes); al arrancar se repuebla desde los últimos 4 turnos del diario.
 6. **Un solo dueño de la fusión relacional:** `RelationalGraphCoordinator` decide cómo se combinan libreta, FifoAmigos y menciones. `FifoDataRepository` solo compone y persiste; la procedencia es local (`contact_appearances`), no viaja al backend y se lee con `getContactAppearancesByContact()`. Los teléfonos solo se aceptan si son explícitos (`PhoneHintExtractor`) y nunca reemplazan uno existente.
 7. **Un teléfono mencionado no es un teléfono confirmado:** la mención produce un `ContactPhoneHint` en `contact_phone_hints`; solo `confirmPhoneHint()` lo copia a `RelationalContact.phoneNumber` y lo sincroniza. `discardPhoneHint()` lo marca `DISCARDED` sin tocar el contacto (ADR-0032).
+8. **Un solo dueño del DDL:** tablas, columnas e índices locales viven en `local/FifoSchema.kt`; `conversation_journal` sigue en `ConversationJournalSchema`. El helper solo ejecuta sentencias y no declara SQL de esquema (ADR-0033).

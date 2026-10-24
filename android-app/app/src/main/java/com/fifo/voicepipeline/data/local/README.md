@@ -9,7 +9,8 @@ La versión actual del esquema es **v9**.
 
 | Archivo | Rol y Responsabilidad |
 | :--- | :--- |
-| [`FifoDatabaseHelper.kt`](FifoDatabaseHelper.kt) | **Manejador SQLite (`SQLiteOpenHelper`)**: crea y migra las tablas locales, mantiene el singleton y compone los DAOs. En v8 agregó `contact_appearances` y en v9 `contact_phone_hints` sin tocar las tablas existentes; ya no contiene SQL operativo de dominio ni la sincronización del bundle. |
+| [`FifoSchema.kt`](FifoSchema.kt) | **Fuente única del esquema SQLite v9**: DDL de tablas e índices, versión, `createStatements`, `ensureStatements` y `upgradeStatements(oldVersion)`. Ninguna otra clase declara SQL de esquema (ADR-0033). |
+| [`FifoDatabaseHelper.kt`](FifoDatabaseHelper.kt) | **Manejador SQLite (`SQLiteOpenHelper`)**: mantiene el singleton, compone los DAOs y ejecuta las sentencias de `FifoSchema` en `onCreate`/`onUpgrade`/`onOpen`. No contiene DDL ni SQL operativo de dominio. |
 | [`UserProfileDao.kt`](UserProfileDao.kt) | DAO de `users` y `user_profiles`: perfil, búsqueda por identificador, demografía, bio, intereses, verificación de usernames y upsert del perfil sincronizado (ADR-0017, ADR-0028). Delega la recomendación en `UsernameRecommender`. |
 | [`TasteDao.kt`](TasteDao.kt) | DAO de `tastes` y `taste_stories`: gustos activos, altas, baja lógica, historias y tags JSON (ADR-0019). |
 | [`ReminderDao.kt`](ReminderDao.kt) | DAO de `reminders_and_events`: consulta, alta, completar y borrar (ADR-0020). |
@@ -31,6 +32,9 @@ La versión actual del esquema es **v9**.
 ---
 
 ## 📊 Tablas Gestionadas en SQLite
+
+Todas las tablas de esta lista se declaran en `FifoSchema.kt`, salvo
+`conversation_journal`, que pertenece a `ConversationJournalSchema`.
 
 - `users`: datos demográficos, ciudad, fecha y año de nacimiento, frase de presentación.
 - `user_profiles`: biografía, tags de intereses, contacto de emergencia y modo de escucha continua.
@@ -114,10 +118,10 @@ uno descartado.
 ## 🧭 Reglas de Programación en `local/`
 
 1. **Paridad de esquema:** los nombres de columnas y tipos de las tablas sincronizadas con el backend deben coincidir con `backend/init/01_schema.sql` para facilitar la serialización.
-2. **Migraciones incrementales:** cada versión nueva debe agregar su bloque `if (oldVersion < N)` y no recrear tablas existentes.
+2. **Fuente única de DDL:** toda tabla, columna o índice nuevo se declara una vez en `FifoSchema.kt`. Al subir `FifoSchema.VERSION`, agrega el bloque `if (oldVersion < N)` dentro de `upgradeStatements()` y, si aplica, la sentencia idempotente en `ensureStatements`; no escribas SQL en el helper (ADR-0033).
 3. **Cierre de cursores:** usar siempre `use { cursor -> ... }` para evitar fugas al leer SQLite.
 4. **Diario antes de hablar:** `SqliteConversationJournal.append()` es síncrono y se llama antes de `speakResponse`; no mover esa escritura después del TTS.
-5. **DAOs por agregado:** cuando un agregado tiene un límite claro, su SQL operativo vive en un DAO del directorio; `FifoDatabaseHelper` solo lo compone y conserva el esquema/migraciones globales.
+5. **DAOs por agregado:** cuando un agregado tiene un límite claro, su SQL operativo vive en un DAO del directorio; `FifoDatabaseHelper` solo los compone y `FifoSchema` conserva el DDL global.
 6. **Políticas puras fuera del DAO:** la lógica de decisión sin SQLite (por ejemplo `UsernameRecommender`) vive en un objeto puro y recibe la consulta de unicidad como función.
 7. **Procedencia local-only:** `contact_appearances` documenta el grafo en el dispositivo; no se serializa al backend ni se usa para decidir llamadas. La fusión de fuentes vive en `RelationalGraphCoordinator` (ADR-0031).
 8. **Indicios antes que teléfonos:** un número mencionado se guarda en `contact_phone_hints` como `PENDING`; solo `FifoDataRepository.confirmPhoneHint()` lo copia a `phoneNumber` y lo sincroniza. `discardPhoneHint()` marca `DISCARDED` sin tocar el contacto (ADR-0032).

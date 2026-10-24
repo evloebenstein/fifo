@@ -89,6 +89,12 @@
 
 A continuación se define la estructura de datos relacional usada por **MySQL 8.4** en el backend y por **SQLite v9** en la app Android.
 
+> **Fuente única del esquema local:** todo el DDL de SQLite v9 (tablas, columnas,
+> índices, defaults y migraciones) vive en
+> `android-app/.../data/local/FifoSchema.kt`. `FifoDatabaseHelper` solo ejecuta
+> esas sentencias y `ConversationJournalSchema` conserva la tabla del diario
+> durable (ADR-0033).
+
 ### 2.1. Tabla: `users`
 Contiene la identidad principal de la persona y sus datos demográficos básicos.
 

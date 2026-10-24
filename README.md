@@ -233,7 +233,7 @@ Cada carpeta del proyecto cuenta con su propio archivo `README.md` detallando la
   - [`android-app/app/src/main/java/com/fifo/voicepipeline/`](android-app/app/src/main/java/com/fifo/voicepipeline/README.md) - Raíz del paquete Kotlin, `MainActivity.kt` y mapa de arquitectura.
   - [`.../audio/`](android-app/app/src/main/java/com/fifo/voicepipeline/audio/README.md) - Primitivas de audio: captura PCM, VAD, reconocedor nativo, TTS y sanitización. La propiedad de captura/VAD vive en `pipeline/session`.
   - [`.../data/`](android-app/app/src/main/java/com/fifo/voicepipeline/data/README.md) - Repositorio reactivo, módulos de dominio, diario durable y consolidación.
-  - [`.../data/local/`](android-app/app/src/main/java/com/fifo/voicepipeline/data/local/README.md) - SQLite v9, `FifoDatabaseHelper`, `contact_appearances`, `contact_phone_hints` y `conversation_journal`.
+  - [`.../data/local/`](android-app/app/src/main/java/com/fifo/voicepipeline/data/local/README.md) - SQLite v9, `FifoSchema` (fuente única del DDL), `contact_appearances`, `contact_phone_hints` y `conversation_journal`.
   - [`.../data/memory/`](android-app/app/src/main/java/com/fifo/voicepipeline/data/memory/README.md) - `JournalEntry`, puerto `ConversationJournal` y consolidador de sesión.
   - [`.../data/remote/`](android-app/app/src/main/java/com/fifo/voicepipeline/data/remote/README.md) - Cliente REST heredado para sincronización con la nube.
   - [`.../location/`](android-app/app/src/main/java/com/fifo/voicepipeline/location/README.md) - GPS, brújula digital y guiado de navegación peatonal por voz estilo Waze.

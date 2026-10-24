@@ -12,6 +12,9 @@ import android.database.sqlite.SQLiteDatabase
 internal object ConversationJournalSchema {
     const val TABLE = "conversation_journal"
 
+    /** Versión de esquema de Fifo en la que se introdujo el diario. */
+    const val INTRODUCED_VERSION = 7
+
     fun create(db: SQLiteDatabase) {
         db.execSQL("""
             CREATE TABLE IF NOT EXISTS $TABLE (

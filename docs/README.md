@@ -52,6 +52,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0030](adr/0030-call-state-coordinator.md) | Estado de llamada extraído de `FifoDataRepository`. | Aceptado. |
 | [ADR-0031](adr/0031-relational-graph-multi-source.md) | Grafo relacional multi-fuente y procedencia de personas (SQLite v8). | Aceptado; ampliado por ADR-0032. |
 | [ADR-0032](adr/0032-phone-hint-confirmation.md) | Teléfonos mencionados como indicios locales pendientes de confirmación (SQLite v9). | Aceptado. |
+| [ADR-0033](adr/0033-single-source-sqlite-schema.md) | `FifoSchema` como fuente única del DDL SQLite; el helper solo compone y ejecuta. | Aceptado. |
 
 ---
 
@@ -68,7 +69,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [`.../telephony/README.md`](../android-app/app/src/main/java/com/fifo/voicepipeline/telephony/README.md) | `TelephonyPort` y contexto de llamante. |
 | [`.../data/README.md`](../android-app/app/src/main/java/com/fifo/voicepipeline/data/README.md) | Repositorio, módulos y memoria durable. |
 | [`.../data/memory/README.md`](../android-app/app/src/main/java/com/fifo/voicepipeline/data/memory/README.md) | Diario, consolidación y cola pendiente. |
-| [`.../data/local/README.md`](../android-app/app/src/main/java/com/fifo/voicepipeline/data/local/README.md) | SQLite v9, `conversation_journal`, `contact_appearances` e indicios telefónicos. |
+| [`.../data/local/README.md`](../android-app/app/src/main/java/com/fifo/voicepipeline/data/local/README.md) | SQLite v9, `FifoSchema`, `conversation_journal`, `contact_appearances` e indicios telefónicos. |
 | [`.../network/README.md`](../android-app/app/src/main/java/com/fifo/voicepipeline/network/README.md) | BLE, Groq, backend y extracción de memoria. |
 | [`.../service/README.md`](../android-app/app/src/main/java/com/fifo/voicepipeline/service/README.md) | Servicio en primer plano y accesibilidad. |
 
