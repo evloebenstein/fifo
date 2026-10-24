@@ -1,38 +1,42 @@
 package com.fifo.voicepipeline.network
 
-import android.util.Log
 import com.fifo.voicepipeline.data.memory.MentionedPersonExtraction
 import com.fifo.voicepipeline.ui.model.*
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import org.json.JSONArray
-import org.json.JSONObject
-import java.util.concurrent.TimeUnit
 
 /**
- * Cliente HTTP ligero para sincronizar FifoDataRepository y los Skills de voz
- * con el microservicio REST + MySQL 8.4 en Docker (fifo-api en puerto 8090).
+ * Fachada HTTP del backend propio (FastAPI/MySQL, `fifo-api` en el puerto 8090).
+ *
+ * Conserva la API pública que consumen la UI, los skills y `FifoDataRepository`,
+ * pero delega cada dominio en un adaptador:
+ *
+ * - [BackendSyncAdapter]: salud y bundle completo;
+ * - [BackendAccountAdapter]: autenticación, usuarios y perfil;
+ * - [BackendContentAdapter]: gustos, posts, recuerdos, recordatorios y rutinas;
+ * - [BackendMemoryAdapter]: consolidación profunda y GraphRAG;
+ * - [BackendContactAdapter]: contactos relacionales y telefonía;
+ * - [BackendDeviceAdapter]: ubicación del dispositivo y navegación;
+ * - [BackendCommunityAdapter]: amigos y actividades comunitarias.
  *
  * Soporta conexión directa por USB mediante `adb reverse tcp:8090 tcp:8090`
  * (http://127.0.0.1:8090) o IP LAN configurable.
  */
 object FifoBackendClient {
-    private const val TAG = "FifoBackendClient"
 
-    @Volatile
-    var baseUrl: String = "http://127.0.0.1:8090"
+    private val http = BackendHttp()
 
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(4, TimeUnit.SECONDS)
-        .readTimeout(6, TimeUnit.SECONDS)
-        .writeTimeout(6, TimeUnit.SECONDS)
-        .build()
+    private val syncAdapter = BackendSyncAdapter(http)
+    private val accountAdapter = BackendAccountAdapter(http)
+    private val contentAdapter = BackendContentAdapter(http)
+    private val memoryAdapter = BackendMemoryAdapter(http)
+    private val contactAdapter = BackendContactAdapter(http)
+    private val deviceAdapter = BackendDeviceAdapter(http)
+    private val communityAdapter = BackendCommunityAdapter(http)
 
-    private val jsonMediaType = "application/json; charset=utf-8".toMediaType()
+    var baseUrl: String
+        get() = http.baseUrl
+        set(value) {
+            http.baseUrl = value
+        }
 
     data class SyncedUserBundle(
         val userProfile: UserProfileData,
@@ -68,343 +72,14 @@ object FifoBackendClient {
         val tastes: List<String> = emptyList()
     )
 
+    // ── Salud y sincronización ────────────────────────────────
 
-    suspend fun checkHealth(): Boolean = withContext(Dispatchers.IO) {
-        if (tryHealth(baseUrl)) return@withContext true
+    suspend fun checkHealth(): Boolean = syncAdapter.checkHealth()
 
-        // Si falla con 127.0.0.1 (USB adb reverse), probar con 10.0.2.2 (emulador Android)
-        if (baseUrl.contains("127.0.0.1")) {
-            val emuUrl = baseUrl.replace("127.0.0.1", "10.0.2.2")
-            if (tryHealth(emuUrl)) {
-                Log.i(TAG, "Conectado exitosamente con emulador Android: $emuUrl")
-                baseUrl = emuUrl
-                return@withContext true
-            }
-        } else if (baseUrl.contains("10.0.2.2")) {
-            val usbUrl = baseUrl.replace("10.0.2.2", "127.0.0.1")
-            if (tryHealth(usbUrl)) {
-                Log.i(TAG, "Conectado exitosamente vía USB / adb reverse: $usbUrl")
-                baseUrl = usbUrl
-                return@withContext true
-            }
-        }
-        Log.d(TAG, "Backend Docker no alcanzable en $baseUrl")
-        false
-    }
+    suspend fun fetchUserBundle(userId: String): SyncedUserBundle? =
+        syncAdapter.fetchUserBundle(userId)
 
-    private fun tryHealth(targetUrl: String): Boolean {
-        return try {
-            val req = Request.Builder().url("$targetUrl/health").get().build()
-            httpClient.newCall(req).execute().use { resp -> resp.isSuccessful }
-        } catch (e: Exception) {
-            false
-        }
-    }
-
-    suspend fun fetchUserBundle(userId: String): SyncedUserBundle? = withContext(Dispatchers.IO) {
-        try {
-            val req = Request.Builder()
-                .url("$baseUrl/users/$userId/sync")
-                .get()
-                .build()
-
-            httpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext null
-                val bodyStr = resp.body?.string() ?: return@withContext null
-                val root = JSONObject(bodyStr)
-
-                val pObj = root.getJSONObject("userProfile")
-                val interestTagsArr = pObj.optJSONArray("interestTags") ?: JSONArray()
-                val interestTags = (0 until interestTagsArr.length()).map { interestTagsArr.getString(it) }
-                val profile = UserProfileData(
-                    id = pObj.optString("id", userId),
-                    fullName = pObj.optString("fullName", ""),
-                    birthDate = pObj.optString("birthDate", ""),
-                    birthYear = pObj.optInt("birthYear", 0),
-                    estimatedAge = pObj.optInt("estimatedAge", 0),
-                    genderIdentity = pObj.optString("genderIdentity", ""),
-                    city = pObj.optString("city", ""),
-                    bioAi = pObj.optString("bioAi", ""),
-                    emergencyContactName = pObj.optString("emergencyContactName", ""),
-                    emergencyContactPhone = pObj.optString("emergencyContactPhone", ""),
-                    preferredAddress = pObj.optString("preferredAddress", ""),
-                    interestTags = interestTags
-                )
-
-                val tastesArr = root.optJSONArray("tastes") ?: JSONArray()
-                val tastes = (0 until tastesArr.length()).map { tastesArr.getString(it) }
-
-                val storiesArr = root.optJSONArray("tasteStories") ?: JSONArray()
-                val stories = (0 until storiesArr.length()).map { idx ->
-                    val s = storiesArr.getJSONObject(idx)
-                    val tagsJson = s.optJSONArray("tags") ?: JSONArray()
-                    val tags = (0 until tagsJson.length()).map { tagsJson.getString(it) }
-                    FifoTasteStory(
-                        id = s.optString("id"),
-                        title = s.optString("title"),
-                        subtitle = s.optString("subtitle"),
-                        description = s.optString("description"),
-                        tags = tags,
-                        iconCategory = s.optString("icon_category", "heart"),
-                        learnedFrom = s.optString("learned_from", "Charla con Fifo")
-                    )
-                }
-
-                val postsArr = root.optJSONArray("userSocialPosts") ?: JSONArray()
-                val userPosts = parseSocialPosts(postsArr)
-
-                val feedArr = root.optJSONArray("communityFeedPosts") ?: JSONArray()
-                val feedPosts = parseSocialPosts(feedArr)
-
-                val memArr = root.optJSONArray("memories") ?: JSONArray()
-                val memories = (0 until memArr.length()).map { idx ->
-                    val m = memArr.getJSONObject(idx)
-                    FifoMemoryItem(
-                        id = m.optString("id"),
-                        emoji = m.optString("emoji", "⭐"),
-                        title = m.optString("title"),
-                        detail = m.optString("detail"),
-                        learnedDate = m.optString("learnedDate", "Aprendido recientemente")
-                    )
-                }
-
-                val remArr = root.optJSONArray("reminders") ?: JSONArray()
-                val reminders = (0 until remArr.length()).map { idx ->
-                    val r = remArr.getJSONObject(idx)
-                    FifoReminderItem(
-                        id = r.optString("id"),
-                        title = r.optString("title"),
-                        timeStr = r.optString("timeStr"),
-                        category = r.optString("category", "medication"),
-                        isCompleted = r.optBoolean("isCompleted", false)
-                    )
-                }
-
-                val convArr = root.optJSONArray("pastConversations") ?: JSONArray()
-                val pastConvs = (0 until convArr.length()).map { idx ->
-                    val c = convArr.getJSONObject(idx)
-                    PastConversationItem(
-                        id = c.optString("id"),
-                        title = c.optString("title"),
-                        date = c.optString("date", "Hoy"),
-                        duration = c.optString("duration", "5 min"),
-                        summary = c.optString("summary"),
-                        tag = c.optString("tag", "Conversación"),
-                        iconName = c.optString("iconName", "heart")
-                    )
-                }
-
-                val fragArr = root.optJSONArray("conversationFragments") ?: JSONArray()
-                val fragments = (0 until fragArr.length()).map { idx ->
-                    val f = fragArr.getJSONObject(idx)
-                    val topicsJson = f.optJSONArray("keyTopics") ?: JSONArray()
-                    val entitiesJson = f.optJSONArray("namedEntities") ?: JSONArray()
-                    ConversationFragment(
-                        id = f.optString("id"),
-                        serverConversationId = f.optString("serverConversationId", ""),
-                        keyTopics = (0 until topicsJson.length()).map { topicsJson.getString(it) },
-                        namedEntities = (0 until entitiesJson.length()).map { entitiesJson.getString(it) },
-                        detectedMood = f.optString("detectedMood", "neutral"),
-                        compactSummary = f.optString("compactSummary", ""),
-                        primaryTag = f.optString("primaryTag", "General"),
-                        durationSeconds = f.optInt("durationSeconds", 180),
-                        recordedAt = f.optString("recordedAt", "")
-                    )
-                }
-
-                val devObj = root.optJSONObject("deviceLocation")
-                val devLoc = devObj?.let {
-                    FifoDeviceLocation(
-                        isConnected = it.optBoolean("isConnected", false),
-                        lastConnectedTime = it.optString("lastConnectedTime", "Desconectado"),
-                        lastKnownLatitude = it.optDouble("lastKnownLatitude", 0.0),
-                        lastKnownLongitude = it.optDouble("lastKnownLongitude", 0.0),
-                        lastKnownAddress = it.optString("lastKnownAddress", "Sin registro de ubicación"),
-                        lastKnownRoom = it.optString("lastKnownRoom", "Sin registrar"),
-                        signalStrengthRssi = it.optInt("signalStrengthRssi", 0),
-                        isBeeping = it.optBoolean("isBeeping", false)
-                    )
-                }
-
-                val contactsArr = root.optJSONArray("relationalContacts") ?: JSONArray()
-                val relationalContacts = (0 until contactsArr.length()).map { idx ->
-                    val c = contactsArr.getJSONObject(idx)
-                    val linkedIdsArr = c.optJSONArray("linkedConversationIds") ?: JSONArray()
-                    val linkedConversationIds = (0 until linkedIdsArr.length()).map { linkedIdsArr.getString(it) }
-                    RelationalContact(
-                        id = c.optString("id"),
-                        contactName = c.optString("contactName"),
-                        phoneNumber = if (c.isNull("phoneNumber")) null else c.optString("phoneNumber"),
-                        relationshipRole = c.optString("relationshipRole"),
-                        closenessScore = c.optDouble("closenessScore", 0.5).toFloat(),
-                        trustTier = c.optInt("trustTier", 2),
-                        emotionalValence = c.optString("emotionalValence", "afectuoso"),
-                        contextualMemory = if (c.isNull("contextualMemory")) null else c.optString("contextualMemory"),
-                        mentionCount = c.optInt("mentionCount", 1),
-                        lastMentionedAt = c.optString("lastMentionedAt", ""),
-                        linkedConversationIds = linkedConversationIds
-                    )
-                }
-
-                val routinesArr = root.optJSONArray("dailyRoutines") ?: JSONArray()
-                val dailyRoutines = (0 until routinesArr.length()).map { idx ->
-                    val r = routinesArr.getJSONObject(idx)
-                    DailyRoutine(
-                        id = r.optString("id"),
-                        routineName = r.optString("routineName"),
-                        category = r.optString("category", "medication"),
-                        timeAnchor = r.optString("timeAnchor", "morning"),
-                        typicalTimeStr = if (r.isNull("typicalTimeStr")) null else r.optString("typicalTimeStr"),
-                        frequencyRule = r.optString("frequencyRule", "daily"),
-                        confidenceScore = r.optDouble("confidenceScore", 0.8).toFloat(),
-                        notes = if (r.isNull("notes")) null else r.optString("notes"),
-                        isActive = r.optBoolean("isActive", true)
-                    )
-                }
-
-                SyncedUserBundle(
-                    userProfile = profile,
-                    tastes = tastes,
-                    tasteStories = stories,
-                    socialPosts = userPosts,
-                    communityFeedPosts = feedPosts,
-                    memories = memories,
-                    reminders = reminders,
-                    pastConversations = pastConvs,
-                    conversationFragments = fragments,
-                    deviceLocation = devLoc,
-                    relationalContacts = relationalContacts,
-                    dailyRoutines = dailyRoutines
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error sincronizando usuario $userId desde REST API: ${e.message}")
-            null
-        }
-    }
-
-    suspend fun analyzeAndConsolidateSession(
-        userId: String,
-        turns: List<Pair<String, String>>,
-        durationSeconds: Int = 180,
-        primaryTag: String = "Conversación",
-        mentionedPersons: List<MentionedPersonExtraction> = emptyList(),
-        groqApiKey: String? = null
-    ): BackendConsolidationResult? = withContext(Dispatchers.IO) {
-        try {
-            val jsonTurns = JSONArray()
-            turns.forEach { (speaker, text) ->
-                jsonTurns.put(JSONObject().apply {
-                    put("role", speaker)
-                    put("text", text)
-                })
-            }
-            val jsonMentions = JSONArray()
-            mentionedPersons.forEach { p ->
-                jsonMentions.put(JSONObject().apply {
-                    put("name", p.name)
-                    p.inferredRole?.let { put("inferred_role", it) }
-                    put("context_snippet", p.contextSnippet)
-                    put("emotional_valence", p.emotionalValence)
-                    put("closeness_delta", p.closenessDelta.toDouble())
-                })
-            }
-            val payload = JSONObject().apply {
-                put("turns", jsonTurns)
-                put("duration_seconds", durationSeconds)
-                put("primary_tag", primaryTag)
-                put("mentioned_persons", jsonMentions)
-                groqApiKey?.let { put("groq_api_key", it) }
-            }
-            val req = Request.Builder()
-                .url("$baseUrl/users/$userId/conversations/analyze-and-consolidate")
-                .post(payload.toString().toRequestBody(jsonMediaType))
-                .build()
-            httpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext null
-                val bodyStr = resp.body?.string() ?: return@withContext null
-                val obj = JSONObject(bodyStr)
-                val convId = obj.optString("conversation_id", "")
-                val updatedBio = if (obj.isNull("updated_bio_ai")) null else obj.optString("updated_bio_ai")
-
-                val tagsArr = obj.optJSONArray("interest_tags") ?: JSONArray()
-                val interestTags = (0 until tagsArr.length()).map { tagsArr.getString(it) }
-
-                val contactsCount = obj.optInt("contacts_updated", 0)
-
-                val memArr = obj.optJSONArray("memories_added") ?: JSONArray()
-                val memoriesAdded = (0 until memArr.length()).map { idx ->
-                    val m = memArr.getJSONObject(idx)
-                    FifoMemoryItem(
-                        id = m.optString("id", "mem_${java.util.UUID.randomUUID()}"),
-                        emoji = m.optString("emoji", "🌺"),
-                        title = m.optString("title", "Recuerdo"),
-                        detail = m.optString("detail", ""),
-                        learnedDate = "Aprendido en la última charla"
-                    )
-                }
-
-                val storiesArr = obj.optJSONArray("taste_stories_added") ?: JSONArray()
-                val tasteStoriesAdded = (0 until storiesArr.length()).map { idx ->
-                    val s = storiesArr.getJSONObject(idx)
-                    val sTagsArr = s.optJSONArray("tags") ?: JSONArray()
-                    val sTags = (0 until sTagsArr.length()).map { sTagsArr.getString(it) }
-                    FifoTasteStory(
-                        id = s.optString("id", "taste_${java.util.UUID.randomUUID()}"),
-                        title = s.optString("title", "Gusto especial"),
-                        subtitle = s.optString("subtitle", ""),
-                        description = s.optString("description", ""),
-                        tags = if (sTags.isNotEmpty()) sTags else listOf("Gusto"),
-                        iconCategory = s.optString("icon_category", "nature"),
-                        learnedFrom = s.optString("learned_from", "Charla reciente con Fifo")
-                    )
-                }
-
-                val remArr = obj.optJSONArray("reminders_added") ?: JSONArray()
-                val remindersAdded = (0 until remArr.length()).map { idx ->
-                    val r = remArr.getJSONObject(idx)
-                    FifoReminderItem(
-                        id = r.optString("id", "rem_${java.util.UUID.randomUUID()}"),
-                        title = r.optString("title", "Recordatorio"),
-                        timeStr = r.optString("time_str", "en un momento"),
-                        category = r.optString("category", "medication"),
-                        isCompleted = false
-                    )
-                }
-
-                BackendConsolidationResult(
-                    success = true,
-                    serverConversationId = convId,
-                    updatedBioAi = updatedBio,
-                    interestTags = interestTags,
-                    memoriesAdded = memoriesAdded,
-                    tasteStoriesAdded = tasteStoriesAdded,
-                    remindersAdded = remindersAdded
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error enviando sesión para consolidación profunda: ${e.message}")
-            null
-        }
-    }
-
-
-    private fun parseSocialPosts(arr: JSONArray): List<UserSocialPost> {
-        return (0 until arr.length()).map { idx ->
-            val p = arr.getJSONObject(idx)
-            UserSocialPost(
-                id = p.optString("id"),
-                author = p.optString("author", ""),
-                age = p.optInt("age", 0),
-                category = p.optString("category", "Bienestar"),
-                timeAgo = p.optString("timeAgo", "Hoy"),
-                content = p.optString("content", ""),
-                likes = p.optInt("likes", 0),
-                commentsCount = p.optInt("commentsCount", 0),
-                accentColorHex = p.optLong("accentColorHex", 0xFF38BDF8)
-            )
-        }
-    }
+    // ── Cuenta y perfil ───────────────────────────────────────
 
     suspend fun patchDemographics(
         userId: String,
@@ -413,111 +88,72 @@ object FifoBackendClient {
         birthYear: Int?,
         gender: String?,
         city: String?
-    ) = postOrPatchJson("$baseUrl/users/$userId/demographics", "PATCH", JSONObject().apply {
-        fullName?.let { put("full_name", it) }
-        birthDate?.let { put("birth_date", it) }
-        birthYear?.let { put("birth_year", it) }
-        gender?.let { put("gender_identity", it) }
-        city?.let { put("city", it) }
-    })
+    ) = accountAdapter.patchDemographics(userId, fullName, birthDate, birthYear, gender, city)
 
     suspend fun putBio(userId: String, newBio: String) =
-        postOrPatchJson("$baseUrl/users/$userId/bio", "PUT", JSONObject().apply {
-            put("bio_ai", newBio)
-        })
+        accountAdapter.putBio(userId, newBio)
+
+    suspend fun putInterestTags(userId: String, tags: List<String>) =
+        accountAdapter.putInterestTags(userId, tags)
+
+    suspend fun authenticateGoogleUser(
+        googleId: String,
+        email: String,
+        fullName: String,
+        avatarUrl: String? = null,
+        estimatedAge: Int? = null,
+        city: String? = null
+    ) = accountAdapter.authenticateGoogleUser(googleId, email, fullName, avatarUrl, estimatedAge, city)
+
+    suspend fun createUserProfile(
+        fullName: String,
+        email: String? = null,
+        birthDate: String? = null,
+        birthYear: Int? = null,
+        estimatedAge: Int? = null,
+        genderIdentity: String? = "Mujer",
+        city: String? = "Santiago, Chile",
+        initialTastes: List<String> = emptyList()
+    ) = accountAdapter.createUserProfile(
+        fullName = fullName,
+        email = email,
+        birthDate = birthDate,
+        birthYear = birthYear,
+        estimatedAge = estimatedAge,
+        genderIdentity = genderIdentity,
+        city = city,
+        initialTastes = initialTastes
+    )
+
+    suspend fun loginUser(identifier: String) = accountAdapter.loginUser(identifier)
+
+    suspend fun fetchAllUsers() = accountAdapter.fetchAllUsers()
+
+    // ── Contenido y memoria ───────────────────────────────────
 
     suspend fun postTaste(userId: String, action: String, tasteName: String) =
-        postOrPatchJson("$baseUrl/users/$userId/tastes", "POST", JSONObject().apply {
-            put("action", action)
-            put("taste_name", tasteName)
-        })
+        contentAdapter.postTaste(userId, action, tasteName)
 
     suspend fun postTasteStory(userId: String, story: FifoTasteStory) =
-        postOrPatchJson("$baseUrl/users/$userId/taste-stories", "POST", JSONObject().apply {
-            put("title", story.title)
-            put("subtitle", story.subtitle)
-            put("description", story.description)
-            put("tags", JSONArray(story.tags))
-            put("icon_category", story.iconCategory)
-            put("learned_from", story.learnedFrom)
-        })
+        contentAdapter.postTasteStory(userId, story)
 
     suspend fun postSocialPost(userId: String, content: String, category: String) =
-        postOrPatchJson("$baseUrl/users/$userId/social-posts", "POST", JSONObject().apply {
-            put("content", content)
-            put("category", category)
-        })
+        contentAdapter.postSocialPost(userId, content, category)
 
     suspend fun postReminder(userId: String, title: String, timeStr: String, category: String) =
-        postOrPatchJson("$baseUrl/users/$userId/reminders", "POST", JSONObject().apply {
-            put("title", title)
-            put("time_str", timeStr)
-            put("category", category)
-        })
+        contentAdapter.postReminder(userId, title, timeStr, category)
 
     suspend fun postMemory(userId: String, emoji: String, title: String, detail: String) =
-        postOrPatchJson("$baseUrl/users/$userId/memories", "POST", JSONObject().apply {
-            put("emoji", emoji)
-            put("title", title)
-            put("detail", detail)
-        })
-
-    suspend fun postRelationalContact(userId: String, contact: RelationalContact) =
-        postOrPatchJson("$baseUrl/users/$userId/contacts-relational", "POST", JSONObject().apply {
-            put("contact_name", contact.contactName)
-            contact.phoneNumber?.let { put("phone_number", it) }
-            put("relationship_role", contact.relationshipRole)
-            put("closeness_score", contact.closenessScore.toDouble())
-            put("trust_tier", contact.trustTier)
-            put("emotional_valence", contact.emotionalValence)
-            contact.contextualMemory?.let { put("contextual_memory", it) }
-            contact.alias?.let { put("alias", it) }
-        })
-
-    suspend fun syncRelationalContactsBatch(userId: String, contacts: List<RelationalContact>): Boolean =
-        withContext(Dispatchers.IO) {
-            try {
-                if (contacts.isEmpty()) return@withContext true
-                val jsonArr = JSONArray()
-                contacts.forEach { c ->
-                    jsonArr.put(JSONObject().apply {
-                        put("contact_name", c.contactName)
-                        c.phoneNumber?.let { put("phone_number", it) }
-                        put("relationship_role", c.relationshipRole)
-                        put("closeness_score", c.closenessScore.toDouble())
-                        put("trust_tier", c.trustTier)
-                        put("emotional_valence", c.emotionalValence)
-                        c.contextualMemory?.let { put("contextual_memory", it) }
-                        c.alias?.let { put("alias", it) }
-                    })
-                }
-                val req = Request.Builder()
-                    .url("$baseUrl/users/$userId/contacts-relational/sync")
-                    .post(jsonArr.toString().toRequestBody(jsonMediaType))
-                    .build()
-                httpClient.newCall(req).execute().use { resp ->
-                    resp.isSuccessful
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error sincronizando lote de contactos relacionales: ${e.message}")
-                false
-            }
-        }
+        contentAdapter.postMemory(userId, emoji, title, detail)
 
     suspend fun postDailyRoutine(userId: String, routine: DailyRoutine) =
-        postOrPatchJson("$baseUrl/users/$userId/daily-routines", "POST", JSONObject().apply {
-            put("routine_name", routine.routineName)
-            put("time_period", routine.timeAnchor)
-            routine.typicalTimeStr?.let { put("preferred_time", it) }
-            put("frequency", routine.frequencyRule)
-            put("confidence_score", routine.confidenceScore.toDouble())
-            put("action_category", routine.category)
-            routine.notes?.let { put("description", it) }
-            put("reminder_associated", routine.reminderAssociated)
-        })
+        contentAdapter.postDailyRoutine(userId, routine)
 
     suspend fun patchReminderComplete(reminderId: String) =
-        postOrPatchJson("$baseUrl/reminders/$reminderId/complete", "PATCH", JSONObject())
+        contentAdapter.patchReminderComplete(reminderId)
+
+    suspend fun deleteReminder(reminderId: String) =
+        contentAdapter.deleteReminder(reminderId)
 
     suspend fun postConversation(
         userId: String,
@@ -529,16 +165,61 @@ object FifoBackendClient {
         keyTopics: List<String> = emptyList(),
         namedEntities: List<String> = emptyList(),
         fullTranscript: String? = null
-    ) = postOrPatchJson("$baseUrl/users/$userId/conversations", "POST", JSONObject().apply {
-        put("title", title)
-        put("summary", summary)
-        put("primary_tag", primaryTag)
-        put("duration_seconds", durationSeconds)
-        put("detected_mood", detectedMood)
-        put("key_topics", JSONArray(keyTopics))
-        put("named_entities", JSONArray(namedEntities))
-        fullTranscript?.let { put("full_transcript", it) }
-    })
+    ) = contentAdapter.postConversation(
+        userId = userId,
+        title = title,
+        summary = summary,
+        primaryTag = primaryTag,
+        durationSeconds = durationSeconds,
+        detectedMood = detectedMood,
+        keyTopics = keyTopics,
+        namedEntities = namedEntities,
+        fullTranscript = fullTranscript
+    )
+
+    suspend fun analyzeAndConsolidateSession(
+        userId: String,
+        turns: List<Pair<String, String>>,
+        durationSeconds: Int = 180,
+        primaryTag: String = "Conversación",
+        mentionedPersons: List<MentionedPersonExtraction> = emptyList(),
+        groqApiKey: String? = null
+    ) = memoryAdapter.analyzeAndConsolidateSession(
+        userId = userId,
+        turns = turns,
+        durationSeconds = durationSeconds,
+        primaryTag = primaryTag,
+        mentionedPersons = mentionedPersons,
+        groqApiKey = groqApiKey
+    )
+
+    suspend fun queryDeepContextFromServer(userId: String, query: String) =
+        memoryAdapter.queryDeepContextFromServer(userId, query)
+
+    // ── Contactos y telefonía ─────────────────────────────────
+
+    suspend fun postRelationalContact(userId: String, contact: RelationalContact) =
+        contactAdapter.postRelationalContact(userId, contact)
+
+    suspend fun syncRelationalContactsBatch(userId: String, contacts: List<RelationalContact>): Boolean =
+        contactAdapter.syncRelationalContactsBatch(userId, contacts)
+
+    suspend fun identifyContact(
+        userId: String,
+        callerName: String?,
+        phoneNumber: String?
+    ) = contactAdapter.identifyContact(userId, callerName, phoneNumber)
+
+    suspend fun logCallEvent(
+        userId: String,
+        action: String,
+        callerName: String,
+        phoneNumber: String? = null,
+        durationSeconds: Int = 0,
+        notes: String? = null
+    ) = contactAdapter.logCallEvent(userId, action, callerName, phoneNumber, durationSeconds, notes)
+
+    // ── Dispositivo y navegación ──────────────────────────────
 
     suspend fun patchDeviceLocation(
         userId: String,
@@ -550,377 +231,33 @@ object FifoBackendClient {
         roomHint: String? = null,
         rssi: Int? = null,
         isBeeping: Boolean? = null
-    ) = postOrPatchJson("$baseUrl/users/$userId/device-location", "PATCH", JSONObject().apply {
-        isConnected?.let { put("is_connected", it) }
-        lastConnectedTime?.let { put("last_connected_time", it) }
-        latitude?.let { put("latitude", it) }
-        longitude?.let { put("longitude", it) }
-        address?.let { put("address", it) }
-        roomHint?.let { put("room_hint", it) }
-        rssi?.let { put("rssi", it) }
-        isBeeping?.let { put("is_beeping", it) }
-    })
-
-    suspend fun queryDeepContextFromServer(userId: String, query: String): DeepContextResult? =
-        withContext(Dispatchers.IO) {
-            try {
-                val payload = JSONObject().apply { put("query", query) }
-                val req = Request.Builder()
-                    .url("$baseUrl/users/$userId/recall-context")
-                    .post(payload.toString().toRequestBody(jsonMediaType))
-                    .build()
-                httpClient.newCall(req).execute().use { resp ->
-                    if (!resp.isSuccessful) return@withContext null
-                    val bodyStr = resp.body?.string() ?: return@withContext null
-                    val obj = JSONObject(bodyStr)
-                    val excArr = obj.optJSONArray("relevantExcerpts") ?: JSONArray()
-                    val entArr = obj.optJSONArray("foundEntities") ?: JSONArray()
-                    DeepContextResult(
-                        relevantExcerpts = (0 until excArr.length()).map { excArr.getString(it) },
-                        foundEntities = (0 until entArr.length()).map { entArr.getString(it) },
-                        synthesizedContext = obj.optString("synthesizedContext", ""),
-                        conversationsSearched = obj.optInt("conversationsSearched", 0)
-                    )
-                }
-            } catch (e: Exception) {
-                Log.d(TAG, "Fallback local en recall_past_context: ${e.message}")
-                null
-            }
-        }
-
-    suspend fun identifyContact(
-        userId: String,
-        callerName: String?,
-        phoneNumber: String?
-    ): ContactIdentityResult? = withContext(Dispatchers.IO) {
-        try {
-            val payload = JSONObject().apply {
-                callerName?.let { put("caller_name", it) }
-                phoneNumber?.let { put("phone_number", it) }
-            }
-            val req = Request.Builder()
-                .url("$baseUrl/users/$userId/telephony/identify-contact")
-                .post(payload.toString().toRequestBody(jsonMediaType))
-                .build()
-            httpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext null
-                val bodyStr = resp.body?.string() ?: return@withContext null
-                val obj = JSONObject(bodyStr)
-                ContactIdentityResult(
-                    isKnown = obj.optBoolean("isKnown", false),
-                    contactName = obj.optString("contactName", callerName ?: "Contacto"),
-                    relationshipRole = obj.optString("relationshipRole", "Contacto telefónico"),
-                    phoneNumber = obj.optString("phoneNumber", phoneNumber ?: ""),
-                    contextualNotes = obj.optString("contextualNotes", ""),
-                    recentTopics = obj.optString("recentTopics", ""),
-                    suggestedGreeting = obj.optString("suggestedGreeting", ""),
-                    suggestedFollowup = obj.optString("suggestedFollowup", "")
-                )
-            }
-        } catch (e: Exception) {
-            Log.d(TAG, "Fallback local identifyContact: ${e.message}")
-            null
-        }
-    }
-
-    suspend fun logCallEvent(
-        userId: String,
-        action: String,
-        callerName: String,
-        phoneNumber: String? = null,
-        durationSeconds: Int = 0,
-        notes: String? = null
-    ): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val payload = JSONObject().apply {
-                put("action", action)
-                put("caller_name", callerName)
-                phoneNumber?.let { put("phone_number", it) }
-                put("duration_seconds", durationSeconds)
-                notes?.let { put("notes", it) }
-            }
-            postOrPatchJson("$baseUrl/users/$userId/telephony/log-call-event", "POST", payload)
-        } catch (e: Exception) {
-            Log.d(TAG, "Error logCallEvent: ${e.message}")
-            false
-        }
-    }
+    ) = deviceAdapter.patchDeviceLocation(
+        userId = userId,
+        isConnected = isConnected,
+        lastConnectedTime = lastConnectedTime,
+        latitude = latitude,
+        longitude = longitude,
+        address = address,
+        roomHint = roomHint,
+        rssi = rssi,
+        isBeeping = isBeeping
+    )
 
     suspend fun fetchNavigationContextualIntent(
         userId: String,
         destination: String,
         lat: Double? = null,
         lon: Double? = null
-    ): NavigationContextResult? = withContext(Dispatchers.IO) {
-        try {
-            val payload = JSONObject().apply {
-                put("destination", destination)
-                lat?.let { put("current_lat", it) }
-                lon?.let { put("current_lon", it) }
-            }
-            val req = Request.Builder()
-                .url("$baseUrl/users/$userId/navigation/contextual-intent")
-                .post(payload.toString().toRequestBody(jsonMediaType))
-                .build()
-            httpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext null
-                val bodyStr = resp.body?.string() ?: return@withContext null
-                val obj = JSONObject(bodyStr)
-                val notesArr = obj.optJSONArray("contextualNotes") ?: JSONArray()
-                val recsArr = obj.optJSONArray("proactiveRecommendations") ?: JSONArray()
-                NavigationContextResult(
-                    destination = obj.optString("destination", destination),
-                    purposeType = obj.optString("purposeType", "general"),
-                    contextualNotes = (0 until notesArr.length()).map { notesArr.getString(it) },
-                    proactiveRecommendations = (0 until recsArr.length()).map { recsArr.getString(it) },
-                    safetyAlerts = if (obj.has("safetyAlerts") && !obj.isNull("safetyAlerts")) obj.getString("safetyAlerts") else null
-                )
-            }
-        } catch (e: Exception) {
-            Log.d(TAG, "Fallback local fetchNavigationContextualIntent: ${e.message}")
-            null
-        }
-    }
+    ) = deviceAdapter.fetchNavigationContextualIntent(userId, destination, lat, lon)
 
-    suspend fun putInterestTags(userId: String, tags: List<String>) =
-        postOrPatchJson("$baseUrl/users/$userId/interest-tags", "PUT", JSONObject().apply {
-            put("interest_tags", JSONArray(tags))
-        })
+    // ── Comunidad ─────────────────────────────────────────────
 
-    suspend fun deleteReminder(reminderId: String) =
-        postOrPatchJson("$baseUrl/reminders/$reminderId", "DELETE", JSONObject())
+    suspend fun fetchFriendRecommendations(userId: String) =
+        communityAdapter.fetchFriendRecommendations(userId)
 
-    suspend fun fetchFriendRecommendations(userId: String): List<FriendRecommendation> =
-        withContext(Dispatchers.IO) {
-            try {
-                val req = Request.Builder()
-                    .url("$baseUrl/users/$userId/fifo-friends/recommendations")
-                    .get()
-                    .build()
-                httpClient.newCall(req).execute().use { resp ->
-                    if (!resp.isSuccessful) return@withContext emptyList()
-                    val bodyStr = resp.body?.string() ?: return@withContext emptyList()
-                    val obj = JSONObject(bodyStr)
-                    val arr = obj.optJSONArray("recommendations") ?: JSONArray()
-                    (0 until arr.length()).map { idx ->
-                        val item = arr.getJSONObject(idx)
-                        val tagsArr = item.optJSONArray("sharedInterestTags") ?: JSONArray()
-                        val topicsArr = item.optJSONArray("suggestedConversationTopics") ?: JSONArray()
-                        val postsArr = item.optJSONArray("recentPosts") ?: JSONArray()
-                        FriendRecommendation(
-                            friendId = item.optString("userId", "usr_friend_${idx}"),
-                            fullName = item.optString("fullName", "Amigo Fifo"),
-                            age = item.optInt("age", 68),
-                            quote = item.optString("quote", "Me encanta compartir aficiones."),
-                            avatarBgHex = item.optLong("avatarBgHex", 0xFF10B981),
-                            bioAi = item.optString("bioAi", ""),
-                            sharedTags = (0 until tagsArr.length()).map { tagsArr.getString(it) },
-                            candTags = emptyList(),
-                            affinityScore = item.optDouble("affinityScore", 0.0).toFloat(),
-                            suggestedTopic = if (topicsArr.length() > 0) topicsArr.getString(0) else "Gustos afines",
-                            friendshipStatus = "suggested"
-                        )
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "Error consultando recomendaciones de amigos: ${e.message}")
-                emptyList()
-            }
-        }
+    suspend fun createCommunityActivity(item: CommunityActivityItem): Boolean =
+        communityAdapter.createCommunityActivity(item)
 
-    suspend fun authenticateGoogleUser(
-        googleId: String,
-        email: String,
-        fullName: String,
-        avatarUrl: String? = null,
-        estimatedAge: Int? = null,
-        city: String? = null
-    ): AuthResult? = withContext(Dispatchers.IO) {
-        try {
-            val payload = JSONObject().apply {
-                put("google_id", googleId)
-                put("email", email)
-                put("full_name", fullName)
-                avatarUrl?.let { put("avatar_url", it) }
-                estimatedAge?.let { put("estimated_age", it) }
-                city?.let { put("city", it) }
-            }
-            val req = Request.Builder()
-                .url("$baseUrl/auth/google")
-                .post(payload.toString().toRequestBody(jsonMediaType))
-                .build()
-            httpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext null
-                val bodyStr = resp.body?.string() ?: return@withContext null
-                val obj = JSONObject(bodyStr)
-                AuthResult(
-                    status = obj.optString("status", "ok"),
-                    action = if (obj.has("action")) obj.optString("action") else null,
-                    userId = obj.getString("user_id"),
-                    message = obj.optString("message", "")
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error en authenticateGoogleUser: ${e.message}")
-            null
-        }
-    }
-
-    suspend fun createUserProfile(
-        fullName: String,
-        email: String? = null,
-        birthDate: String? = null,
-        birthYear: Int? = null,
-        estimatedAge: Int? = null,
-        genderIdentity: String? = "Mujer",
-        city: String? = "Santiago, Chile",
-        initialTastes: List<String> = emptyList()
-    ): AuthResult? = withContext(Dispatchers.IO) {
-        try {
-            val payload = JSONObject().apply {
-                put("full_name", fullName)
-                email?.let { put("email", it) }
-                birthDate?.let { put("birth_date", it) }
-                birthYear?.let { put("birth_year", it) }
-                estimatedAge?.let { put("estimated_age", it) }
-                genderIdentity?.let { put("gender_identity", it) }
-                city?.let { put("city", it) }
-                put("initial_tastes", JSONArray(initialTastes))
-            }
-            val req = Request.Builder()
-                .url("$baseUrl/users")
-                .post(payload.toString().toRequestBody(jsonMediaType))
-                .build()
-            httpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext null
-                val bodyStr = resp.body?.string() ?: return@withContext null
-                val obj = JSONObject(bodyStr)
-                AuthResult(
-                    status = obj.optString("status", "ok"),
-                    action = obj.optString("action", "created"),
-                    userId = obj.getString("user_id"),
-                    message = obj.optString("message", "")
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error en createUserProfile: ${e.message}")
-            null
-        }
-    }
-
-    suspend fun loginUser(identifier: String): AuthResult? = withContext(Dispatchers.IO) {
-        try {
-            val payload = JSONObject().apply {
-                put("identifier", identifier)
-            }
-            val req = Request.Builder()
-                .url("$baseUrl/auth/login")
-                .post(payload.toString().toRequestBody(jsonMediaType))
-                .build()
-            httpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext null
-                val bodyStr = resp.body?.string() ?: return@withContext null
-                val obj = JSONObject(bodyStr)
-                AuthResult(
-                    status = obj.optString("status", "ok"),
-                    action = "login",
-                    userId = obj.getString("user_id"),
-                    message = obj.optString("message", "")
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error en loginUser: ${e.message}")
-            null
-        }
-    }
-
-    suspend fun fetchAllUsers(): List<UserProfileSummary> = withContext(Dispatchers.IO) {
-        try {
-            val req = Request.Builder().url("$baseUrl/users").get().build()
-            httpClient.newCall(req).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext emptyList()
-                val bodyStr = resp.body?.string() ?: return@withContext emptyList()
-                val obj = JSONObject(bodyStr)
-                val arr = obj.optJSONArray("users") ?: JSONArray()
-                (0 until arr.length()).map { idx ->
-                    val u = arr.getJSONObject(idx)
-                    val tArr = u.optJSONArray("tastes") ?: JSONArray()
-                    val tastes = (0 until tArr.length()).map { tArr.getString(it) }
-                    UserProfileSummary(
-                        id = u.optString("id"),
-                        fullName = u.optString("full_name"),
-                        email = u.optString("email"),
-                        age = u.optInt("estimated_age", 68),
-                        city = u.optString("city", "Santiago, Chile"),
-                        quote = if (u.has("short_quote") && !u.isNull("short_quote")) u.optString("short_quote") else null,
-                        avatarBgHex = u.optLong("avatar_bg_hex", 4293514751L),
-                        bioAi = u.optString("bio_ai", ""),
-                        tastes = tastes
-                    )
-                }
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error en fetchAllUsers: ${e.message}")
-            emptyList()
-        }
-    }
-
-    private suspend fun postOrPatchJson(url: String, method: String, payload: JSONObject): Boolean =
-        withContext(Dispatchers.IO) {
-            try {
-                val body = payload.toString().toRequestBody(jsonMediaType)
-                val builder = Request.Builder().url(url)
-                when (method) {
-                    "POST" -> builder.post(body)
-                    "PUT" -> builder.put(body)
-                    "PATCH" -> builder.patch(body)
-                    "DELETE" -> builder.delete()
-                }
-                httpClient.newCall(builder.build()).execute().use { it.isSuccessful }
-            } catch (e: Exception) {
-                Log.d(TAG, "Error enviando $method a $url: ${e.message}")
-                false
-            }
-        }
-
-    suspend fun createCommunityActivity(item: CommunityActivityItem): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val json = JSONObject().apply {
-                put("id", item.id)
-                put("title", item.title)
-                put("description", item.description)
-                put("spots_label", item.spotsLabel)
-                put("spots_max", item.spotsMax)
-                put("spots_taken", item.spotsTaken)
-                put("date_label", item.dateLabel)
-                put("location_name", item.locationName)
-                put("distance_label", item.distanceLabel)
-                put("icon_category", item.iconCategory)
-                put("organizer_id", item.organizerId)
-                put("organizer_name", item.organizerName)
-                put("organizer_type", item.organizerType)
-                put("target_tastes", JSONArray(item.targetTastes))
-            }
-            postOrPatchJson("$baseUrl/activities", "POST", json)
-        } catch (e: Exception) {
-            Log.d(TAG, "Error sync createCommunityActivity: ${e.message}")
-            false
-        }
-    }
-
-    suspend fun toggleJoinActivity(activityId: String, userId: String, join: Boolean): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val url = "$baseUrl/activities/$activityId/join?user_id=$userId"
-            val req = Request.Builder().url(url)
-            if (join) {
-                req.post(JSONObject().toString().toRequestBody(jsonMediaType))
-            } else {
-                req.delete()
-            }
-            httpClient.newCall(req.build()).execute().use { it.isSuccessful }
-        } catch (e: Exception) {
-            Log.d(TAG, "Error sync toggleJoinActivity: ${e.message}")
-            false
-        }
-    }
+    suspend fun toggleJoinActivity(activityId: String, userId: String, join: Boolean): Boolean =
+        communityAdapter.toggleJoinActivity(activityId, userId, join)
 }
