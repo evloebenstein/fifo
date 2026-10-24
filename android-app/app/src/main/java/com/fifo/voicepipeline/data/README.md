@@ -15,6 +15,7 @@ camino `SESSION`.
 | [`modules/UserIdentityModule.kt`](modules/UserIdentityModule.kt) | Perfil de usuario, identidad, bio generada por IA y tags de intereses. Costura: `UserStorageAdapter`. |
 | [`modules/CommunityModule.kt`](modules/CommunityModule.kt) | Actividades comunitarias (`ActividadComunitaria`) y red de `FifoAmigos`. Costura: `CommunityStorageAdapter`. |
 | [`modules/EpisodicMemoryModule.kt`](modules/EpisodicMemoryModule.kt) | Memoria episódica: fragmentos compactos on-device y recuperación GraphRAG en backend. Costura: `MemoryStorageAdapter`. |
+| [`modules/EpisodicContextSearch.kt`](modules/EpisodicContextSearch.kt) | Política pura de recuperación local: stop words, tokens, puntuación de fragmentos, sesgo temporal y síntesis (ADR-0035). |
 | [`modules/SqliteStorageAdapters.kt`](modules/SqliteStorageAdapters.kt) | Adaptadores SQLite de producción para los módulos de dominio. |
 | [`memory/`](memory/README.md) | **Memoria durable del camino nuevo:** `JournalEntry`, puerto `ConversationJournal`, consolidación local/backend y fake JVM. |
 | [`contacts/RelationalGraphCoordinator.kt`](contacts/RelationalGraphCoordinator.kt) | Política pura de fusión multi-fuente del grafo relacional: libreta, FifoAmigos y menciones (ADR-0031). |
@@ -84,3 +85,4 @@ VoiceSessionPipeline
 7. **Un teléfono mencionado no es un teléfono confirmado:** la mención produce un `ContactPhoneHint` en `contact_phone_hints`; solo `confirmPhoneHint()` lo copia a `RelationalContact.phoneNumber` y lo sincroniza. `discardPhoneHint()` lo marca `DISCARDED` sin tocar el contacto (ADR-0032).
 8. **Un solo dueño del DDL:** tablas, columnas e índices locales viven en `local/FifoSchema.kt`; `conversation_journal` sigue en `ConversationJournalSchema`. El helper solo ejecuta sentencias y no declara SQL de esquema (ADR-0033).
 9. **Una sola resolución de personas:** `ContactMatcher` decide qué contacto corresponde a un nombre, rol, apodo o fragmento. Las skills y el pipeline no reimplementan normalización de acentos ni comparación de tokens; `FifoDataRepository.findContactByRoleOrName()` solo delega (ADR-0034).
+10. **Una sola recuperación episódica local:** `EpisodicContextSearch` posee stop words, puntuación, sesgo temporal y síntesis del fallback offline. `EpisodicMemoryModule` solo intenta el backend y compone la instantánea (ADR-0035).

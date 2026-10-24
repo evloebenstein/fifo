@@ -184,151 +184,19 @@ class EpisodicMemoryModule(
             return serverResult
         }
 
-        // 2. Búsqueda profunda multinivel local en fragmentos, recuerdos, charlas y gustos
-        val queryLower = query.lowercase().trim()
-        val allFragments = _conversationFragments.value
-        val allMemories = _memories.value
-        val allConversations = _conversations.value
-        val allTastes = _tastes.value
-        val allTasteStories = _tasteStories.value
-        val allReminders = _reminders.value
-
-        val stopWords = setOf(
-            "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del", "a", "al", "en", "con",
-            "por", "para", "que", "es", "fue", "fui", "como", "hace", "donde", "cual", "mi", "mis",
-            "tu", "tus", "su", "sus", "ese", "esa", "esos", "esas", "este", "esta", "estos", "estas",
-            "quiero", "ir", "nombre", "llama", "llamaba", "local", "lugar", "sitio", "cosa", "algo", "pero"
-        )
-
-        val queryTokens = queryLower
-            .split(Regex("[^a-záéíóúñ0-9]+"))
-            .filter { it.length >= 3 && it !in stopWords }
-
-        val isRecentTemporal = queryLower.contains("ayer") || queryLower.contains("antier") ||
-                queryLower.contains("semana pasada") || queryLower.contains("hace poco") ||
-                queryLower.contains("recien") || queryLower.contains("reciente") || queryLower.contains("último") || queryLower.contains("ultimo")
-
-        val excerpts = mutableListOf<String>()
-        val foundEntities = mutableSetOf<String>()
-
-        // A. Búsqueda en Grafo Relacional de Contactos
-        for (c in _relationalContacts.value) {
-            val contactText = "${c.contactName} ${c.relationshipRole} ${c.alias ?: ""} ${c.contextualMemory}".lowercase()
-            if (queryTokens.any { contactText.contains(it) } || queryLower.contains(c.contactName.lowercase()) || (c.alias != null && queryLower.contains(c.alias.lowercase()))) {
-                excerpts.add("Contacto cercano: ${c.contactName} (${c.relationshipRole}, cercanía ${(c.closenessScore * 100).toInt()}%). Memoria: ${c.contextualMemory}")
-                foundEntities.add(c.contactName)
-                foundEntities.add(c.relationshipRole)
-            }
-        }
-
-        // B. Búsqueda en Rutinas y Hábitos Diarios
-        for (r in _dailyRoutines.value) {
-            val routineText = "${r.routineName} ${r.notes ?: ""} ${r.timeAnchor} ${r.typicalTimeStr ?: ""} ${r.category}".lowercase()
-            if (queryTokens.any { routineText.contains(it) } || queryLower.contains(r.routineName.lowercase())) {
-                excerpts.add("Patrón de rutina diaria: ${r.routineName} a las ${r.typicalTimeStr ?: ""} (${r.timeAnchor}). Detalle: ${r.notes ?: ""}")
-                foundEntities.add(r.routineName)
-            }
-        }
-
-        // C. Búsqueda en Recuerdos Persistentes (memories)
-        for (mem in allMemories) {
-            val memText = "${mem.title} ${mem.detail}".lowercase()
-            val matchesToken = queryTokens.any { memText.contains(it) }
-            val matchesLiteral = queryLower.length >= 4 && memText.contains(queryLower)
-            if (matchesToken || matchesLiteral) {
-                excerpts.add("Recuerdo guardado: ${mem.title} - ${mem.detail}")
-            }
-        }
-
-        // D. Búsqueda en Gustos en Detalle (tasteStories)
-        for (story in allTasteStories) {
-            val storyText = "${story.title} ${story.subtitle} ${story.description} ${story.tags.joinToString(" ")}".lowercase()
-            val matchesToken = queryTokens.any { storyText.contains(it) }
-            val matchesLiteral = queryLower.length >= 4 && storyText.contains(queryLower)
-            if (matchesToken || matchesLiteral) {
-                excerpts.add("Gusto en detalle (${story.title}): ${story.subtitle}. Detalle completo: ${story.description}")
-                foundEntities.addAll(story.tags)
-            }
-        }
-
-        // E. Búsqueda en Recordatorios (reminders)
-        for (rem in allReminders) {
-            val remText = "${rem.title} ${rem.timeStr}".lowercase()
-            val matchesToken = queryTokens.any { remText.contains(it) }
-            val matchesLiteral = queryLower.length >= 4 && remText.contains(queryLower)
-            if (matchesToken || matchesLiteral) {
-                val status = if (rem.isCompleted) "Completado" else "Pendiente"
-                excerpts.add("Recordatorio ($status): '${rem.title}' para las ${rem.timeStr}")
-            }
-        }
-
-        // F. Búsqueda en Fragmentos de Conversaciones Pasadas (conversationFragments)
-        val scoredFragments = allFragments.mapIndexed { index, frag ->
-            val fragText = "${frag.primaryTag} ${frag.compactSummary} ${frag.keyTopics.joinToString(" ")} ${frag.namedEntities.joinToString(" ")}".lowercase()
-            var score = 0
-            for (token in queryTokens) {
-                if (fragText.contains(token)) score += 2
-            }
-            if (queryLower.length >= 4 && fragText.contains(queryLower)) score += 4
-            if (isRecentTemporal && index == 0) score += 3
-            if (isRecentTemporal && index == 1) score += 1
-            Pair(frag, score)
-        }.filter { it.second > 0 }.sortedByDescending { it.second }
-
-        for ((frag, _) in scoredFragments.take(3)) {
-            excerpts.add("Charla pasada (${frag.primaryTag}): ${frag.compactSummary}")
-            foundEntities.addAll(frag.namedEntities)
-            foundEntities.addAll(frag.keyTopics)
-        }
-
-        // G. Búsqueda en Charlas Pasadas (past_conversations)
-        for (conv in allConversations) {
-            val convText = "${conv.title} ${conv.summary} ${conv.tag}".lowercase()
-            if (queryTokens.any { convText.contains(it) } || (queryLower.length >= 4 && convText.contains(queryLower))) {
-                if (!excerpts.any { it.contains(conv.title, ignoreCase = true) }) {
-                    excerpts.add("Registro de charla: ${conv.title} - ${conv.summary}")
-                }
-            }
-        }
-
-        // H. Búsqueda en Gustos e Intereses (tastes simples)
-        val matchedTastes = allTastes.filter { taste ->
-            val tLower = taste.lowercase()
-            queryTokens.any { tLower.contains(it) } || queryLower.contains(tLower)
-        }
-        if (matchedTastes.isNotEmpty()) {
-            excerpts.add("Gustos registrados del usuario: ${matchedTastes.joinToString(", ")}")
-        }
-
-        if (excerpts.isEmpty() && isRecentTemporal && allFragments.isNotEmpty()) {
-            val lastFrag = allFragments.first()
-            excerpts.add("Última conversación registrada (${lastFrag.recordedAt}): ${lastFrag.compactSummary}")
-            foundEntities.addAll(lastFrag.namedEntities)
-            foundEntities.addAll(lastFrag.keyTopics)
-        }
-
-        if (excerpts.isEmpty()) {
-            return DeepContextResult(
-                relevantExcerpts = emptyList(),
-                foundEntities = emptyList(),
-                synthesizedContext = "Revisé la memoria y conversaciones pasadas, pero no encontré registros sobre '$query'.",
-                conversationsSearched = allFragments.size + allMemories.size
+        // 2. Fallback local: política pura sobre la memoria episódica del dispositivo.
+        return EpisodicContextSearch.search(
+            query = query,
+            snapshot = EpisodicContextSnapshot(
+                fragments = _conversationFragments.value,
+                memories = _memories.value,
+                conversations = _conversations.value,
+                tastes = _tastes.value,
+                tasteStories = _tasteStories.value,
+                reminders = _reminders.value,
+                relationalContacts = _relationalContacts.value,
+                dailyRoutines = _dailyRoutines.value
             )
-        }
-
-        val synthesized = buildString {
-            append("En la memoria y registros pasados del usuario: ")
-            excerpts.forEach { append("$it. ") }
-            if (foundEntities.isNotEmpty()) {
-                append("Entidades y lugares relacionados: ${foundEntities.take(5).joinToString(", ")}.")
-            }
-        }.trim()
-
-        return DeepContextResult(
-            relevantExcerpts = excerpts,
-            foundEntities = foundEntities.toList(),
-            synthesizedContext = synthesized,
-            conversationsSearched = allFragments.size + allMemories.size
         )
     }
 

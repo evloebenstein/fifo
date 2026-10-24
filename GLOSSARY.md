@@ -104,6 +104,10 @@ _Avoid_: Retraction, UndoMessage, CorrectionCommand
 
 ### Comunidad y Memoria
 
+**Contexto episódico local**:
+Resultado del fallback offline de `recall_past_context`: busca contactos, rutinas, recuerdos, gustos, recordatorios y fragmentos con stop words y puntuación local. Vive en `EpisodicContextSearch`; el backend sigue teniendo prioridad cuando responde.
+_Avoid_: Búsqueda profunda, Recall, RAG local
+
 **ActividadComunitaria**:
 Encuentro o evento presencial propuesto por un usuario o patrocinado por Fifo, con afinidades temáticas calculadas para personas mayores.
 _Avoid_: Evento, Reunión, Match

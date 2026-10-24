@@ -54,6 +54,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0032](adr/0032-phone-hint-confirmation.md) | Teléfonos mencionados como indicios locales pendientes de confirmación (SQLite v9). | Aceptado. |
 | [ADR-0033](adr/0033-single-source-sqlite-schema.md) | `FifoSchema` como fuente única del DDL SQLite; el helper solo compone y ejecuta. | Aceptado. |
 | [ADR-0034](adr/0034-contact-matcher-policy.md) | `ContactMatcher`: resolución de personas por nombre, rol, apodo y tokens como política pura. | Aceptado. |
+| [ADR-0035](adr/0035-episodic-context-search-policy.md) | `EpisodicContextSearch`: recuperación local de memoria episódica como política pura. | Aceptado. |
 
 ---
 
