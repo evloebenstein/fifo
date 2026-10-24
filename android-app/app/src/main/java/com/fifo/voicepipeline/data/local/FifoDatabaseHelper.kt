@@ -78,6 +78,11 @@ class FifoDatabaseHelper private constructor(context: Context) :
         writableDatabase = { writableDatabase }
     )
 
+    val pastConversations = PastConversationDao(
+        readableDatabase = { readableDatabase },
+        writableDatabase = { writableDatabase }
+    )
+
     override fun onCreate(db: SQLiteDatabase) {
         Log.i(TAG, "Creando tablas relacionales de Fifo en SQLite...")
 
@@ -680,50 +685,6 @@ class FifoDatabaseHelper private constructor(context: Context) :
     }
 
 
-    // ── Conversaciones Pasadas ─────────────────────────────────
-
-    fun getPastConversations(userId: String): List<PastConversationItem> {
-        val list = mutableListOf<PastConversationItem>()
-        readableDatabase.rawQuery(
-            "SELECT id, title, date_label, duration_label, summary, topic_tag, icon_name FROM past_conversations WHERE user_id = ? ORDER BY recorded_at DESC",
-            arrayOf(userId)
-        ).use { cur ->
-            while (cur.moveToNext()) {
-                list.add(
-                    PastConversationItem(
-                        id = cur.getString(0),
-                        title = cur.getString(1),
-                        date = cur.getString(2) ?: "Hoy",
-                        duration = cur.getString(3) ?: "5 min",
-                        summary = cur.getString(4) ?: "",
-                        tag = cur.getString(5) ?: "Conversación",
-                        iconName = cur.getString(6) ?: "heart"
-                    )
-                )
-            }
-        }
-        return list
-    }
-
-    fun addPastConversation(userId: String, item: PastConversationItem) {
-        val db = writableDatabase
-        val cv = ContentValues().apply {
-            put("id", item.id.ifBlank { "c_${UUID.randomUUID().toString().take(8)}" })
-            put("user_id", userId)
-            put("title", item.title)
-            put("date_label", item.date)
-            put("duration_label", item.duration)
-            put("summary", item.summary)
-            put("topic_tag", item.tag)
-            put("icon_name", item.iconName)
-        }
-        db.insertWithOnConflict("past_conversations", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
-    }
-
-    fun deletePastConversation(userId: String, id: String) {
-        writableDatabase.delete("past_conversations", "user_id = ? AND id = ?", arrayOf(userId, id))
-    }
-
     // ── Fragmentos de Conversaciones (Doble Capa) ───────────────
 
     fun getConversationFragments(userId: String): List<ConversationFragment> {
@@ -838,7 +799,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
 
             // 7. Conversaciones pasadas
             for (conv in bundle.pastConversations) {
-                addPastConversation(userId, conv)
+                pastConversations.addPastConversation(userId, conv)
             }
 
             // 8. Fragmentos compactos

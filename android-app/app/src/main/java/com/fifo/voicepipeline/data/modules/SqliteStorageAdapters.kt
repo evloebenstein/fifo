@@ -155,9 +155,9 @@ class SqliteMemoryStorageAdapter(private val getDbHelper: () -> FifoDatabaseHelp
     override fun updateReminderCompleted(userId: String, id: String, completed: Boolean) { getDbHelper()?.reminders?.completeReminder(userId, id, completed) }
     override fun removeReminder(userId: String, id: String) { getDbHelper()?.reminders?.deleteReminder(userId, id) }
 
-    override fun getConversations(userId: String): List<PastConversationItem> = getDbHelper()?.getPastConversations(userId) ?: emptyList()
-    override fun addConversation(userId: String, item: PastConversationItem) { getDbHelper()?.addPastConversation(userId, item) }
-    override fun removeConversation(userId: String, id: String) { getDbHelper()?.deletePastConversation(userId, id) }
+    override fun getConversations(userId: String): List<PastConversationItem> = getDbHelper()?.pastConversations?.getPastConversations(userId) ?: emptyList()
+    override fun addConversation(userId: String, item: PastConversationItem) { getDbHelper()?.pastConversations?.addPastConversation(userId, item) }
+    override fun removeConversation(userId: String, id: String) { getDbHelper()?.pastConversations?.deletePastConversation(userId, id) }
 
     override fun getTastes(userId: String): List<String> = getDbHelper()?.tastes?.getTastes(userId) ?: emptyList()
     override fun addTaste(userId: String, taste: String) { getDbHelper()?.tastes?.addTaste(userId, taste) }

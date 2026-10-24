@@ -43,6 +43,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0021](adr/0021-memory-dao.md) | DAO de recuerdos fuera del helper. | Aceptado. |
 | [ADR-0022](adr/0022-social-post-dao.md) | DAO de publicaciones sociales fuera del helper. | Aceptado. |
 | [ADR-0023](adr/0023-device-location-dao.md) | DAO de ubicación del dispositivo fuera del helper. | Aceptado. |
+| [ADR-0024](adr/0024-past-conversation-dao.md) | DAO de conversaciones pasadas fuera del helper. | Aceptado. |
 
 ---
 

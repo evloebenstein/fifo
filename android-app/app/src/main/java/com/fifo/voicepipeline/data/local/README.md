@@ -9,13 +9,14 @@ La versión actual del esquema es **v7**.
 
 | Archivo | Rol y Responsabilidad |
 | :--- | :--- |
-| [`FifoDatabaseHelper.kt`](FifoDatabaseHelper.kt) | **Manejador SQLite (`SQLiteOpenHelper`)**: crea y migra las tablas locales, ofrece CRUD tipado de las tablas que aún no tienen DAO, transacciones y soporte multi-usuario con `user_id`. En v7 agrega `conversation_journal` sin tocar las tablas existentes; desde ADR-0015/0016/0017/0019/0020/0021/0022/0023 delega el diario, las actividades comunitarias, la identidad, los gustos, los recordatorios, los recuerdos, las publicaciones sociales y la ubicación del dispositivo. |
+| [`FifoDatabaseHelper.kt`](FifoDatabaseHelper.kt) | **Manejador SQLite (`SQLiteOpenHelper`)**: crea y migra las tablas locales, ofrece CRUD tipado de las tablas que aún no tienen DAO, transacciones y soporte multi-usuario con `user_id`. En v7 agrega `conversation_journal` sin tocar las tablas existentes; desde ADR-0015/0016/0017/0019/0020/0021/0022/0023/0024 delega el diario, las actividades comunitarias, la identidad, los gustos, los recordatorios, los recuerdos, las publicaciones sociales, la ubicación del dispositivo y las conversaciones pasadas. |
 | [`UserProfileDao.kt`](UserProfileDao.kt) | DAO de `users` y `user_profiles`: perfil, búsqueda por identificador, demografía, bio, intereses y verificación de usernames (ADR-0017). Delega la recomendación en `UsernameRecommender`. |
 | [`TasteDao.kt`](TasteDao.kt) | DAO de `tastes` y `taste_stories`: gustos activos, altas, baja lógica, historias y tags JSON (ADR-0019). |
 | [`ReminderDao.kt`](ReminderDao.kt) | DAO de `reminders_and_events`: consulta, alta, completar y borrar (ADR-0020). |
 | [`MemoryDao.kt`](MemoryDao.kt) | DAO de `memories`: consulta por usuario y alta con ID generado (ADR-0021). |
 | [`SocialPostDao.kt`](SocialPostDao.kt) | DAO de `social_posts`: listado, alta y borrado por ID (ADR-0022). |
 | [`DeviceLocationDao.kt`](DeviceLocationDao.kt) | DAO de `device_locations`: lectura por dispositivo y upsert (ADR-0023). |
+| [`PastConversationDao.kt`](PastConversationDao.kt) | DAO de `past_conversations`: listado, alta y borrado por usuario (ADR-0024). |
 | [`UsernameRecommender.kt`](UsernameRecommender.kt) | Política pura de recomendación de usernames: normalización, buckets, filtro de contenido y unicidad inyectada (ADR-0018). |
 | [`CommunityActivityDao.kt`](CommunityActivityDao.kt) | DAO de `community_activities` y `activity_participants`: consulta, alta, join/leave, borrado y siembra inicial (ADR-0016). |
 | [`ConversationJournalSchema.kt`](ConversationJournalSchema.kt) | Esquema del diario durable: `CREATE TABLE` de `conversation_journal` e índice `idx_conversation_journal_pending`. |
