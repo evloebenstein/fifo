@@ -114,6 +114,9 @@ fun FriendsScreen(
             isLoadingProfiles = true
             scope.launch {
                 val recs = com.fifo.voicepipeline.network.FifoBackendClient.fetchFriendRecommendations(userProfileState.id)
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    com.fifo.voicepipeline.data.FifoDataRepository.syncFifoFriendsToRelationalGraph(recs)
+                }
                 searchProfiles = recs.map { r ->
                     FriendProfile(
                         id = r.friendId,

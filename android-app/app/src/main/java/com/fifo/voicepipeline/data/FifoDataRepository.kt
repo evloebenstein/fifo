@@ -642,10 +642,17 @@ object FifoDataRepository {
         }
     }
 
+    private val relationalGraph = com.fifo.voicepipeline.data.contacts.RelationalGraphCoordinator()
+
+    private fun nowIso(): String =
+        java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+            timeZone = java.util.TimeZone.getTimeZone("UTC")
+        }.format(java.util.Date())
+
     /**
      * Ingesta y sincroniza la libreta real de contactos del teléfono celular en el Grafo Relacional de Fifo.
      * Preserva la memoria aprendida y puntuaciones de cercanía si el contacto ya existía.
-     * Infiere roles iniciales (Hijo, Nieto, Doctor, etc.) a partir del nombre guardado.
+     * La fusión y la procedencia las decide [relationalGraph].
      */
     fun syncDeviceContactsToRelationalGraph(context: android.content.Context): Int {
         if (androidx.core.content.ContextCompat.checkSelfPermission(
@@ -710,40 +717,29 @@ object FifoDataRepository {
 
         if (phoneContacts.isEmpty()) return 0
 
-        // Merge inteligente preservando memoria y puntuaciones aprendidas
-        val currentList = relationalContacts.value.toMutableList()
-        val toSaveInDb = mutableListOf<RelationalContact>()
+        // Fusión multi-fuente: conserva memoria, puntuaciones y procedencia.
+        val merge = relationalGraph.mergePhoneContacts(
+            current = relationalContacts.value,
+            phoneContacts = phoneContacts,
+            occurredAt = nowIso()
+        )
 
-        for (phoneContact in phoneContacts) {
-            val existingIdx = currentList.indexOfFirst { c ->
-                c.contactName.equals(phoneContact.contactName, ignoreCase = true) ||
-                (!c.phoneNumber.isNullOrBlank() && c.phoneNumber == phoneContact.phoneNumber)
-            }
-
-            if (existingIdx >= 0) {
-                val existing = currentList[existingIdx]
-                val updated = existing.copy(
-                    phoneNumber = phoneContact.phoneNumber ?: existing.phoneNumber,
-                    relationshipRole = if (existing.relationshipRole in listOf("Contacto del teléfono", "Desconocido") && phoneContact.relationshipRole != "Contacto del teléfono")
-                        phoneContact.relationshipRole else existing.relationshipRole,
-                    alias = existing.alias ?: phoneContact.alias
-                )
-                currentList[existingIdx] = updated
-                toSaveInDb.add(updated)
-            } else {
-                currentList.add(phoneContact)
-                toSaveInDb.add(phoneContact)
-            }
+        if (merge.changed.isEmpty() && merge.appearances.isEmpty()) {
+            return phoneContacts.size
         }
 
-        episodicMemoryModule.setDirectRelationalContacts(currentList.sortedByDescending { it.closenessScore })
+        val userId = userProfile.value.id
+        episodicMemoryModule.setDirectRelationalContacts(
+            merge.contacts.sortedByDescending { it.closenessScore }
+        )
 
-        // Persistir en SQLite local
-        dbHelper?.relationalContacts?.syncDeviceContactsBatch(userProfile.value.id, toSaveInDb)
+        // Persistir en SQLite local: contactos y apariciones.
+        dbHelper?.relationalContacts?.syncDeviceContactsBatch(userId, merge.changed)
+        dbHelper?.contactAppearances?.recordAll(userId, merge.appearances)
 
         // Sincronizar en segundo plano con el Backend MySQL
         repositoryScope.launch {
-            com.fifo.voicepipeline.network.FifoBackendClient.syncRelationalContactsBatch(userProfile.value.id, toSaveInDb)
+            com.fifo.voicepipeline.network.FifoBackendClient.syncRelationalContactsBatch(userId, merge.changed)
         }
 
         android.util.Log.i("FifoDataRepository", "Sincronizados ${phoneContacts.size} contactos del celular al Grafo Relacional de Fifo.")
@@ -751,103 +747,74 @@ object FifoDataRepository {
     }
 
     /**
-     * Procesa las personas mencionadas en una conversación reciente:
-     * - Si la persona ya existe en el grafo o en los contactos del teléfono:
-     *   Aumenta su puntuación de cercanía (closeness_score) y frecuencia de mención.
-     *   Enriquece su descripción y notas de memoria episódica.
-     * - Si es una persona nueva mencionada (ej: "mi nieto Lucas", "la vecina Marta"):
-     *   Crea un nuevo vínculo en el grafo relacional para recordarla y mencionarla a futuro.
+     * Ingesta perfiles de FifoAmigos como fuente del grafo relacional.
+     *
+     * Una recomendación no es un contacto conocido: entra con rol
+     * "Amigo de FifoAmigos", confianza media y sin inventar parentesco.
+     * Devuelve cuántos perfiles se procesaron.
      */
-    fun updateContactsFromSessionMentions(mentions: List<com.fifo.voicepipeline.data.memory.MentionedPersonExtraction>) {
+    fun syncFifoFriendsToRelationalGraph(
+        friends: List<com.fifo.voicepipeline.ui.model.FriendRecommendation>
+    ): Int {
+        if (friends.isEmpty()) return 0
+
+        val merge = relationalGraph.mergeFifoFriends(
+            current = relationalContacts.value,
+            friends = friends,
+            occurredAt = nowIso()
+        )
+
+        if (merge.changed.isEmpty() && merge.appearances.isEmpty()) {
+            return friends.size
+        }
+
+        val userId = userProfile.value.id
+        episodicMemoryModule.setDirectRelationalContacts(
+            merge.contacts.sortedByDescending { it.closenessScore }
+        )
+        dbHelper?.relationalContacts?.syncDeviceContactsBatch(userId, merge.changed)
+        dbHelper?.contactAppearances?.recordAll(userId, merge.appearances)
+
+        repositoryScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.syncRelationalContactsBatch(userId, merge.changed)
+        }
+        return friends.size
+    }
+
+    /**
+     * Procesa las personas mencionadas en una conversación reciente y las
+     * vincula al grafo con su procedencia.
+     *
+     * La conversación (`conversationId`) queda en `linkedConversationIds` y en
+     * `contact_appearances`, para poder responder dónde apareció cada persona.
+     */
+    fun updateContactsFromSessionMentions(
+        mentions: List<com.fifo.voicepipeline.data.memory.MentionedPersonExtraction>,
+        conversationId: String? = null
+    ) {
         if (mentions.isEmpty()) return
 
-        val currentList = relationalContacts.value.toMutableList()
-        val modifiedOrCreated = mutableListOf<RelationalContact>()
+        val merge = relationalGraph.mergeSessionMentions(
+            current = relationalContacts.value,
+            mentions = mentions,
+            conversationId = conversationId,
+            occurredAt = nowIso()
+        )
 
-        for (mention in mentions) {
-            val mentionName = mention.name.trim()
-            if (mentionName.isBlank()) continue
+        if (merge.changed.isEmpty() && merge.appearances.isEmpty()) return
 
-            // 1. Buscar coincidencia exacta o semántica en el grafo relacional
-            val existingIdx = currentList.indexOfFirst { c ->
-                val cName = c.contactName.lowercase().trim()
-                val mName = mentionName.lowercase()
-                val roleMatch = mention.inferredRole?.let { r -> c.relationshipRole.contains(r, ignoreCase = true) } ?: false
-                cName == mName || cName.contains(mName) || mName.contains(cName) ||
-                (c.alias != null && c.alias.equals(mName, ignoreCase = true)) || roleMatch
-            }
+        val userId = userProfile.value.id
+        episodicMemoryModule.setDirectRelationalContacts(
+            merge.contacts.sortedByDescending { it.closenessScore }
+        )
 
-            if (existingIdx >= 0) {
-                val existing = currentList[existingIdx]
-                val newMentions = existing.mentionCount + 1
-                val valenceBonus = when (mention.emotionalValence.lowercase()) {
-                    "afectuoso", "gratitud" -> 0.04f
-                    "preocupacion", "apoyo" -> 0.03f
-                    else -> 0.02f
-                }
-                val newScore = minOf(1.0f, existing.closenessScore + mention.closenessDelta.coerceAtLeast(0.03f) + valenceBonus)
-                val newRole = if (existing.relationshipRole in listOf("Contacto del teléfono", "Desconocido") && !mention.inferredRole.isNullOrBlank()) {
-                    mention.inferredRole
-                } else existing.relationshipRole
-
-                val enrichedMemory = buildString {
-                    val prev = existing.contextualMemory?.trim() ?: ""
-                    if (prev.isNotBlank() && !prev.contains("libreta del celular")) {
-                        append(prev)
-                        if (!prev.endsWith(".")) append(".")
-                        if (mention.contextSnippet.isNotBlank() && !prev.contains(mention.contextSnippet)) {
-                            append(" ")
-                            append(mention.contextSnippet)
-                        }
-                    } else if (mention.contextSnippet.isNotBlank()) {
-                        append(mention.contextSnippet)
-                    } else {
-                        append("Mencionado(a) con afecto en conversaciones recientes.")
-                    }
-                }.take(400)
-
-                val updated = existing.copy(
-                    closenessScore = newScore,
-                    mentionCount = newMentions,
-                    relationshipRole = newRole,
-                    contextualMemory = enrichedMemory,
-                    emotionalValence = mention.emotionalValence,
-                    lastMentionedAt = "Hoy"
-                )
-                currentList[existingIdx] = updated
-                modifiedOrCreated.add(updated)
-                android.util.Log.i("FifoDataRepository", "Contacto actualizado en grafo relacional: ${updated.contactName} (score=${(updated.closenessScore * 100).toInt()}%, menciones=$newMentions)")
-            } else {
-                // 2. Persona nueva aprendida en la conversación
-                val newId = "ctc_rel_${java.util.UUID.randomUUID().toString().take(8)}"
-                val newContact = RelationalContact(
-                    id = newId,
-                    contactName = mentionName,
-                    phoneNumber = null,
-                    relationshipRole = mention.inferredRole ?: "Persona cercana",
-                    closenessScore = 0.65f, // Score inicial significativo por haber sido mencionada en charla personal
-                    trustTier = 3,
-                    emotionalValence = mention.emotionalValence,
-                    contextualMemory = mention.contextSnippet.ifBlank { "Mencionado(a) en charla reciente con Fifo." },
-                    mentionCount = 1,
-                    lastMentionedAt = "Hoy",
-                    alias = mention.inferredRole?.lowercase()
-                )
-                currentList.add(newContact)
-                modifiedOrCreated.add(newContact)
-                android.util.Log.i("FifoDataRepository", "Nuevo contacto aprendido en grafo relacional: ${newContact.contactName} (${newContact.relationshipRole})")
-            }
-        }
-
-        episodicMemoryModule.setDirectRelationalContacts(currentList.sortedByDescending { it.closenessScore })
-
-        // Persistir en SQLite y Backend
-        for (c in modifiedOrCreated) {
-            dbHelper?.relationalContacts?.addOrUpdateRelationalContact(userProfile.value.id, c)
+        merge.changed.forEach { contact ->
+            dbHelper?.relationalContacts?.addOrUpdateRelationalContact(userId, contact)
             repositoryScope.launch {
-                com.fifo.voicepipeline.network.FifoBackendClient.postRelationalContact(userProfile.value.id, c)
+                com.fifo.voicepipeline.network.FifoBackendClient.postRelationalContact(userId, contact)
             }
         }
+        dbHelper?.contactAppearances?.recordAll(userId, merge.appearances)
     }
 
     /**

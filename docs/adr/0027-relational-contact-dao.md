@@ -1,6 +1,6 @@
 # ADR-0027: DAO de contactos relacionales
 
-**Status:** Accepted
+**Status:** Accepted (fusión ampliada por ADR-0031)
 
 **Date:** 2026-10-23
 

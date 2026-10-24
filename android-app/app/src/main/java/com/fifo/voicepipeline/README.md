@@ -15,9 +15,10 @@ durable/reparación en ADR-0011.
 | :--- | :--- | :--- |
 | [`MainActivity.kt`](MainActivity.kt) | Actividad Principal | Punto de entrada UI (`ComponentActivity`). Inicializa `FifoDataRepository`, enlaza `FifoVoiceService`, gestiona permisos (micrófono, BLE, teléfono, ubicación, notificaciones) y renderiza `MainScreen`. |
 | [`audio/`](audio/README.md) | Subpaquete | Primitivas de audio: `PhoneMicRecorder` (solo a través de `CaptureArbiter`), VAD, buffer PCM, reconocedor nativo, TTS nativo y sanitización de texto. |
-| [`data/`](data/README.md) | Subpaquete | Repositorio reactivo (`FifoDataRepository`), módulos de dominio, SQLite local, diario durable (`data/memory`) y cliente REST heredado. |
-| [`data/local/`](data/local/README.md) | Subpaquete | `FifoDatabaseHelper` (SQLite v7) y `SqliteConversationJournal`. |
+| [`data/`](data/README.md) | Subpaquete | Repositorio reactivo (`FifoDataRepository`), módulos de dominio, SQLite local, diario durable (`data/memory`), grafo relacional (`data/contacts`) y cliente REST heredado. |
+| [`data/local/`](data/local/README.md) | Subpaquete | `FifoDatabaseHelper` (SQLite v8), `SqliteConversationJournal` y DAOs de dominio. |
 | [`data/memory/`](data/memory/README.md) | Subpaquete | Modelo `JournalEntry`, puerto `ConversationJournal`, consolidador de sesión y consolidación local/backend. |
+| [`data/contacts/`](data/contacts/RelationalGraphCoordinator.kt) | Subpaquete | Política pura de fusión del grafo relacional: libreta, FifoAmigos y menciones (ADR-0031). |
 | [`location/`](location/README.md) | Subpaquete | GPS, brújula digital, geocodificación y navegación peatonal asistida. |
 | [`network/`](network/README.md) | Subpaquete | `BleVoiceClient`, `CloudApiClient` (Groq STT/LLM), `FifoBackendClient`, aprovisionamiento y WebSocket local. |
 | [`pipeline/`](pipeline/README.md) | Subpaquete | **Núcleo de voz.** `VoicePipelineManager` es la fachada; `VoicePipelineModeSelector` elige `LEGACY` o `SESSION`; `VoiceSessionPipeline` compone el camino nuevo. |

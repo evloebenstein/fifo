@@ -114,7 +114,10 @@ class RepositorySessionMemoryConsolidator(
         }
 
         if (consolidation.mentionedPersons.isNotEmpty()) {
-            FifoDataRepository.updateContactsFromSessionMentions(consolidation.mentionedPersons)
+            FifoDataRepository.updateContactsFromSessionMentions(
+                mentions = consolidation.mentionedPersons,
+                conversationId = "conv_$stableId"
+            )
         }
 
         val backendTurns = turns.flatMap { turn ->

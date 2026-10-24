@@ -1,7 +1,7 @@
 # 📱 Local Database Engine (`com.fifo.voicepipeline.data.local`)
 
 Motor de base de datos relacional local en **SQLite** integrado en la app Android.
-La versión actual del esquema es **v7**.
+La versión actual del esquema es **v8**.
 
 ---
 
@@ -9,7 +9,7 @@ La versión actual del esquema es **v7**.
 
 | Archivo | Rol y Responsabilidad |
 | :--- | :--- |
-| [`FifoDatabaseHelper.kt`](FifoDatabaseHelper.kt) | **Manejador SQLite (`SQLiteOpenHelper`)**: crea y migra las tablas locales, mantiene el singleton y compone los DAOs. En v7 agrega `conversation_journal` sin tocar las tablas existentes; ya no contiene SQL operativo de dominio ni la sincronización del bundle. |
+| [`FifoDatabaseHelper.kt`](FifoDatabaseHelper.kt) | **Manejador SQLite (`SQLiteOpenHelper`)**: crea y migra las tablas locales, mantiene el singleton y compone los DAOs. En v8 agrega `contact_appearances` sin tocar las tablas existentes; ya no contiene SQL operativo de dominio ni la sincronización del bundle. |
 | [`UserProfileDao.kt`](UserProfileDao.kt) | DAO de `users` y `user_profiles`: perfil, búsqueda por identificador, demografía, bio, intereses, verificación de usernames y upsert del perfil sincronizado (ADR-0017, ADR-0028). Delega la recomendación en `UsernameRecommender`. |
 | [`TasteDao.kt`](TasteDao.kt) | DAO de `tastes` y `taste_stories`: gustos activos, altas, baja lógica, historias y tags JSON (ADR-0019). |
 | [`ReminderDao.kt`](ReminderDao.kt) | DAO de `reminders_and_events`: consulta, alta, completar y borrar (ADR-0020). |
@@ -20,6 +20,7 @@ La versión actual del esquema es **v7**.
 | [`ConversationFragmentDao.kt`](ConversationFragmentDao.kt) | DAO de `conversation_fragments`: listado, alta y codec JSON (ADR-0025). |
 | [`DailyRoutineDao.kt`](DailyRoutineDao.kt) | DAO de `user_daily_routines`: rutinas activas y upsert (ADR-0026). |
 | [`RelationalContactDao.kt`](RelationalContactDao.kt) | DAO de `user_contacts_relational`: lectura, fusión e ingesta por lotes (ADR-0027). |
+| [`ContactAppearanceDao.kt`](ContactAppearanceDao.kt) | DAO de `contact_appearances`: procedencia append-only del grafo relacional, sin FK para sobrevivir a los reemplazos del contacto (ADR-0031). |
 | [`SyncBundleWriter.kt`](SyncBundleWriter.kt) | Escritor transaccional del bundle remoto: perfil y agregados en una sola transacción (ADR-0028). |
 | [`UsernameRecommender.kt`](UsernameRecommender.kt) | Política pura de recomendación de usernames: normalización, buckets, filtro de contenido y unicidad inyectada (ADR-0018). |
 | [`CommunityActivityDao.kt`](CommunityActivityDao.kt) | DAO de `community_activities` y `activity_participants`: consulta, alta, join/leave, borrado y siembra inicial (ADR-0016). |
@@ -41,12 +42,13 @@ La versión actual del esquema es **v7**.
 - `device_locations`: última ubicación y proximidad del robot Fifo.
 - `conversation_fragments`: fragmentos compactos de memoria episódica.
 - `user_contacts_relational`: grafo social local (parentesco, confianza, memoria contextual).
+- `contact_appearances`: dónde apareció cada persona (libreta, FifoAmigos, conversación).
 - `user_daily_routines`: hábitos y rutinas circadianas.
 - `contact_conversation_mentions`: menciones de contactos en conversaciones.
 - `community_activities` y `activity_participants`: actividades comunitarias e inscripciones.
 - `conversation_journal`: **diario durable de turnos y cola de consolidación**.
 
-### `conversation_journal` (v7)
+### `conversation_journal` (v7, diario durable)
 
 | Columna | Tipo | Función |
 | :--- | :--- | :--- |
@@ -67,6 +69,24 @@ La versión actual del esquema es **v7**.
 Índice: `idx_conversation_journal_pending (status, next_attempt_at, created_at)` para
 drenar la cola pendiente sin escanear toda la tabla.
 
+### `contact_appearances` (v8)
+
+Procedencia local del grafo relacional: registra dónde apareció cada persona sin
+duplicar la conversación. Es **append-only**, no tiene clave foránea y no se
+sincroniza con el backend.
+
+| Columna | Tipo | Función |
+| :--- | :--- | :--- |
+| `id` | `TEXT PRIMARY KEY` | ID determinístico (`app_<hash>` sobre contacto, fuente y origen). |
+| `user_id` | `TEXT` | Usuario dueño del grafo. |
+| `contact_id` | `TEXT` | Contacto de `user_contacts_relational`. |
+| `source` | `TEXT` | `PHONE_CONTACT`, `FIFO_FRIEND`, `CONVERSATION`, `CALL` o `MANUAL`. |
+| `source_id` | `TEXT?` | Teléfono, `friendId` de FifoAmigos o `conversationId`. |
+| `snippet` | `TEXT?` | Contexto inmediato de la aparición. |
+| `occurred_at` | `TEXT` | ISO-8601 UTC de la ingesta. |
+
+Índice: `idx_contact_appearances_user_contact (user_id, contact_id)`.
+
 ---
 
 ## 🧭 Reglas de Programación en `local/`
@@ -77,3 +97,4 @@ drenar la cola pendiente sin escanear toda la tabla.
 4. **Diario antes de hablar:** `SqliteConversationJournal.append()` es síncrono y se llama antes de `speakResponse`; no mover esa escritura después del TTS.
 5. **DAOs por agregado:** cuando un agregado tiene un límite claro, su SQL operativo vive en un DAO del directorio; `FifoDatabaseHelper` solo lo compone y conserva el esquema/migraciones globales.
 6. **Políticas puras fuera del DAO:** la lógica de decisión sin SQLite (por ejemplo `UsernameRecommender`) vive en un objeto puro y recibe la consulta de unicidad como función.
+7. **Procedencia local-only:** `contact_appearances` documenta el grafo en el dispositivo; no se serializa al backend ni se usa para decidir llamadas. La fusión de fuentes vive en `RelationalGraphCoordinator` (ADR-0031).

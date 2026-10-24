@@ -12,9 +12,11 @@ import com.google.gson.Gson
  * Implementa el esquema relacional de 01_schema.sql en el dispositivo móvil:
  * - Tablas: users, user_profiles, tastes, taste_stories, social_posts,
  *           reminders_and_events, past_conversations, memories, device_locations,
+ *           user_contacts_relational, contact_appearances,
  *           conversation_journal (diario durable de turnos).
  * - Persistencia permanente de los datos del adulto mayor (100% offline).
- * - Sincronizable con el backend MySQL contenerizado.
+ * - Sincronizable con el backend MySQL contenerizado, salvo la procedencia
+ *   local del grafo relacional (`contact_appearances`).
  */
 class FifoDatabaseHelper private constructor(context: Context) :
     SQLiteOpenHelper(context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION) {
@@ -22,7 +24,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
     companion object {
         private const val TAG = "FifoDatabaseHelper"
         private const val DATABASE_NAME = "fifo_local.db"
-        private const val DATABASE_VERSION = 7
+        private const val DATABASE_VERSION = 8
         private val gson = Gson()
 
         @Volatile
@@ -93,6 +95,11 @@ class FifoDatabaseHelper private constructor(context: Context) :
         readableDatabase = { readableDatabase },
         writableDatabase = { writableDatabase },
         gson = gson
+    )
+
+    val contactAppearances = ContactAppearanceDao(
+        readableDatabase = { readableDatabase },
+        writableDatabase = { writableDatabase }
     )
 
     val syncBundleWriter = SyncBundleWriter(
@@ -297,6 +304,23 @@ class FifoDatabaseHelper private constructor(context: Context) :
             )
         """.trimIndent())
 
+        // 11b. contact_appearances (procedencia del grafo relacional)
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS contact_appearances (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                contact_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                source_id TEXT,
+                snippet TEXT,
+                occurred_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """.trimIndent())
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS idx_contact_appearances_user_contact " +
+                "ON contact_appearances(user_id, contact_id)"
+        )
+
         // 12. user_daily_routines (hábitos y rutinas circadianas)
         db.execSQL("""
             CREATE TABLE IF NOT EXISTS user_daily_routines (
@@ -474,6 +498,23 @@ class FifoDatabaseHelper private constructor(context: Context) :
         if (oldVersion < 7) {
             ConversationJournalSchema.create(db)
         }
+        if (oldVersion < 8) {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS contact_appearances (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    contact_id TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    source_id TEXT,
+                    snippet TEXT,
+                    occurred_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """.trimIndent())
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS idx_contact_appearances_user_contact " +
+                    "ON contact_appearances(user_id, contact_id)"
+            )
+        }
     }
 
     override fun onOpen(db: SQLiteDatabase) {
@@ -508,6 +549,21 @@ class FifoDatabaseHelper private constructor(context: Context) :
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
         """.trimIndent())
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS contact_appearances (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                contact_id TEXT NOT NULL,
+                source TEXT NOT NULL,
+                source_id TEXT,
+                snippet TEXT,
+                occurred_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """.trimIndent())
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS idx_contact_appearances_user_contact " +
+                "ON contact_appearances(user_id, contact_id)"
+        )
         db.execSQL("""
             CREATE TABLE IF NOT EXISTS user_daily_routines (
                 id TEXT PRIMARY KEY,

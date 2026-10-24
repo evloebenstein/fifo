@@ -87,7 +87,7 @@
 
 ## 2. Esquema de Base de Datos (Tablas)
 
-A continuación se define la estructura de datos relacional usada por **MySQL 8.4** en el backend y por **SQLite v7** en la app Android.
+A continuación se define la estructura de datos relacional usada por **MySQL 8.4** en el backend y por **SQLite v8** en la app Android.
 
 ### 2.1. Tabla: `users`
 Contiene la identidad principal de la persona y sus datos demográficos básicos.
@@ -250,7 +250,7 @@ Registra la última ubicación geográfica conocida y proximidad del robot físi
 
 ---
 
-### 2.9. Tabla: `conversation_journal` (SQLite v7, diario durable)
+### 2.9. Tabla: `conversation_journal` (SQLite, diario durable)
 
 Registra cada turno completo antes de la locución. Es la fuente de continuidad de la
 memoria del camino `SESSION` y sobrevive al cierre de la app.
@@ -272,6 +272,27 @@ memoria del camino `SESSION` y sobrevive al cierre de la app.
 | `repaired_at` | `INTEGER?` | No | Epoch ms de la reparación. |
 
 Índice: `idx_conversation_journal_pending (status, next_attempt_at, created_at)`.
+
+---
+
+### 2.10. Tabla: `contact_appearances` (SQLite v8, procedencia local)
+
+Registra dónde apareció cada persona del grafo relacional: libreta del teléfono,
+amigos de FifoAmigos o conversaciones. Es **local-only**, append-only y no se
+sincroniza con el backend. La fusión de fuentes vive en
+`RelationalGraphCoordinator`.
+
+| Campo | Tipo | Requerido | Descripción |
+| :--- | :--- | :---: | :--- |
+| `id` | `TEXT` (PK) | Sí | ID determinístico `app_<hash>` (contacto + fuente + origen). |
+| `user_id` | `TEXT` | Sí | Usuario dueño del grafo. |
+| `contact_id` | `TEXT` | Sí | Contacto en `user_contacts_relational`. |
+| `source` | `TEXT` | Sí | `PHONE_CONTACT`, `FIFO_FRIEND`, `CONVERSATION`, `CALL` o `MANUAL`. |
+| `source_id` | `TEXT?` | No | Teléfono, `friendId` de FifoAmigos o `conversationId`. |
+| `snippet` | `TEXT?` | No | Contexto inmediato de la aparición. |
+| `occurred_at` | `TEXT` | No | ISO-8601 UTC de la ingesta. |
+
+Índice: `idx_contact_appearances_user_contact (user_id, contact_id)`.
 
 ---
 
@@ -540,7 +561,7 @@ Esto emite de inmediato el nuevo valor en el `StateFlow`, lo que provoca que `Pr
    `FifoBackendClient.analyzeAndConsolidateSession()` y persiste el resultado localmente.
    El backend usa `POST /users/{user_id}/conversations/analyze-and-consolidate`.
 2. **Offline-first con persistencia:**
-   SQLite v7 es la fuente local. El diario `conversation_journal` guarda los turnos antes
+   SQLite v8 es la fuente local. El diario `conversation_journal` guarda los turnos antes
    de hablar y la cola pendiente se reintenta con backoff; si la red falla, la app sigue
    funcionando y consolida cuando vuelve la conexión.
 
@@ -611,13 +632,13 @@ En un asistente de voz para adultos mayores, **cada 100 milisegundos de latencia
 
 Fifo separa tres responsabilidades:
 
-1. **Diario durable local (`conversation_journal`, SQLite v7):** cada turno se escribe antes de hablar y sobrevive al cierre de la app. Es la fuente de continuidad.
+1. **Diario durable local (`conversation_journal`, SQLite v8):** cada turno se escribe antes de hablar y sobrevive al cierre de la app. Es la fuente de continuidad.
 2. **Memoria viva on-device:** fragmentos compactos, gustos, recuerdos y recordatorios para responder sin red.
 3. **Memoria profunda en el servidor:** conversaciones consolidadas y recuperación GraphRAG bajo demanda.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                     DIARIO DURABLE (SQLite v7)                         │
+│                     DIARIO DURABLE (SQLite v8)                         │
 │  Tabla: `conversation_journal`                                         │
 │  • Turno usuario + Fifo escrito ANTES de la locución                   │
 │  • `PENDING` → cola de consolidación persistente                       │

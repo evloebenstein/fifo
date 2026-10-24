@@ -301,6 +301,33 @@ data class RelationalContact(
 )
 
 /**
+ * Origen de una aparición de una persona en la vida del usuario.
+ */
+enum class ContactSource {
+    PHONE_CONTACT,
+    FIFO_FRIEND,
+    CONVERSATION,
+    CALL,
+    MANUAL
+}
+
+/**
+ * Registro local de dónde apareció una persona del grafo relacional.
+ *
+ * `sourceId` identifica el origen concreto: el número de teléfono, el `friendId`
+ * de FifoAmigos o el ID de la conversación. `snippet` conserva el contexto
+ * inmediato sin duplicar toda la conversación.
+ */
+data class ContactAppearance(
+    val id: String,
+    val contactId: String,
+    val source: ContactSource,
+    val sourceId: String? = null,
+    val snippet: String? = null,
+    val occurredAt: String = ""
+)
+
+/**
  * Patrón o hábito de actividad diaria (rutina circadiana).
  */
 data class DailyRoutine(

@@ -111,3 +111,15 @@ _Avoid_: Evento, Reunión, Match
 **FifoAmigo**:
 Contacto de confianza en la red social de personas mayores que utilizan Fifo, con soporte de afinidades de pasatiempos y recuerdos compartidos.
 _Avoid_: Contacto, Buddy, UserProfile
+
+**Grafo relacional**:
+Conjunto local de personas que Fifo conoce (`RelationalContact`), fusionado desde la libreta del teléfono, los perfiles de FifoAmigos y las menciones en conversaciones. No inventa parentesco y preserva la memoria aprendida.
+_Avoid_: Agenda, Lista de contactos, KnowledgeGraph
+
+**Aparición de contacto**:
+Registro append-only (`ContactAppearance`) de dónde apareció una persona: libreta (`PHONE_CONTACT`), FifoAmigos (`FIFO_FRIEND`) o conversación (`CONVERSATION`). Vive solo en `contact_appearances` y no se envía al backend.
+_Avoid_: Evento, Log, Historial
+
+**Persona cercana**:
+Rol por defecto de una persona mencionada en conversación cuando Fifo no puede inferir un parentesco. Es una descripción neutral, no una afirmación de familiaridad.
+_Avoid_: Familiar, Amigo, Conocido
