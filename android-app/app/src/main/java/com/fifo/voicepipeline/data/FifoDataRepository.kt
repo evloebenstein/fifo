@@ -86,7 +86,7 @@ object FifoDataRepository {
                 val bundle = com.fifo.voicepipeline.network.FifoBackendClient.fetchUserBundle(userId)
                 if (bundle != null) {
                     // 1. Persistir el bundle completo en SQLite local
-                    dbHelper?.bulkUpsertSyncBundle(userId, bundle)
+                    dbHelper?.syncBundleWriter?.upsertBundle(userId, bundle)
 
                     // 2. Notificar a los módulos del dominio
                     userIdentityModule.setUserProfile(bundle.userProfile)

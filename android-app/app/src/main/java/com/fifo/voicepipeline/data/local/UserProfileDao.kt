@@ -61,6 +61,36 @@ class UserProfileDao(
     }
 
     /**
+     * Upsert del perfil recibido desde el backend.
+     *
+     * Escribe `users` y `user_profiles` con el mismo contrato que usaba la
+     * sincronización masiva del helper.
+     */
+    fun upsertSyncedProfile(profile: UserProfileData) {
+        val db = writableDatabase()
+        val userValues = ContentValues().apply {
+            put("id", profile.id)
+            put("full_name", profile.fullName)
+            put("birth_date", profile.birthDate)
+            put("birth_year", profile.birthYear)
+            put("estimated_age", profile.estimatedAge)
+            put("gender_identity", profile.genderIdentity)
+            put("city", profile.city)
+        }
+        db.insertWithOnConflict("users", null, userValues, SQLiteDatabase.CONFLICT_REPLACE)
+
+        val profileValues = ContentValues().apply {
+            put("user_id", profile.id)
+            put("bio_ai", profile.bioAi)
+            put("emergency_contact_name", profile.emergencyContactName)
+            put("emergency_contact_phone", profile.emergencyContactPhone)
+            put("preferred_address", profile.preferredAddress)
+            put("interest_tags", gson.toJson(profile.interestTags))
+        }
+        db.insertWithOnConflict("user_profiles", null, profileValues, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
+    /**
      * Busca el ID de un usuario local en SQLite según su ID, username (@ID), email o nombre completo.
      */
     fun findUserIdByIdentifier(identifier: String): String? {

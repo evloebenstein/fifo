@@ -100,6 +100,20 @@ class FifoDatabaseHelper private constructor(context: Context) :
         gson = gson
     )
 
+    val syncBundleWriter = SyncBundleWriter(
+        writableDatabase = { writableDatabase },
+        userProfile = userProfile,
+        tastes = tastes,
+        reminders = reminders,
+        memories = memories,
+        socialPosts = socialPosts,
+        pastConversations = pastConversations,
+        conversationFragments = conversationFragments,
+        deviceLocation = deviceLocation,
+        relationalContacts = relationalContacts,
+        dailyRoutines = dailyRoutines
+    )
+
     override fun onCreate(db: SQLiteDatabase) {
         Log.i(TAG, "Creando tablas relacionales de Fifo en SQLite...")
 
@@ -531,97 +545,6 @@ class FifoDatabaseHelper private constructor(context: Context) :
 
     private fun seedInitialData(db: SQLiteDatabase) {
         // Base de datos limpia: los datos reales se crean dinámicamente en el onboarding o se sincronizan desde el backend.
-    }
-
-
-    // ── Sincronización Remota (MySQL API -> SQLite) ───────────
-
-    fun bulkUpsertSyncBundle(userId: String, bundle: com.fifo.voicepipeline.network.FifoBackendClient.SyncedUserBundle) {
-        val db = writableDatabase
-        db.beginTransaction()
-        try {
-            // 1. Perfil
-            val p = bundle.userProfile
-            val cvUser = ContentValues().apply {
-                put("id", p.id)
-                put("full_name", p.fullName)
-                put("birth_date", p.birthDate)
-                put("birth_year", p.birthYear)
-                put("estimated_age", p.estimatedAge)
-                put("gender_identity", p.genderIdentity)
-                put("city", p.city)
-            }
-            db.insertWithOnConflict("users", null, cvUser, SQLiteDatabase.CONFLICT_REPLACE)
-
-            val cvProfile = ContentValues().apply {
-                put("user_id", p.id)
-                put("bio_ai", p.bioAi)
-                put("emergency_contact_name", p.emergencyContactName)
-                put("emergency_contact_phone", p.emergencyContactPhone)
-                put("preferred_address", p.preferredAddress)
-                put("interest_tags", gson.toJson(p.interestTags))
-            }
-            db.insertWithOnConflict("user_profiles", null, cvProfile, SQLiteDatabase.CONFLICT_REPLACE)
-
-            // 2. Gustos
-            for (taste in bundle.tastes) {
-                if (taste.isNotBlank()) {
-                    tastes.addTaste(userId, taste)
-                }
-            }
-
-            // 3. Historias de gustos
-            for (story in bundle.tasteStories) {
-                tastes.addTasteStory(userId, story)
-            }
-
-            // 4. Recordatorios
-            for (rem in bundle.reminders) {
-                reminders.addReminder(userId, rem)
-            }
-
-            // 5. Recuerdos
-            for (mem in bundle.memories) {
-                memories.addMemory(userId, mem)
-            }
-
-            // 6. Posts sociales
-            for (post in bundle.socialPosts) {
-                socialPosts.addSocialPost(post, userId)
-            }
-
-            // 7. Conversaciones pasadas
-            for (conv in bundle.pastConversations) {
-                pastConversations.addPastConversation(userId, conv)
-            }
-
-            // 8. Fragmentos compactos
-            for (frag in bundle.conversationFragments) {
-                conversationFragments.addConversationFragment(userId, frag)
-            }
-
-            // 9. Ubicación dispositivo
-            bundle.deviceLocation?.let {
-                deviceLocation.updateDeviceLocation("FIFO-S3-ESP32", it, userId)
-            }
-
-            // 10. Contactos relacionales
-            bundle.relationalContacts?.forEach { ctc ->
-                relationalContacts.addOrUpdateRelationalContact(userId, ctc)
-            }
-
-            // 11. Rutinas diarias
-            bundle.dailyRoutines?.forEach { rtn ->
-                dailyRoutines.addOrUpdateDailyRoutine(userId, rtn)
-            }
-
-            db.setTransactionSuccessful()
-            Log.i(TAG, "Bundle remoto sincronizado exitosamente en SQLite local para $userId")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error en bulkUpsertSyncBundle: ${e.message}", e)
-        } finally {
-            db.endTransaction()
-        }
     }
 
 
