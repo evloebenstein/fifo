@@ -11,7 +11,7 @@ camino `SESSION`.
 
 | Archivo / Carpeta | Rol |
 | :--- | :--- |
-| [`FifoDataRepository.kt`](FifoDataRepository.kt) | **Fachada de delegación** backward-compatible hacia los módulos de dominio. Expone los `StateFlow` para la UI. **Retiene directamente la telefonía** (`incomingCall`, `setIncomingCall`, `answerCurrentCall`, `hangupCurrentCall`) — invariante de ADR-0002. |
+| [`FifoDataRepository.kt`](FifoDataRepository.kt) | **Fachada de delegación** backward-compatible hacia los módulos de dominio. Expone los `StateFlow` para la UI. La telefonía conserva la misma API pública (`incomingCall`, `setIncomingCall`, `answerCurrentCall`, `hangupCurrentCall`), delegada en `CallStateCoordinator` (ADR-0030). |
 | [`modules/UserIdentityModule.kt`](modules/UserIdentityModule.kt) | Perfil de usuario, identidad, bio generada por IA y tags de intereses. Costura: `UserStorageAdapter`. |
 | [`modules/CommunityModule.kt`](modules/CommunityModule.kt) | Actividades comunitarias (`ActividadComunitaria`) y red de `FifoAmigos`. Costura: `CommunityStorageAdapter`. |
 | [`modules/EpisodicMemoryModule.kt`](modules/EpisodicMemoryModule.kt) | Memoria episódica: fragmentos compactos on-device y recuperación GraphRAG en backend. Costura: `MemoryStorageAdapter`. |
@@ -63,7 +63,7 @@ VoiceSessionPipeline
 
 ## Invariantes
 
-1. **Telefonía en la fachada:** `incomingCall` y sus mutaciones permanecen en `FifoDataRepository`. No mover a ningún módulo de dominio. Ver ADR-0002.
+1. **Telefonía fuera de la capa de datos:** `FifoDataRepository` conserva la API pública por compatibilidad, pero el estado mutable vive en `CallStateCoordinator` (`telephony/`). Sigue habiendo un único `FifoCallManager`. Ver ADR-0030.
 2. **Actualizaciones atómicas:** insertar en SQLite antes de actualizar el `StateFlow`.
 3. **Tests sin Android:** los módulos de dominio son testables en JVM con los adaptadores `InMemory*`.
 4. **Un solo dueño de la memoria durable:** `VoiceSessionPipeline` compone `MemoryCoordinator`, el diario y el consolidador. `VoiceSession` solo ve `SessionMemory`; el facade legacy no crea otro coordinador.

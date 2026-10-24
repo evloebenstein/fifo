@@ -12,6 +12,7 @@ y **ADR-0009** (`docs/adr/0009-caller-context-provider.md`).
 | Archivo | Rol y Responsabilidad |
 | :--- | :--- |
 | [`TelephonyPort.kt`](TelephonyPort.kt) | **Costura de telefonía.** Define `TelephonyPort`, `CallSnapshot` (fase, nombre, número), `CallPhase` (`NONE`, `RINGING`, `ACTIVE`) e `InMemoryTelephonyPort` para pruebas. |
+| [`CallStateCoordinator.kt`](CallStateCoordinator.kt) | **Estado puro de la llamada entrante** (ADR-0030): `incomingCall`, `lastActiveCall` y callbacks de contestar/colgar. No contesta, no cuelga ni toca `AudioManager`. `FifoDataRepository` lo expone por delegación. |
 | [`AndroidTelephonyPort.kt`](AndroidTelephonyPort.kt) | Implementación Android. Es la **única clase del camino nuevo** que construye `FifoCallManager`; enlaza/desenlaza acciones del repositorio y expone `answer()`/`hangup()`. |
 | [`FifoCallManager.kt`](FifoCallManager.kt) | Gestor de llamadas `internal`. Resuelve el contacto local, anuncia el timbrado y ejecuta las acciones. No tiene efectos globales en el constructor: usa `bindRepositoryActions()`/`unbindRepositoryActions()`. |
 | [`FifoPhoneCallReceiver.kt`](FifoPhoneCallReceiver.kt) | `BroadcastReceiver` de `EXTRA_STATE_RINGING`/`OFFHOOK`/`IDLE`. Usa `FifoCallManager.resolveContactName()`; no construye un manager desechable por broadcast. |
@@ -25,7 +26,7 @@ y **ADR-0009** (`docs/adr/0009-caller-context-provider.md`).
 
 ```
 FifoPhoneCallReceiver ──► FifoCallManager ──► FifoDataRepository.incomingCall
-                                                   │
+                                                   │  (delega en CallStateCoordinator)
 AndroidTelephonyPort.callState ◄───────────────────┘
         │
         ├─► CallerContextCoordinator

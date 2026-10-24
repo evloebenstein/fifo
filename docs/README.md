@@ -49,6 +49,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0027](adr/0027-relational-contact-dao.md) | DAO de contactos relacionales fuera del helper. | Aceptado. |
 | [ADR-0028](adr/0028-sync-bundle-writer.md) | Escritor transaccional de bundles remotos fuera del helper. | Aceptado. |
 | [ADR-0029](adr/0029-fifo-backend-adapters.md) | Adaptadores por dominio para el backend propio. | Aceptado. |
+| [ADR-0030](adr/0030-call-state-coordinator.md) | Estado de llamada extraído de `FifoDataRepository`. | Aceptado. |
 
 ---
 

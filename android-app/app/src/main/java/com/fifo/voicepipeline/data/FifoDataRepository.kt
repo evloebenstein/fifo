@@ -987,38 +987,31 @@ object FifoDataRepository {
     //  10. Detección y Gestión de Llamadas Entrantes (Tipo Alexa)
     // ══════════════════════════════════════════════════════════════
 
-    private val _incomingCall = MutableStateFlow<IncomingCallInfo?>(null)
-    val incomingCall: StateFlow<IncomingCallInfo?> = _incomingCall.asStateFlow()
+    private val callState = com.fifo.voicepipeline.telephony.CallStateCoordinator()
+
+    val incomingCall: StateFlow<IncomingCallInfo?> = callState.incomingCall
 
     // Callback para que la UI o los comandos por voz ejecuten contestar/colgar
-    var onAnswerCallAction: (() -> Boolean)? = null
-    var onHangupCallAction: (() -> Boolean)? = null
-
-    var lastActiveCall: IncomingCallInfo? = null
-        private set
-
-    fun setIncomingCall(call: IncomingCallInfo?) {
-        if (call != null) {
-            lastActiveCall = call
+    var onAnswerCallAction: (() -> Boolean)?
+        get() = callState.onAnswerCallAction
+        set(value) {
+            callState.onAnswerCallAction = value
         }
-        _incomingCall.value = call
-    }
 
-    fun answerCurrentCall(): Boolean {
-        val handled = onAnswerCallAction?.invoke() ?: false
-        if (handled) {
-            _incomingCall.value = _incomingCall.value?.copy(isRinging = false)
-            _incomingCall.value?.let { lastActiveCall = it }
+    var onHangupCallAction: (() -> Boolean)?
+        get() = callState.onHangupCallAction
+        set(value) {
+            callState.onHangupCallAction = value
         }
-        return handled
-    }
 
-    fun hangupCurrentCall(): Boolean {
-        _incomingCall.value?.let { lastActiveCall = it }
-        val handled = onHangupCallAction?.invoke() ?: false
-        _incomingCall.value = null
-        return handled
-    }
+    val lastActiveCall: IncomingCallInfo?
+        get() = callState.lastActiveCall
+
+    fun setIncomingCall(call: IncomingCallInfo?) = callState.setIncomingCall(call)
+
+    fun answerCurrentCall(): Boolean = callState.answerCurrentCall()
+
+    fun hangupCurrentCall(): Boolean = callState.hangupCurrentCall()
 
     // ══════════════════════════════════════════════════════════════
     //  11. Modo de Escucha Continua ("Fifo, sigue escuchando")
