@@ -1,5 +1,6 @@
 package com.fifo.voicepipeline.data
 
+import com.fifo.voicepipeline.data.contacts.ContactMatcher
 import com.fifo.voicepipeline.ui.model.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -613,37 +614,11 @@ object FifoDataRepository {
     /**
      * Resuelve un contacto por su rol relacional, apodo o nombre (ej: "hija", "doctor", "Rosa", "Tomás").
      * Ordena las coincidencias por nivel de cercanía (closeness_score) descendente.
+     *
+     * La política vive en [ContactMatcher]; el repositorio solo le entrega el grafo actual.
      */
-    fun findContactByRoleOrName(query: String): RelationalContact? {
-        val q = query.lowercase().trim()
-        val normalizedQ = java.text.Normalizer.normalize(q, java.text.Normalizer.Form.NFD)
-            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-
-        val list = relationalContacts.value
-
-        // 1. Coincidencia exacta de apodo, rol o nombre completo
-        list.firstOrNull { c ->
-            val cName = java.text.Normalizer.normalize(c.contactName.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-            val cRole = java.text.Normalizer.normalize(c.relationshipRole.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-            val cAlias = c.alias?.let { java.text.Normalizer.normalize(it.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "") } ?: ""
-            normalizedQ == cName || normalizedQ == cRole || normalizedQ == cAlias
-        }?.let { return it }
-
-        // 2. Coincidencia parcial o por tokens ordenada por mayor cercanía emocional y confianza
-        return list.sortedByDescending { it.closenessScore }.firstOrNull { c ->
-            val cName = java.text.Normalizer.normalize(c.contactName.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-            val cRole = java.text.Normalizer.normalize(c.relationshipRole.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-            val cAlias = c.alias?.let { java.text.Normalizer.normalize(it.lowercase(), java.text.Normalizer.Form.NFD).replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "") } ?: ""
-
-            val qTokens = normalizedQ.split(" ", "-", "_", ".").filter { it.length > 2 }
-            val cTokens = (cName + " " + cRole + " " + cAlias).split(" ", "-", "_", ".").filter { it.length > 2 }
-
-            cName.contains(normalizedQ) || normalizedQ.contains(cName) ||
-            cRole.contains(normalizedQ) || normalizedQ.contains(cRole) ||
-            (cAlias.isNotBlank() && (cAlias.contains(normalizedQ) || normalizedQ.contains(cAlias))) ||
-            qTokens.any { qt -> cTokens.any { ct -> ct.contains(qt) || qt.contains(ct) } }
-        }
-    }
+    fun findContactByRoleOrName(query: String): RelationalContact? =
+        ContactMatcher.find(query, relationalContacts.value)
 
     /**
      * Devuelve las apariciones registradas de un contacto, es decir, dónde

@@ -120,6 +120,10 @@ _Avoid_: Agenda, Lista de contactos, KnowledgeGraph
 Registro append-only (`ContactAppearance`) de dónde apareció una persona: libreta (`PHONE_CONTACT`), FifoAmigos (`FIFO_FRIEND`) o conversación (`CONVERSATION`). Vive solo en `contact_appearances` y no se envía al backend.
 _Avoid_: Evento, Log, Historial
 
+**Resolución de contacto**:
+Decisión de qué persona del grafo corresponde a un nombre, rol, apodo o fragmento dicho por el usuario. Vive en `ContactMatcher`: ignora acentos y mayúsculas, prioriza coincidencia exacta y luego cercanía, y nunca resuelve una consulta vacía.
+_Avoid_: Búsqueda de contacto, Matching, Lookup
+
 **Persona cercana**:
 Rol por defecto de una persona mencionada en conversación cuando Fifo no puede inferir un parentesco. Es una descripción neutral, no una afirmación de familiaridad.
 _Avoid_: Familiar, Amigo, Conocido

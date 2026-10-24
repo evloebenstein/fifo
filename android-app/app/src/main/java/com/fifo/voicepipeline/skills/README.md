@@ -33,3 +33,4 @@ Catálogo de habilidades ejecutables por el LLM (Groq) y por intenciones locales
 1. **Sin respuestas hardcodeadas:** Toda skill devuelve datos estructurados en `SkillResult.data`; el LLM genera el texto hablado final con contexto y calidez. Ver ADR-0004.
 2. **VoiceIntentRouter primero:** Comandos de hardware se resuelven en microsegundos localmente. El LLM solo ve lo conversacional.
 3. **`spokenFeedback` como hint:** El campo `spokenFeedback` de `SkillResult` es solo un fallback de emergencia; el texto final siempre lo genera el LLM con los datos de `SkillResult.data`.
+4. **Resolución compartida de personas:** llamadas, mensajería y recordatorios resuelven nombres, roles y apodos con `FifoDataRepository.findContactByRoleOrName()`, respaldado por `ContactMatcher`. No reimplementes normalización de acentos ni comparación de tokens en una skill (ADR-0034).
