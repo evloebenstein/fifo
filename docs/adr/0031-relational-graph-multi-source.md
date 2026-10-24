@@ -1,6 +1,6 @@
 # ADR-0031: Grafo relacional multi-fuente y procedencia de personas
 
-**Status:** Accepted
+**Status:** Accepted; ampliado por ADR-0032 (SQLite v9 e indicios pendientes de confirmación).
 
 **Date:** 2026-10-23
 
@@ -197,7 +197,9 @@ inventada:
 Un número citado en el mismo fragmento se asocia a la persona mencionada. Si el
 fragmento mezcla a esa persona con un tercero (“Marta me pasó el teléfono de su
 hija…”), el número puede quedar asociado a Marta: es un **indicio**, no una
-identidad verificada, y el usuario puede corregirlo.
+identidad verificada, y el usuario puede corregirlo. Desde ADR-0032 el indicio
+vive en `contact_phone_hints` hasta que el usuario lo confirma; no se escribe en
+`phoneNumber` ni se sincroniza antes.
 
 ---
 
@@ -268,9 +270,9 @@ identidad verificada, y el usuario puede corregirlo.
 - La etiqueta de procedencia se refresca cuando cambia la lista de contactos;
   una aparición aislada sin cambio de contacto aparece al reabrir el diálogo.
 - Un teléfono extraído de una mención no está verificado por el usuario ni por
-  la libreta; puede requerir corrección manual. Además, al guardarse en
-  `phoneNumber`, sigue el mismo camino de sincronización que un contacto; solo
-  la procedencia (`contact_appearances`) es local.
+  la libreta; puede requerir corrección manual. Desde ADR-0032 queda como
+  indicio local en `contact_phone_hints` y solo pasa a `phoneNumber` cuando el
+  usuario lo confirma.
 
 ---
 

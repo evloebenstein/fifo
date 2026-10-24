@@ -3,6 +3,7 @@ package com.fifo.voicepipeline.data.contacts
 import com.fifo.voicepipeline.data.memory.MentionedPersonExtraction
 import com.fifo.voicepipeline.ui.model.ContactSource
 import com.fifo.voicepipeline.ui.model.FriendRecommendation
+import com.fifo.voicepipeline.ui.model.PhoneHintStatus
 import com.fifo.voicepipeline.ui.model.RelationalContact
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -238,7 +239,7 @@ class RelationalGraphCoordinatorTest {
     }
 
     @Test
-    fun `una mencion con telefono explicito lo asocia al contacto`() {
+    fun `una mencion con telefono explicito genera un indicio pendiente`() {
         val existing = RelationalContact(
             id = "ctc_rel_marta",
             contactName = "Marta",
@@ -260,11 +261,15 @@ class RelationalGraphCoordinatorTest {
             conversationId = "conv_abc"
         )
 
-        assertEquals("+56912345678", merge.contacts.single().phoneNumber)
+        assertNull(merge.contacts.single().phoneNumber)
+        val hint = merge.phoneHints.single()
+        assertEquals("+56912345678", hint.phoneNumber)
+        assertEquals("ctc_rel_marta", hint.contactId)
+        assertEquals(PhoneHintStatus.PENDING, hint.status)
     }
 
     @Test
-    fun `una mencion no reemplaza el telefono conocido`() {
+    fun `una mencion no genera indicio si el contacto ya tiene telefono`() {
         val merge = coordinator.mergeSessionMentions(
             current = listOf(phoneContact()),
             mentions = listOf(
@@ -277,10 +282,11 @@ class RelationalGraphCoordinatorTest {
         )
 
         assertEquals("+56911112222", merge.contacts.single().phoneNumber)
+        assertTrue(merge.phoneHints.isEmpty())
     }
 
     @Test
-    fun `una mencion nueva con telefono explicito lo guarda`() {
+    fun `una mencion nueva con telefono explicito genera un indicio`() {
         val merge = coordinator.mergeSessionMentions(
             current = emptyList(),
             mentions = listOf(
@@ -295,11 +301,13 @@ class RelationalGraphCoordinatorTest {
 
         val created = merge.contacts.single()
         assertEquals("Nieto", created.relationshipRole)
-        assertEquals("+56911112222", created.phoneNumber)
+        assertNull(created.phoneNumber)
+        assertEquals("+56911112222", merge.phoneHints.single().phoneNumber)
+        assertEquals(created.id, merge.phoneHints.single().contactId)
     }
 
     @Test
-    fun `una mencion sin numero no inventa telefono`() {
+    fun `una mencion sin numero no inventa telefono ni indicio`() {
         val merge = coordinator.mergeSessionMentions(
             current = emptyList(),
             mentions = listOf(
@@ -312,6 +320,7 @@ class RelationalGraphCoordinatorTest {
         )
 
         assertNull(merge.contacts.single().phoneNumber)
+        assertTrue(merge.phoneHints.isEmpty())
     }
 
     @Test
@@ -328,5 +337,6 @@ class RelationalGraphCoordinatorTest {
         )
 
         assertNull(merge.contacts.single().phoneNumber)
+        assertTrue(merge.phoneHints.isEmpty())
     }
 }

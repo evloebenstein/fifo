@@ -602,6 +602,9 @@ object FifoDataRepository {
      */
     fun addOrUpdateRelationalContact(contact: RelationalContact) {
         episodicMemoryModule.addOrUpdateRelationalContact(userProfile.value.id, contact)
+        if (!contact.phoneNumber.isNullOrBlank()) {
+            dbHelper?.contactPhoneHints?.deleteForContact(userProfile.value.id, contact.id)
+        }
         repositoryScope.launch {
             com.fifo.voicepipeline.network.FifoBackendClient.postRelationalContact(userProfile.value.id, contact)
         }
@@ -659,6 +662,53 @@ object FifoDataRepository {
         dbHelper?.contactAppearances?.getAllAppearances(userProfile.value.id)
             ?.groupBy { it.contactId }
             ?: emptyMap()
+
+    /**
+     * Devuelve los teléfonos mencionados que esperan confirmación, agrupados por
+     * contacto. No están en `RelationalContact.phoneNumber` ni se sincronizan.
+     */
+    fun getPendingPhoneHintsByContact(): Map<String, List<ContactPhoneHint>> {
+        // Un teléfono ya conocido invalida los indicios pendientes del contacto.
+        val contactsWithPhone = relationalContacts.value
+            .filter { !it.phoneNumber.isNullOrBlank() }
+            .map { it.id }
+            .toSet()
+        return dbHelper?.contactPhoneHints?.getAllPending(userProfile.value.id)
+            ?.filterNot { it.contactId in contactsWithPhone }
+            ?.groupBy { it.contactId }
+            ?: emptyMap()
+    }
+
+    /**
+     * Confirma un teléfono mencionado: lo copia al contacto, lo persiste y lo
+     * sincroniza. A partir de ahí deja de ser un indicio y pasa a ser el
+     * teléfono del contacto.
+     *
+     * Devuelve `true` si el indicio existía y se aplicó.
+     */
+    fun confirmPhoneHint(hintId: String): Boolean {
+        val userId = userProfile.value.id
+        val hint = dbHelper?.contactPhoneHints?.getPendingById(userId, hintId) ?: return false
+        val contact = relationalContacts.value.firstOrNull { it.id == hint.contactId } ?: return false
+
+        val updated = contact.copy(phoneNumber = hint.phoneNumber)
+        episodicMemoryModule.addOrUpdateRelationalContact(userId, updated)
+        // Confirmar un teléfono invalida cualquier otro indicio del mismo contacto.
+        dbHelper?.contactPhoneHints?.deleteForContact(userId, contact.id)
+
+        repositoryScope.launch {
+            com.fifo.voicepipeline.network.FifoBackendClient.postRelationalContact(userId, updated)
+        }
+        return true
+    }
+
+    /**
+     * Descarta un teléfono mencionado sin tocar el contacto. El indicio queda
+     * `DISCARDED` para no volver a preguntarlo y no se sincroniza.
+     */
+    fun discardPhoneHint(hintId: String) {
+        dbHelper?.contactPhoneHints?.markDiscarded(userProfile.value.id, hintId)
+    }
 
     private val relationalGraph = com.fifo.voicepipeline.data.contacts.RelationalGraphCoordinator()
 
@@ -754,6 +804,10 @@ object FifoDataRepository {
         // Persistir en SQLite local: contactos y apariciones.
         dbHelper?.relationalContacts?.syncDeviceContactsBatch(userId, merge.changed)
         dbHelper?.contactAppearances?.recordAll(userId, merge.appearances)
+        // Un teléfono de la libreta invalida cualquier indicio pendiente del contacto.
+        merge.changed
+            .filter { !it.phoneNumber.isNullOrBlank() }
+            .forEach { dbHelper?.contactPhoneHints?.deleteForContact(userId, it.id) }
 
         // Sincronizar en segundo plano con el Backend MySQL
         repositoryScope.launch {
@@ -819,7 +873,7 @@ object FifoDataRepository {
             occurredAt = nowIso()
         )
 
-        if (merge.changed.isEmpty() && merge.appearances.isEmpty()) return
+        if (merge.changed.isEmpty() && merge.appearances.isEmpty() && merge.phoneHints.isEmpty()) return
 
         val userId = userProfile.value.id
         episodicMemoryModule.setDirectRelationalContacts(
@@ -833,6 +887,7 @@ object FifoDataRepository {
             }
         }
         dbHelper?.contactAppearances?.recordAll(userId, merge.appearances)
+        dbHelper?.contactPhoneHints?.recordAll(userId, merge.phoneHints)
     }
 
     /**

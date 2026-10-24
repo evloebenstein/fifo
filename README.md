@@ -39,7 +39,7 @@ Asistente robótico interactivo de compañía para adultos mayores con **enlace 
   - Comandos completos obligatorios: *"Fifo contesta"* / *"Fifo cuelga"*. El escudo de eco se evalúa antes de cualquier acción, así que el propio anuncio no puede contestar ni colgar.
   - `CaptureArbiter` sella la captura: durante una llamada la ruta es siempre `PHONE_CALL`, nunca `SpeechRecognizer`; las tramas tardías se descartan.
 - **Memoria Durable y Reparación Conversacional:**
-  - **Diario antes de hablar:** cada turno se escribe en `conversation_journal` (SQLite v8) antes de `speakResponse`; si la app se cierra después, el turno no se pierde.
+  - **Diario antes de hablar:** cada turno se escribe en `conversation_journal` (SQLite v9) antes de `speakResponse`; si la app se cierra después, el turno no se pierde.
   - **Cola persistente:** `MemoryCoordinator` reintenta consolidaciones fallidas con backoff de 30 s a 15 min. La cola vive en disco, no en RAM, y sobrevive reinicios.
   - **Consolidación real:** `RepositorySessionMemoryConsolidator` escribe fragmentos, conversaciones, recuerdos, gustos y contactos, y sincroniza con el backend. Si el turno fue corregido, aprende `repairText`.
   - **Contexto restaurado:** al arrancar, el pipeline repuebla los últimos 4 turnos del diario (8 mensajes) en `CloudApiClient`.
@@ -233,7 +233,7 @@ Cada carpeta del proyecto cuenta con su propio archivo `README.md` detallando la
   - [`android-app/app/src/main/java/com/fifo/voicepipeline/`](android-app/app/src/main/java/com/fifo/voicepipeline/README.md) - Raíz del paquete Kotlin, `MainActivity.kt` y mapa de arquitectura.
   - [`.../audio/`](android-app/app/src/main/java/com/fifo/voicepipeline/audio/README.md) - Primitivas de audio: captura PCM, VAD, reconocedor nativo, TTS y sanitización. La propiedad de captura/VAD vive en `pipeline/session`.
   - [`.../data/`](android-app/app/src/main/java/com/fifo/voicepipeline/data/README.md) - Repositorio reactivo, módulos de dominio, diario durable y consolidación.
-  - [`.../data/local/`](android-app/app/src/main/java/com/fifo/voicepipeline/data/local/README.md) - SQLite v8, `FifoDatabaseHelper`, `contact_appearances` y `conversation_journal`.
+  - [`.../data/local/`](android-app/app/src/main/java/com/fifo/voicepipeline/data/local/README.md) - SQLite v9, `FifoDatabaseHelper`, `contact_appearances`, `contact_phone_hints` y `conversation_journal`.
   - [`.../data/memory/`](android-app/app/src/main/java/com/fifo/voicepipeline/data/memory/README.md) - `JournalEntry`, puerto `ConversationJournal` y consolidador de sesión.
   - [`.../data/remote/`](android-app/app/src/main/java/com/fifo/voicepipeline/data/remote/README.md) - Cliente REST heredado para sincronización con la nube.
   - [`.../location/`](android-app/app/src/main/java/com/fifo/voicepipeline/location/README.md) - GPS, brújula digital y guiado de navegación peatonal por voz estilo Waze.

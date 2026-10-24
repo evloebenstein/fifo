@@ -64,7 +64,7 @@ En `SESSION`, `VoiceSessionPipeline` es la raíz de composición: construye `Voi
 - **VAD y pre-roll:** `SpeechSegmenter` posee el VAD, el pre-roll (~480 ms) y el WAV. El RMS solo anima la boca/OLED.
 - **Barge-in por contenido:** una nueva invocación “Fifo …” o una orden de silencio corta TTS. Un ruido fuerte no; el eco se ignora antes de cualquier acción.
 - **Llamadas:** anuncio local inmediato, enriquecimiento backend en paralelo (~800 ms) y comandos completos *“Fifo contesta”* / *“Fifo cuelga”*. Un desconocido sigue siendo desconocido.
-- **Memoria durable:** cada turno se escribe en `conversation_journal` (SQLite v8) **antes de hablar**. La cola pendiente sobrevive reinicios y se reintenta con backoff de 30 s a 15 min.
+- **Memoria durable:** cada turno se escribe en `conversation_journal` (SQLite v9) **antes de hablar**. La cola pendiente sobrevive reinicios y se reintenta con backoff de 30 s a 15 min.
 - **Reparación:** una corrección explícita usa ±1 turno; se locuta si el turno anterior tiene ~10 s o menos y, si llega tarde, queda en el diario/OLED sin interrumpir.
 
 La arquitectura completa está en [`docs/README.md`](../docs/README.md).

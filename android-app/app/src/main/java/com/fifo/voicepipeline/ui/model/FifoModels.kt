@@ -328,6 +328,30 @@ data class ContactAppearance(
 )
 
 /**
+ * Estado de un teléfono mencionado en conversación y todavía no confirmado.
+ */
+enum class PhoneHintStatus {
+    PENDING,
+    DISCARDED
+}
+
+/**
+ * Teléfono candidato extraído de una mención.
+ *
+ * Vive en `contact_phone_hints` y **no** se copia a `RelationalContact.phoneNumber`
+ * hasta que el usuario lo confirma. Así un indicio no se sincroniza al backend ni
+ * se usa para llamar por accidente.
+ */
+data class ContactPhoneHint(
+    val id: String,
+    val contactId: String,
+    val phoneNumber: String,
+    val snippet: String? = null,
+    val createdAt: String = "",
+    val status: PhoneHintStatus = PhoneHintStatus.PENDING
+)
+
+/**
  * Patrón o hábito de actividad diaria (rutina circadiana).
  */
 data class DailyRoutine(

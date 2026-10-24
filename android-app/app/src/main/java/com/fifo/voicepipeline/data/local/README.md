@@ -1,7 +1,7 @@
 # 📱 Local Database Engine (`com.fifo.voicepipeline.data.local`)
 
 Motor de base de datos relacional local en **SQLite** integrado en la app Android.
-La versión actual del esquema es **v8**.
+La versión actual del esquema es **v9**.
 
 ---
 
@@ -9,7 +9,7 @@ La versión actual del esquema es **v8**.
 
 | Archivo | Rol y Responsabilidad |
 | :--- | :--- |
-| [`FifoDatabaseHelper.kt`](FifoDatabaseHelper.kt) | **Manejador SQLite (`SQLiteOpenHelper`)**: crea y migra las tablas locales, mantiene el singleton y compone los DAOs. En v8 agrega `contact_appearances` sin tocar las tablas existentes; ya no contiene SQL operativo de dominio ni la sincronización del bundle. |
+| [`FifoDatabaseHelper.kt`](FifoDatabaseHelper.kt) | **Manejador SQLite (`SQLiteOpenHelper`)**: crea y migra las tablas locales, mantiene el singleton y compone los DAOs. En v8 agregó `contact_appearances` y en v9 `contact_phone_hints` sin tocar las tablas existentes; ya no contiene SQL operativo de dominio ni la sincronización del bundle. |
 | [`UserProfileDao.kt`](UserProfileDao.kt) | DAO de `users` y `user_profiles`: perfil, búsqueda por identificador, demografía, bio, intereses, verificación de usernames y upsert del perfil sincronizado (ADR-0017, ADR-0028). Delega la recomendación en `UsernameRecommender`. |
 | [`TasteDao.kt`](TasteDao.kt) | DAO de `tastes` y `taste_stories`: gustos activos, altas, baja lógica, historias y tags JSON (ADR-0019). |
 | [`ReminderDao.kt`](ReminderDao.kt) | DAO de `reminders_and_events`: consulta, alta, completar y borrar (ADR-0020). |
@@ -21,6 +21,7 @@ La versión actual del esquema es **v8**.
 | [`DailyRoutineDao.kt`](DailyRoutineDao.kt) | DAO de `user_daily_routines`: rutinas activas y upsert (ADR-0026). |
 | [`RelationalContactDao.kt`](RelationalContactDao.kt) | DAO de `user_contacts_relational`: lectura, fusión e ingesta por lotes (ADR-0027). |
 | [`ContactAppearanceDao.kt`](ContactAppearanceDao.kt) | DAO de `contact_appearances`: procedencia append-only del grafo relacional, con lecturas por contacto y sin FK para sobrevivir a los reemplazos (ADR-0031). |
+| [`ContactPhoneHintDao.kt`](ContactPhoneHintDao.kt) | DAO de `contact_phone_hints`: cola local de teléfonos mencionados; lecturas pendientes, descarte y limpieza al confirmar (ADR-0032). |
 | [`SyncBundleWriter.kt`](SyncBundleWriter.kt) | Escritor transaccional del bundle remoto: perfil y agregados en una sola transacción (ADR-0028). |
 | [`UsernameRecommender.kt`](UsernameRecommender.kt) | Política pura de recomendación de usernames: normalización, buckets, filtro de contenido y unicidad inyectada (ADR-0018). |
 | [`CommunityActivityDao.kt`](CommunityActivityDao.kt) | DAO de `community_activities` y `activity_participants`: consulta, alta, join/leave, borrado y siembra inicial (ADR-0016). |
@@ -43,6 +44,7 @@ La versión actual del esquema es **v8**.
 - `conversation_fragments`: fragmentos compactos de memoria episódica.
 - `user_contacts_relational`: grafo social local (parentesco, confianza, memoria contextual).
 - `contact_appearances`: dónde apareció cada persona (libreta, FifoAmigos, conversación).
+- `contact_phone_hints`: teléfonos mencionados pendientes de confirmación, solo locales.
 - `user_daily_routines`: hábitos y rutinas circadianas.
 - `contact_conversation_mentions`: menciones de contactos en conversaciones.
 - `community_activities` y `activity_participants`: actividades comunitarias e inscripciones.
@@ -87,6 +89,26 @@ sincroniza con el backend.
 
 Índice: `idx_contact_appearances_user_contact (user_id, contact_id)`.
 
+### `contact_phone_hints` (v9)
+
+Cola local de teléfonos mencionados en conversación. Un indicio **no** es el
+teléfono del contacto: no se copia a `user_contacts_relational.phone_number` ni
+se sincroniza hasta que el usuario lo confirma.
+
+| Columna | Tipo | Función |
+| :--- | :--- | :--- |
+| `id` | `TEXT PRIMARY KEY` | ID determinístico (`hint_<hash>` sobre contacto y número). |
+| `user_id` | `TEXT` | Usuario dueño del grafo. |
+| `contact_id` | `TEXT` | Contacto de `user_contacts_relational`. |
+| `phone_number` | `TEXT` | Número normalizado por `PhoneHintExtractor`. |
+| `snippet` | `TEXT?` | Fragmento donde se mencionó el número. |
+| `status` | `TEXT` | `PENDING` o `DISCARDED`. |
+| `created_at` | `TEXT` | ISO-8601 UTC de la ingesta. |
+
+Índice: `idx_contact_phone_hints_user_contact (user_id, contact_id, status)`.
+La inserción usa `CONFLICT_IGNORE` para no duplicar el mismo indicio ni revivir
+uno descartado.
+
 ---
 
 ## 🧭 Reglas de Programación en `local/`
@@ -98,3 +120,4 @@ sincroniza con el backend.
 5. **DAOs por agregado:** cuando un agregado tiene un límite claro, su SQL operativo vive en un DAO del directorio; `FifoDatabaseHelper` solo lo compone y conserva el esquema/migraciones globales.
 6. **Políticas puras fuera del DAO:** la lógica de decisión sin SQLite (por ejemplo `UsernameRecommender`) vive en un objeto puro y recibe la consulta de unicidad como función.
 7. **Procedencia local-only:** `contact_appearances` documenta el grafo en el dispositivo; no se serializa al backend ni se usa para decidir llamadas. La fusión de fuentes vive en `RelationalGraphCoordinator` (ADR-0031).
+8. **Indicios antes que teléfonos:** un número mencionado se guarda en `contact_phone_hints` como `PENDING`; solo `FifoDataRepository.confirmPhoneHint()` lo copia a `phoneNumber` y lo sincroniza. `discardPhoneHint()` marca `DISCARDED` sin tocar el contacto (ADR-0032).

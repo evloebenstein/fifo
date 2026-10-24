@@ -12,7 +12,7 @@ import com.google.gson.Gson
  * Implementa el esquema relacional de 01_schema.sql en el dispositivo móvil:
  * - Tablas: users, user_profiles, tastes, taste_stories, social_posts,
  *           reminders_and_events, past_conversations, memories, device_locations,
- *           user_contacts_relational, contact_appearances,
+ *           user_contacts_relational, contact_appearances, contact_phone_hints,
  *           conversation_journal (diario durable de turnos).
  * - Persistencia permanente de los datos del adulto mayor (100% offline).
  * - Sincronizable con el backend MySQL contenerizado, salvo la procedencia
@@ -24,7 +24,7 @@ class FifoDatabaseHelper private constructor(context: Context) :
     companion object {
         private const val TAG = "FifoDatabaseHelper"
         private const val DATABASE_NAME = "fifo_local.db"
-        private const val DATABASE_VERSION = 8
+        private const val DATABASE_VERSION = 9
         private val gson = Gson()
 
         @Volatile
@@ -98,6 +98,11 @@ class FifoDatabaseHelper private constructor(context: Context) :
     )
 
     val contactAppearances = ContactAppearanceDao(
+        readableDatabase = { readableDatabase },
+        writableDatabase = { writableDatabase }
+    )
+
+    val contactPhoneHints = ContactPhoneHintDao(
         readableDatabase = { readableDatabase },
         writableDatabase = { writableDatabase }
     )
@@ -321,6 +326,23 @@ class FifoDatabaseHelper private constructor(context: Context) :
                 "ON contact_appearances(user_id, contact_id)"
         )
 
+        // 11c. contact_phone_hints (teléfonos mencionados pendientes de confirmar)
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS contact_phone_hints (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                contact_id TEXT NOT NULL,
+                phone_number TEXT NOT NULL,
+                snippet TEXT,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """.trimIndent())
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS idx_contact_phone_hints_user_contact " +
+                "ON contact_phone_hints(user_id, contact_id, status)"
+        )
+
         // 12. user_daily_routines (hábitos y rutinas circadianas)
         db.execSQL("""
             CREATE TABLE IF NOT EXISTS user_daily_routines (
@@ -515,6 +537,23 @@ class FifoDatabaseHelper private constructor(context: Context) :
                     "ON contact_appearances(user_id, contact_id)"
             )
         }
+        if (oldVersion < 9) {
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS contact_phone_hints (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT NOT NULL,
+                    contact_id TEXT NOT NULL,
+                    phone_number TEXT NOT NULL,
+                    snippet TEXT,
+                    status TEXT NOT NULL DEFAULT 'PENDING',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """.trimIndent())
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS idx_contact_phone_hints_user_contact " +
+                    "ON contact_phone_hints(user_id, contact_id, status)"
+            )
+        }
     }
 
     override fun onOpen(db: SQLiteDatabase) {
@@ -563,6 +602,21 @@ class FifoDatabaseHelper private constructor(context: Context) :
         db.execSQL(
             "CREATE INDEX IF NOT EXISTS idx_contact_appearances_user_contact " +
                 "ON contact_appearances(user_id, contact_id)"
+        )
+        db.execSQL("""
+            CREATE TABLE IF NOT EXISTS contact_phone_hints (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                contact_id TEXT NOT NULL,
+                phone_number TEXT NOT NULL,
+                snippet TEXT,
+                status TEXT NOT NULL DEFAULT 'PENDING',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """.trimIndent())
+        db.execSQL(
+            "CREATE INDEX IF NOT EXISTS idx_contact_phone_hints_user_contact " +
+                "ON contact_phone_hints(user_id, contact_id, status)"
         )
         db.execSQL("""
             CREATE TABLE IF NOT EXISTS user_daily_routines (

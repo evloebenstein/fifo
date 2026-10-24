@@ -31,6 +31,7 @@ import androidx.compose.ui.platform.LocalContext
 import com.fifo.voicepipeline.audio.NativeSpeechRecognizer
 import com.fifo.voicepipeline.data.FifoDataRepository
 import com.fifo.voicepipeline.ui.model.CommunityActivityItem
+import com.fifo.voicepipeline.ui.model.ContactPhoneHint
 import com.fifo.voicepipeline.ui.model.ContactSource
 import com.fifo.voicepipeline.ui.theme.FifoColors
 import kotlinx.coroutines.Dispatchers
@@ -994,11 +995,19 @@ fun ActivitiesScreen(
         var contactSources by remember {
             mutableStateOf<Map<String, List<ContactSource>>>(emptyMap())
         }
+        var contactHints by remember {
+            mutableStateOf<Map<String, List<ContactPhoneHint>>>(emptyMap())
+        }
+
         LaunchedEffect(liveContacts) {
-            contactSources = withContext(Dispatchers.IO) {
-                FifoDataRepository.getContactAppearancesByContact()
+            val loaded = withContext(Dispatchers.IO) {
+                val sources = FifoDataRepository.getContactAppearancesByContact()
                     .mapValues { (_, appearances) -> appearances.map { it.source }.distinct() }
+                val hints = FifoDataRepository.getPendingPhoneHintsByContact()
+                sources to hints
             }
+            contactSources = loaded.first
+            contactHints = loaded.second
         }
 
         Dialog(
@@ -1181,6 +1190,78 @@ fun ActivitiesScreen(
                                                         maxLines = 1,
                                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                     )
+                                                }
+                                            }
+
+                                            contact.phoneNumber?.takeIf { it.isNotBlank() }?.let { phone ->
+                                                val knownLabel = if (ContactSource.PHONE_CONTACT in sources) {
+                                                    "Teléfono de la libreta"
+                                                } else {
+                                                    "Teléfono confirmado"
+                                                }
+                                                Text(
+                                                    text = "$knownLabel: $phone",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Medium,
+                                                    color = FifoColors.LightTextPrimary,
+                                                    modifier = Modifier.padding(top = 3.dp)
+                                                )
+                                            }
+
+                                            contactHints[contact.id].orEmpty().forEach { hint ->
+                                                Surface(
+                                                    color = Color(0xFFFFFBEB),
+                                                    border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+                                                    shape = RoundedCornerShape(10.dp),
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(top = 6.dp)
+                                                ) {
+                                                    Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)) {
+                                                        Text(
+                                                            text = "Teléfono mencionado: ${hint.phoneNumber}",
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = Color(0xFF92400E)
+                                                        )
+                                                        Text(
+                                                            text = "Sin confirmar. No se usa para llamar ni se sincroniza.",
+                                                            fontSize = 9.sp,
+                                                            color = Color(0xFF92400E).copy(alpha = 0.8f)
+                                                        )
+                                                        Row(
+                                                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                        ) {
+                                                            TextButton(
+                                                                onClick = {
+                                                                    if (FifoDataRepository.confirmPhoneHint(hint.id)) {
+                                                                        contactHints = contactHints.toMutableMap().apply {
+                                                                            remove(contact.id)
+                                                                        }
+                                                                    }
+                                                                },
+                                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                                                modifier = Modifier.height(32.dp)
+                                                            ) {
+                                                                Text("Confirmar", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF047857))
+                                                            }
+                                                            TextButton(
+                                                                onClick = {
+                                                                    FifoDataRepository.discardPhoneHint(hint.id)
+                                                                    contactHints = contactHints.toMutableMap().apply {
+                                                                        put(
+                                                                            contact.id,
+                                                                            (this[contact.id] ?: emptyList()).filterNot { it.id == hint.id }
+                                                                        )
+                                                                    }
+                                                                },
+                                                                contentPadding = PaddingValues(horizontal = 6.dp, vertical = 0.dp),
+                                                                modifier = Modifier.height(32.dp)
+                                                            ) {
+                                                                Text("Descartar", fontSize = 10.sp, fontWeight = FontWeight.Medium, color = FifoColors.LightTextSecondary)
+                                                            }
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }

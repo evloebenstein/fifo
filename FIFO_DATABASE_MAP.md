@@ -87,7 +87,7 @@
 
 ## 2. Esquema de Base de Datos (Tablas)
 
-A continuación se define la estructura de datos relacional usada por **MySQL 8.4** en el backend y por **SQLite v8** en la app Android.
+A continuación se define la estructura de datos relacional usada por **MySQL 8.4** en el backend y por **SQLite v9** en la app Android.
 
 ### 2.1. Tabla: `users`
 Contiene la identidad principal de la persona y sus datos demográficos básicos.
@@ -296,6 +296,30 @@ sincroniza con el backend. La fusión de fuentes vive en
 
 ---
 
+### 2.11. Tabla: `contact_phone_hints` (SQLite v9, indicios locales)
+
+Cola local de teléfonos mencionados en conversación, pendientes de confirmación.
+Un indicio **no** es el teléfono del contacto: no se copia a
+`user_contacts_relational.phone_number`, no se usa para llamar y no se
+sincroniza con el backend hasta que el usuario lo confirma. `Discard` lo marca
+`DISCARDED` sin tocar el contacto.
+
+| Campo | Tipo | Requerido | Descripción |
+| :--- | :--- | :---: | :--- |
+| `id` | `TEXT` (PK) | Sí | ID determinístico `hint_<hash>` (contacto + número). |
+| `user_id` | `TEXT` | Sí | Usuario dueño del grafo. |
+| `contact_id` | `TEXT` | Sí | Contacto en `user_contacts_relational`. |
+| `phone_number` | `TEXT` | Sí | Número normalizado por `PhoneHintExtractor`. |
+| `snippet` | `TEXT?` | No | Fragmento donde se mencionó el número. |
+| `status` | `TEXT` | Sí | `PENDING` o `DISCARDED`. |
+| `created_at` | `TEXT` | No | ISO-8601 UTC de la ingesta. |
+
+Índice: `idx_contact_phone_hints_user_contact (user_id, contact_id, status)`.
+La inserción usa `CONFLICT_IGNORE`; confirmar copia el número a
+`phone_number` y elimina los indicios del contacto.
+
+---
+
 ## 3. Matriz de Mapeo: Pantallas de la App ↔ Base de Datos ↔ Acciones de Voz de Fifo
 
 Esta tabla es la guía definitiva para saber **qué pantalla y qué componente visual se actualiza cuando Fifo ejecuta una acción por voz**:
@@ -313,6 +337,7 @@ Esta tabla es la guía definitiva para saber **qué pantalla y qué componente v
 | **`HomeScreen`** | Indicador de Recordatorios del día | `reminders_and_events` (`where due_date = today`) | `set_reminder`, `complete_reminder` | *"Fifo, recuérdame a las 5 salir a caminar"* |
 | **`FriendsScreen`** | Muro de la comunidad | `social_posts` | `publish_social_post` | *"Fifo, comparte con mis amigos que hoy leí un poema hermoso"* |
 | **`ActivitiesScreen`**| Recomendaciones adaptadas a sus gustos | `tastes` + `users.estimated_age` | `add_user_taste` | Las actividades sugeridas se recalculan con los nuevos gustos |
+| **`ActivitiesScreen`**| Tarjeta de persona: “Teléfono mencionado” con Confirmar/Descartar | `contact_phone_hints` → `user_contacts_relational.phone_number` | Confirmación manual del usuario | *"Sí, ese es su teléfono"* / *"No, descártalo"* (la UI, no una skill, decide) |
 | **`Ajustes / Dialog`**| Diálogo *Editar Perfil* | `users` (`full_name`, `birth_date`, `age`, `gender`) | Pre-poblado con los datos de `users` | El diálogo manual lee siempre la misma BD |
 
 ---
@@ -561,7 +586,7 @@ Esto emite de inmediato el nuevo valor en el `StateFlow`, lo que provoca que `Pr
    `FifoBackendClient.analyzeAndConsolidateSession()` y persiste el resultado localmente.
    El backend usa `POST /users/{user_id}/conversations/analyze-and-consolidate`.
 2. **Offline-first con persistencia:**
-   SQLite v8 es la fuente local. El diario `conversation_journal` guarda los turnos antes
+   SQLite v9 es la fuente local. El diario `conversation_journal` guarda los turnos antes
    de hablar y la cola pendiente se reintenta con backoff; si la red falla, la app sigue
    funcionando y consolida cuando vuelve la conexión.
 
@@ -632,13 +657,13 @@ En un asistente de voz para adultos mayores, **cada 100 milisegundos de latencia
 
 Fifo separa tres responsabilidades:
 
-1. **Diario durable local (`conversation_journal`, SQLite v8):** cada turno se escribe antes de hablar y sobrevive al cierre de la app. Es la fuente de continuidad.
+1. **Diario durable local (`conversation_journal`, SQLite v9):** cada turno se escribe antes de hablar y sobrevive al cierre de la app. Es la fuente de continuidad.
 2. **Memoria viva on-device:** fragmentos compactos, gustos, recuerdos y recordatorios para responder sin red.
 3. **Memoria profunda en el servidor:** conversaciones consolidadas y recuperación GraphRAG bajo demanda.
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
-│                     DIARIO DURABLE (SQLite v8)                         │
+│                     DIARIO DURABLE (SQLite v9)                         │
 │  Tabla: `conversation_journal`                                         │
 │  • Turno usuario + Fifo escrito ANTES de la locución                   │
 │  • `PENDING` → cola de consolidación persistente                       │

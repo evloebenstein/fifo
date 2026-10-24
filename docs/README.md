@@ -50,7 +50,8 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0028](adr/0028-sync-bundle-writer.md) | Escritor transaccional de bundles remotos fuera del helper. | Aceptado. |
 | [ADR-0029](adr/0029-fifo-backend-adapters.md) | Adaptadores por dominio para el backend propio. | Aceptado. |
 | [ADR-0030](adr/0030-call-state-coordinator.md) | Estado de llamada extraído de `FifoDataRepository`. | Aceptado. |
-| [ADR-0031](adr/0031-relational-graph-multi-source.md) | Grafo relacional multi-fuente y procedencia de personas (SQLite v8). | Aceptado. |
+| [ADR-0031](adr/0031-relational-graph-multi-source.md) | Grafo relacional multi-fuente y procedencia de personas (SQLite v8). | Aceptado; ampliado por ADR-0032. |
+| [ADR-0032](adr/0032-phone-hint-confirmation.md) | Teléfonos mencionados como indicios locales pendientes de confirmación (SQLite v9). | Aceptado. |
 
 ---
 
@@ -67,7 +68,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [`.../telephony/README.md`](../android-app/app/src/main/java/com/fifo/voicepipeline/telephony/README.md) | `TelephonyPort` y contexto de llamante. |
 | [`.../data/README.md`](../android-app/app/src/main/java/com/fifo/voicepipeline/data/README.md) | Repositorio, módulos y memoria durable. |
 | [`.../data/memory/README.md`](../android-app/app/src/main/java/com/fifo/voicepipeline/data/memory/README.md) | Diario, consolidación y cola pendiente. |
-| [`.../data/local/README.md`](../android-app/app/src/main/java/com/fifo/voicepipeline/data/local/README.md) | SQLite v8, `conversation_journal` y `contact_appearances`. |
+| [`.../data/local/README.md`](../android-app/app/src/main/java/com/fifo/voicepipeline/data/local/README.md) | SQLite v9, `conversation_journal`, `contact_appearances` e indicios telefónicos. |
 | [`.../network/README.md`](../android-app/app/src/main/java/com/fifo/voicepipeline/network/README.md) | BLE, Groq, backend y extracción de memoria. |
 | [`.../service/README.md`](../android-app/app/src/main/java/com/fifo/voicepipeline/service/README.md) | Servicio en primer plano y accesibilidad. |
 
@@ -91,4 +92,4 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 - **Memoria antes de hablar:** `conversation_journal` se escribe antes de `speakResponse`.
 - **Barge-in por contenido:** el RMS no corta locuciones; el eco se ignora antes de cualquier acción.
 - **Comandos de llamada completos:** *“Fifo contesta”* / *“Fifo cuelga”*.
-- **Grafo relacional multi-fuente:** libreta, FifoAmigos y menciones se fusionan en `RelationalGraphCoordinator`; la procedencia vive solo en `contact_appearances` y se muestra como “Visto en…” en la tarjeta de contacto. Los teléfonos solo se toman de números explícitos y nunca reemplazan la libreta.
+- **Grafo relacional multi-fuente:** libreta, FifoAmigos y menciones se fusionan en `RelationalGraphCoordinator`; la procedencia vive solo en `contact_appearances` y se muestra como “Visto en…” en la tarjeta de contacto. Los teléfonos mencionados viven en `contact_phone_hints` como indicios locales y solo pasan a `phoneNumber` cuando el usuario los confirma (ADR-0032).

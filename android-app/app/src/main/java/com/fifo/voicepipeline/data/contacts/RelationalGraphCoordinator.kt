@@ -2,8 +2,10 @@ package com.fifo.voicepipeline.data.contacts
 
 import com.fifo.voicepipeline.data.memory.MentionedPersonExtraction
 import com.fifo.voicepipeline.ui.model.ContactAppearance
+import com.fifo.voicepipeline.ui.model.ContactPhoneHint
 import com.fifo.voicepipeline.ui.model.ContactSource
 import com.fifo.voicepipeline.ui.model.FriendRecommendation
+import com.fifo.voicepipeline.ui.model.PhoneHintStatus
 import com.fifo.voicepipeline.ui.model.RelationalContact
 
 /**
@@ -11,12 +13,14 @@ import com.fifo.voicepipeline.ui.model.RelationalContact
  *
  * `contacts` es la lista completa ya fusionada, `changed` solo los contactos que
  * deben persistirse y `appearances` las apariciones nuevas (deduplicadas por
- * origen y persona).
+ * origen y persona). `phoneHints` son teléfonos mencionados que esperan
+ * confirmación del usuario; no se copian al contacto todavía.
  */
 data class RelationalGraphMerge(
     val contacts: List<RelationalContact>,
     val changed: List<RelationalContact>,
-    val appearances: List<ContactAppearance>
+    val appearances: List<ContactAppearance>,
+    val phoneHints: List<ContactPhoneHint> = emptyList()
 )
 
 /**
@@ -30,8 +34,8 @@ data class RelationalGraphMerge(
  *
  * No inventa parentescos: una recomendación de FifoAmigos entra como
  * `Amigo de FifoAmigos`, y una mención sin rol entra como `Persona cercana`.
- * Tampoco inventa teléfonos: una mención solo asocia un número explícito y
- * nunca reemplaza el que ya conoce la libreta ([PhoneHintExtractor]).
+ * Tampoco inventa teléfonos: una mención solo genera un indicio pendiente
+ * ([PhoneHintExtractor]) y nunca reemplaza el que ya conoce la libreta.
  */
 class RelationalGraphCoordinator {
 
@@ -163,6 +167,7 @@ class RelationalGraphCoordinator {
         val contacts = current.toMutableList()
         val changed = mutableListOf<RelationalContact>()
         val appearances = mutableListOf<ContactAppearance>()
+        val phoneHints = mutableListOf<ContactPhoneHint>()
         val allowPhoneHint = !conversationId.isNullOrBlank()
 
         mentions.forEach { mention ->
@@ -190,14 +195,6 @@ class RelationalGraphCoordinator {
                     existing.relationshipRole
                 }
                 val updated = existing.copy(
-                    phoneNumber = if (allowPhoneHint) {
-                        PhoneHintExtractor.extract(
-                            snippet = mention.contextSnippet,
-                            currentPhone = existing.phoneNumber
-                        ) ?: existing.phoneNumber
-                    } else {
-                        existing.phoneNumber
-                    },
                     closenessScore = newScore,
                     mentionCount = existing.mentionCount + 1,
                     relationshipRole = newRole,
@@ -213,11 +210,7 @@ class RelationalGraphCoordinator {
                 val created = RelationalContact(
                     id = "ctc_rel_${newContactSuffix(mentionName)}",
                     contactName = mentionName,
-                    phoneNumber = if (allowPhoneHint) {
-                        PhoneHintExtractor.extract(mention.contextSnippet)
-                    } else {
-                        null
-                    },
+                    phoneNumber = null,
                     relationshipRole = mention.inferredRole ?: "Persona cercana",
                     closenessScore = 0.65f,
                     trustTier = 3,
@@ -233,6 +226,22 @@ class RelationalGraphCoordinator {
                 contacts.add(created)
                 changed.add(created)
                 created
+            }
+
+            if (allowPhoneHint) {
+                PhoneHintExtractor.extract(
+                    snippet = mention.contextSnippet,
+                    currentPhone = resolved.phoneNumber
+                )?.let { phone ->
+                    phoneHints.add(
+                        phoneHint(
+                            contactId = resolved.id,
+                            phoneNumber = phone,
+                            snippet = mention.contextSnippet,
+                            occurredAt = occurredAt
+                        )
+                    )
+                }
             }
 
             if (!conversationId.isNullOrBlank()) {
@@ -251,7 +260,8 @@ class RelationalGraphCoordinator {
         return RelationalGraphMerge(
             contacts = contacts,
             changed = changed.distinctBy { it.id },
-            appearances = appearances.distinctBy { it.id }
+            appearances = appearances.distinctBy { it.id },
+            phoneHints = phoneHints.distinctBy { it.id }
         )
     }
 
@@ -343,6 +353,23 @@ class RelationalGraphCoordinator {
             sourceId = sourceId,
             snippet = snippet,
             occurredAt = occurredAt
+        )
+    }
+
+    private fun phoneHint(
+        contactId: String,
+        phoneNumber: String,
+        snippet: String?,
+        occurredAt: String
+    ): ContactPhoneHint {
+        val key = "$contactId|$phoneNumber"
+        return ContactPhoneHint(
+            id = "hint_${Integer.toHexString(key.hashCode())}",
+            contactId = contactId,
+            phoneNumber = phoneNumber,
+            snippet = snippet?.ifBlank { null },
+            createdAt = occurredAt,
+            status = PhoneHintStatus.PENDING
         )
     }
 

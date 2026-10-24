@@ -125,5 +125,9 @@ Rol por defecto de una persona mencionada en conversación cuando Fifo no puede 
 _Avoid_: Familiar, Amigo, Conocido
 
 **Indicio telefónico**:
-Número que aparece explícito en el contexto de una persona mencionada y que `PhoneHintExtractor` asocia solo si el contacto no tiene teléfono. No reemplaza la libreta ni se considera un número verificado.
+Número que aparece explícito en el contexto de una persona mencionada y que `PhoneHintExtractor` asocia solo si el contacto no tiene teléfono. Vive en `contact_phone_hints` como `PENDING`; no reemplaza la libreta, no se usa para llamar y no se sincroniza hasta que el usuario lo confirma.
 _Avoid_: Teléfono confirmado, Contacto verificado
+
+**Teléfono confirmado**:
+Teléfono que el usuario aceptó a partir de un indicio mencionado. Recién entonces se copia a `RelationalContact.phoneNumber`, se persiste y se sincroniza; deja de estar pendiente en `contact_phone_hints`.
+_Avoid_: Teléfono mencionado, Indicio

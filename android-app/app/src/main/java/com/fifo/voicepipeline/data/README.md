@@ -18,8 +18,8 @@ camino `SESSION`.
 | [`modules/SqliteStorageAdapters.kt`](modules/SqliteStorageAdapters.kt) | Adaptadores SQLite de producción para los módulos de dominio. |
 | [`memory/`](memory/README.md) | **Memoria durable del camino nuevo:** `JournalEntry`, puerto `ConversationJournal`, consolidación local/backend y fake JVM. |
 | [`contacts/RelationalGraphCoordinator.kt`](contacts/RelationalGraphCoordinator.kt) | Política pura de fusión multi-fuente del grafo relacional: libreta, FifoAmigos y menciones (ADR-0031). |
-| [`contacts/PhoneHintExtractor.kt`](contacts/PhoneHintExtractor.kt) | Extracción conservadora de teléfonos explícitos en menciones; nunca sobrescribe la libreta (ADR-0031). |
-| [`local/FifoDatabaseHelper.kt`](local/FifoDatabaseHelper.kt) | Helper SQLite v8: esquema global, migraciones, singleton y composición de DAOs. Ya no contiene SQL operativo de dominio ni la sincronización del bundle. |
+| [`contacts/PhoneHintExtractor.kt`](contacts/PhoneHintExtractor.kt) | Extracción conservadora de teléfonos explícitos en menciones; nunca sobrescribe la libreta ni escribe `phoneNumber` (ADR-0031, ADR-0032). |
+| [`local/FifoDatabaseHelper.kt`](local/FifoDatabaseHelper.kt) | Helper SQLite v9: esquema global, migraciones, singleton y composición de DAOs. Ya no contiene SQL operativo de dominio ni la sincronización del bundle. |
 | [`local/UserProfileDao.kt`](local/UserProfileDao.kt) | DAO de identidad local: perfil, demografía, bio, intereses, verificación de usernames y upsert del perfil sincronizado (ADR-0017, ADR-0028). |
 | [`local/UsernameRecommender.kt`](local/UsernameRecommender.kt) | Política pura de recomendación de usernames (ADR-0018). |
 | [`local/TasteDao.kt`](local/TasteDao.kt) | DAO de gustos e historias de gustos (ADR-0019). |
@@ -32,6 +32,7 @@ camino `SESSION`.
 | [`local/DailyRoutineDao.kt`](local/DailyRoutineDao.kt) | DAO de rutinas diarias (ADR-0026). |
 | [`local/RelationalContactDao.kt`](local/RelationalContactDao.kt) | DAO de contactos relacionales, fusión e ingesta por lotes (ADR-0027). |
 | [`local/ContactAppearanceDao.kt`](local/ContactAppearanceDao.kt) | DAO local append-only de procedencia del grafo: dónde apareció cada persona (ADR-0031). |
+| [`local/ContactPhoneHintDao.kt`](local/ContactPhoneHintDao.kt) | DAO local de teléfonos mencionados pendientes de confirmar o descartar (ADR-0032). |
 | [`local/SyncBundleWriter.kt`](local/SyncBundleWriter.kt) | Escritor transaccional del bundle remoto (ADR-0028). |
 | [`local/CommunityActivityDao.kt`](local/CommunityActivityDao.kt) | DAO de actividades comunitarias e inscripciones (ADR-0016). |
 | [`local/ConversationJournalSchema.kt`](local/ConversationJournalSchema.kt) | Esquema del diario durable: tabla `conversation_journal` e índice de la cola pendiente. |
@@ -53,14 +54,15 @@ FifoDataRepository (fachada)
     └─► EpisodicMemoryModule ─► SqliteMemoryStorageAdapter ──► SQLite
                                        └──► FifoBackendClient ──► Backend MySQL (GraphRAG)
 
-Grafo relacional (ADR-0031)
+Grafo relacional (ADR-0031, ADR-0032)
     ├─► Libreta del teléfono ─┐
     ├─► FifoAmigos ───────────┼─► RelationalGraphCoordinator ─► RelationalContactDao
-    └─► Menciones de sesión ──┘                              └─► ContactAppearanceDao (local-only)
+    └─► Menciones de sesión ──┘                              ├─► ContactAppearanceDao (local-only)
+                                                             └─► ContactPhoneHintDao (local-only)
 
 VoiceSessionPipeline
     └─► MemoryCoordinator
-          ├─► SqliteConversationJournal ──► conversation_journal (SQLite v8)
+          ├─► SqliteConversationJournal ──► conversation_journal (SQLite v9)
           └─► RepositorySessionMemoryConsolidator
                 ├─► CloudApiClient.extractSessionMemoryChecked()
                 ├─► FifoDataRepository (fragmentos, conversaciones, recuerdos, gustos, menciones)
@@ -77,3 +79,4 @@ VoiceSessionPipeline
 4. **Un solo dueño de la memoria durable:** `VoiceSessionPipeline` compone `MemoryCoordinator`, el diario y el consolidador. `VoiceSession` solo ve `SessionMemory`; el facade legacy no crea otro coordinador.
 5. **El diario es la fuente de continuidad:** `CloudApiClient.conversationHistory` es solo una caché de contexto (últimos 8 mensajes); al arrancar se repuebla desde los últimos 4 turnos del diario.
 6. **Un solo dueño de la fusión relacional:** `RelationalGraphCoordinator` decide cómo se combinan libreta, FifoAmigos y menciones. `FifoDataRepository` solo compone y persiste; la procedencia es local (`contact_appearances`), no viaja al backend y se lee con `getContactAppearancesByContact()`. Los teléfonos solo se aceptan si son explícitos (`PhoneHintExtractor`) y nunca reemplazan uno existente.
+7. **Un teléfono mencionado no es un teléfono confirmado:** la mención produce un `ContactPhoneHint` en `contact_phone_hints`; solo `confirmPhoneHint()` lo copia a `RelationalContact.phoneNumber` y lo sincroniza. `discardPhoneHint()` lo marca `DISCARDED` sin tocar el contacto (ADR-0032).
