@@ -1,6 +1,8 @@
 package com.fifo.voicepipeline.data
 
 import com.fifo.voicepipeline.data.contacts.ContactMatcher
+import com.fifo.voicepipeline.data.device.DeviceLocationPolicy
+import com.fifo.voicepipeline.data.modules.ActivitySuggestionPolicy
 import com.fifo.voicepipeline.ui.model.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -954,15 +956,15 @@ object FifoDataRepository {
     ) {
         val current = _deviceLocation.value
         val nowTime = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date())
-        val updatedLoc = current.copy(
-            isConnected = connected,
-            lastConnectedTime = if (connected) "Conectado ahora" else "Hoy a las $nowTime",
-            lastKnownLatitude = latitude ?: current.lastKnownLatitude,
-            lastKnownLongitude = longitude ?: current.lastKnownLongitude,
-            lastKnownAddress = address ?: current.lastKnownAddress,
-            lastKnownRoom = roomHint ?: current.lastKnownRoom,
-            signalStrengthRssi = rssi ?: current.signalStrengthRssi,
-            isBeeping = if (!connected) false else current.isBeeping
+        val updatedLoc = DeviceLocationPolicy.applyConnectionUpdate(
+            current = current,
+            connected = connected,
+            nowLabel = nowTime,
+            latitude = latitude,
+            longitude = longitude,
+            address = address,
+            roomHint = roomHint,
+            rssi = rssi
         )
         _deviceLocation.value = updatedLoc
         dbHelper?.deviceLocation?.updateDeviceLocation(loc = updatedLoc, userId = userProfile.value.id)
@@ -986,7 +988,7 @@ object FifoDataRepository {
      * Activa o desactiva la alarma sonora en el robot para encontrarlo cuando se pierde.
      */
     fun triggerDeviceBeep(beeping: Boolean) {
-        val updatedLoc = _deviceLocation.value.copy(isBeeping = beeping)
+        val updatedLoc = DeviceLocationPolicy.applyBeep(_deviceLocation.value, beeping)
         _deviceLocation.value = updatedLoc
         dbHelper?.deviceLocation?.updateDeviceLocation(loc = updatedLoc, userId = userProfile.value.id)
 
@@ -1143,65 +1145,12 @@ object FifoDataRepository {
         communityModule.deleteCommunityActivity(activityId)
     }
 
-    fun suggestActivityWithFifo(ideaPrompt: String, userTastes: List<String>): CommunityActivityItem {
-        val promptClean = ideaPrompt.trim()
-        val lower = promptClean.lowercase()
-
-        // Determinar categoría e icono acorde al contexto
-        val (category, defaultTitle, defaultLoc) = when {
-            lower.contains("pint") || lower.contains("arte") || lower.contains("dibuj") || lower.contains("acuarel") ->
-                Triple("palette", "Encuentro de dibujo y pintura libre", "Centro Cultural o Plaza de las Esculturas")
-            lower.contains("cocin") || lower.contains("recet") || lower.contains("pan") || lower.contains("comid") || lower.contains("dulc") ->
-                Triple("coffee", "Compartir de cocina y recetas caseras", "Café vecinal o rincón del té")
-            lower.contains("camin") || lower.contains("parque") || lower.contains("plant") || lower.contains("flor") || lower.contains("jard") ->
-                Triple("nature", "Caminata y paseo por las áreas verdes", "Acceso principal del Parque Central")
-            lower.contains("music") || lower.contains("cant") || lower.contains("guitarr") || lower.contains("bolero") ->
-                Triple("music", "Tarde musical y canciones del recuerdo", "Sala de música del centro comunitario")
-            lower.contains("libr") || lower.contains("le") || lower.contains("cuento") || lower.contains("histori") ->
-                Triple("book", "Club de lectura y tertulia de historias", "Biblioteca vecinal")
-            else ->
-                Triple("nature", "Encuentro vecinal para compartir y conversar", "Café o parque cercano")
-        }
-
-        val tastesFound = mutableListOf<String>()
-        if (lower.contains("pint") || lower.contains("arte")) tastesFound.add("Pintura y arte")
-        if (lower.contains("cocin") || lower.contains("recet")) tastesFound.add("Cocina tradicional")
-        if (lower.contains("camin") || lower.contains("parque")) tastesFound.add("Paseos al aire libre")
-        if (lower.contains("music") || lower.contains("bolero")) tastesFound.add("Música clásica")
-        if (lower.contains("libr") || lower.contains("histori")) tastesFound.add("Historias de vida")
-        if (tastesFound.isEmpty() && userTastes.isNotEmpty()) {
-            tastesFound.addAll(userTastes.take(2))
-        }
-
-        val generatedTitle = if (promptClean.length in 8..55) {
-            promptClean.replaceFirstChar { it.uppercase() }
-        } else {
-            defaultTitle
-        }
-
-        val generatedDesc = if (promptClean.length > 20) {
-            "Fifo organizó esta propuesta: $promptClean. Una oportunidad perfecta para compartir con vecinos que aprecian los mismos pasatiempos."
-        } else {
-            "Reunión comunitaria guiada por Fifo para disfrutar de una grata conversación y realizar actividades amenas en conjunto."
-        }
-
-        return CommunityActivityItem(
-            id = "draft_suggested",
-            title = generatedTitle,
-            description = generatedDesc,
-            spotsLabel = "Quedan 7 cupos",
-            spotsMax = 8,
-            spotsTaken = 1,
-            dateLabel = "Próximo sábado · 16:00",
-            locationName = defaultLoc,
-            distanceLabel = "A 500 m",
-            iconCategory = category,
+    fun suggestActivityWithFifo(ideaPrompt: String, userTastes: List<String>): CommunityActivityItem =
+        ActivitySuggestionPolicy.draft(
+            ideaPrompt = ideaPrompt,
+            userTastes = userTastes,
             organizerId = userProfile.value.id,
-            organizerName = userProfile.value.fullName.ifBlank { "Vecino" },
-            organizerType = "user",
-            targetTastes = tastesFound,
-            isJoined = true
+            organizerName = userProfile.value.fullName
         )
-    }
 }
 

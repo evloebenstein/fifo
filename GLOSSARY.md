@@ -104,6 +104,10 @@ _Avoid_: Retraction, UndoMessage, CorrectionCommand
 
 ### Comunidad y Memoria
 
+**Estado del dispositivo Fifo**:
+Última conexión, ubicación, habitación, RSSI y beeper del robot (`FifoDeviceLocation`). `DeviceLocationPolicy` decide la transición; el repositorio conserva el reloj, SQLite y la sincronización.
+_Avoid_: Estado del robot, Telemetría, DeviceStatus
+
 **Contexto episódico local**:
 Resultado del fallback offline de `recall_past_context`: busca contactos, rutinas, recuerdos, gustos, recordatorios y fragmentos con stop words y puntuación local. Vive en `EpisodicContextSearch`; el backend sigue teniendo prioridad cuando responde.
 _Avoid_: Búsqueda profunda, Recall, RAG local
@@ -111,6 +115,10 @@ _Avoid_: Búsqueda profunda, Recall, RAG local
 **ActividadComunitaria**:
 Encuentro o evento presencial propuesto por un usuario o patrocinado por Fifo, con afinidades temáticas calculadas para personas mayores.
 _Avoid_: Evento, Reunión, Match
+
+**Borrador de actividad**:
+Propuesta local que Fifo arma a partir de una idea dictada y del perfil: elige categoría, título, lugar, gustos y descripción sin llamar al backend. Vive en `ActivitySuggestionPolicy` y no está publicada hasta que el usuario la crea.
+_Avoid_: Actividad sugerida por IA, Plantilla, Draft
 
 **FifoAmigo**:
 Contacto de confianza en la red social de personas mayores que utilizan Fifo, con soporte de afinidades de pasatiempos y recuerdos compartidos.

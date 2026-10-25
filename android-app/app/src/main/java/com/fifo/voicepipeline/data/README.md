@@ -16,11 +16,13 @@ camino `SESSION`.
 | [`modules/CommunityModule.kt`](modules/CommunityModule.kt) | Actividades comunitarias (`ActividadComunitaria`) y red de `FifoAmigos`. Costura: `CommunityStorageAdapter`. |
 | [`modules/EpisodicMemoryModule.kt`](modules/EpisodicMemoryModule.kt) | Memoria episódica: fragmentos compactos on-device y recuperación GraphRAG en backend. Costura: `MemoryStorageAdapter`. |
 | [`modules/EpisodicContextSearch.kt`](modules/EpisodicContextSearch.kt) | Política pura de recuperación local: stop words, tokens, puntuación de fragmentos, sesgo temporal y síntesis (ADR-0035). |
+| [`modules/ActivitySuggestionPolicy.kt`](modules/ActivitySuggestionPolicy.kt) | Política pura del borrador de actividad: categoría, gustos, título, descripción y organizador (ADR-0036). |
 | [`modules/SqliteStorageAdapters.kt`](modules/SqliteStorageAdapters.kt) | Adaptadores SQLite de producción para los módulos de dominio. |
 | [`memory/`](memory/README.md) | **Memoria durable del camino nuevo:** `JournalEntry`, puerto `ConversationJournal`, consolidación local/backend y fake JVM. |
 | [`contacts/RelationalGraphCoordinator.kt`](contacts/RelationalGraphCoordinator.kt) | Política pura de fusión multi-fuente del grafo relacional: libreta, FifoAmigos y menciones (ADR-0031). |
 | [`contacts/ContactMatcher.kt`](contacts/ContactMatcher.kt) | Política pura de resolución de personas por nombre, rol, apodo o tokens, sin distinguir acentos ni mayúsculas (ADR-0034). |
 | [`contacts/PhoneHintExtractor.kt`](contacts/PhoneHintExtractor.kt) | Extracción conservadora de teléfonos explícitos en menciones; nunca sobrescribe la libreta ni escribe `phoneNumber` (ADR-0031, ADR-0032). |
+| [`device/DeviceLocationPolicy.kt`](device/DeviceLocationPolicy.kt) | Política pura de transición del robot: fusión de conexión, última ubicación y beeper (ADR-0037). |
 | [`local/FifoSchema.kt`](local/FifoSchema.kt) | **Fuente única del esquema SQLite v9**: DDL de tablas e índices, versión y sentencias de creación, reparación y migración (ADR-0033). |
 | [`local/FifoDatabaseHelper.kt`](local/FifoDatabaseHelper.kt) | Helper SQLite: singleton, composición de DAOs y ejecución de las sentencias de `FifoSchema`. Ya no contiene DDL, SQL operativo de dominio ni la sincronización del bundle. |
 | [`local/UserProfileDao.kt`](local/UserProfileDao.kt) | DAO de identidad local: perfil, demografía, bio, intereses, verificación de usernames y upsert del perfil sincronizado (ADR-0017, ADR-0028). |
@@ -86,3 +88,5 @@ VoiceSessionPipeline
 8. **Un solo dueño del DDL:** tablas, columnas e índices locales viven en `local/FifoSchema.kt`; `conversation_journal` sigue en `ConversationJournalSchema`. El helper solo ejecuta sentencias y no declara SQL de esquema (ADR-0033).
 9. **Una sola resolución de personas:** `ContactMatcher` decide qué contacto corresponde a un nombre, rol, apodo o fragmento. Las skills y el pipeline no reimplementan normalización de acentos ni comparación de tokens; `FifoDataRepository.findContactByRoleOrName()` solo delega (ADR-0034).
 10. **Una sola recuperación episódica local:** `EpisodicContextSearch` posee stop words, puntuación, sesgo temporal y síntesis del fallback offline. `EpisodicMemoryModule` solo intenta el backend y compone la instantánea (ADR-0035).
+11. **Un solo borrador de actividad:** `ActivitySuggestionPolicy` decide categoría, gustos, título y descripción a partir de la idea y el perfil. `FifoDataRepository.suggestActivityWithFifo()` solo aporta `organizerId` y `organizerName` (ADR-0036).
+12. **Una sola transición del dispositivo:** `DeviceLocationPolicy` fusiona conexión, última ubicación y beeper. `FifoDataRepository` conserva el reloj, la persistencia y la sincronización; no vuelve a componer el `copy()` (ADR-0037).
