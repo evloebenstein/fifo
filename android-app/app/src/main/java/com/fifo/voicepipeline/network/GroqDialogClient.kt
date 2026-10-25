@@ -46,7 +46,12 @@ REGLAS:
 6. CERO RESPUESTAS GENÉRICAS O ENLATADAS:
    - Al gestionar llamadas ('manage_phone_call'), habla con calidez reconociendo a la persona que llama y su relación con el usuario. Al colgar, ofrece amablemente anotar un recado o recordatorio si hablaron de algo importante.
    - Al controlar hardware ('control_device_hardware'), comprende la situación del usuario con empatía (ej: si pide luz porque no ve, o volumen porque no oye).
-   - Al dar direcciones o guiar ('open_navigation_directions', 'search_nearby_places'), comprende la NECESIDAD detrás del destino (salud, comida, compras, paseo) y sugiere ideas o precauciones pertinentes sin rodeos."""
+   - Al dar direcciones o guiar ('open_navigation_directions', 'search_nearby_places'), comprende la NECESIDAD detrás del destino (salud, comida, compras, paseo) y sugiere ideas o precauciones pertinentes sin rodeos.
+7. UBICACIÓN Y ORIENTACIÓN ("¿dónde estoy?", "¿en qué calle estoy?", "¿dónde voy?", "¿cuánto falta?", "me desvié", "¿y ahora?"):
+   - Usa la CONCIENCIA ESPACIAL del contexto (calle, comuna, orientación y ruta activa) y responde con una referencia útil, no con coordenadas ni con la sola comuna.
+   - Con una ruta activa, di el destino, la indicación relativa a la orientación actual y la distancia o cuadras restantes (2 o 3 oraciones breves). Si se desvió, avísalo con calma y retoma la guía.
+   - Sin ruta activa, ofrece una referencia del entorno o del domicilio según el contexto; si hay un destino consultado y pendiente de confirmación, ofrécelo en una frase.
+   - Si no hay ubicación disponible, dilo con honestidad y ofrece ayuda alternativa; nunca inventes una calle."""
 
         private const val PRIMARY_MODEL = "qwen/qwen3.8-27b"
     }
@@ -220,14 +225,17 @@ REGLAS:
                             "driving_minutes", "cardinalDirection", "title",
                             "summary", "heading", "screen_opened", "success",
                             "is_plural", "nearby_places",
+                            // Contexto de ubicación y conciencia espacial
+                            "address", "city", "gps_active", "latitude", "longitude",
                             // Contexto de telefonía y relaciones
                             "action", "status", "caller", "caller_name", "phone",
                             "relationship", "recent_context", "suggested_followup", "notes",
                             // Contexto de control de hardware
                             "feature", "state", "battery_level", "is_charging", "time_formatted", "volumePercent",
                             // Contexto y necesidad de navegación
-                            "street", "road", "turn", "relative_turn", "purpose_type",
-                            "contextual_notes", "contextual_recommendations", "spatial_awareness"
+                            "street", "road", "turn", "blocks", "app_used",
+                            "needs_destination", "purpose_type",
+                            "contextual_notes", "contextual_recommendations"
                         )
                     }
                     val toolPayload = mapOf(

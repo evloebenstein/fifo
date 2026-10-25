@@ -10,7 +10,7 @@ Catálogo de habilidades ejecutables por el LLM (Groq) y por intenciones locales
 | :--- | :--- |
 | [`FifoSkill.kt`](FifoSkill.kt) | Interfaz base: `execute(args): SkillResult`. Toda skill implementa esta interfaz. |
 | [`FifoSkillRegistry.kt`](FifoSkillRegistry.kt) | **Fachada de delegación** sobre `GroqToolCatalog` y `VoiceIntentRouter`. Registra las 13 skills activas y las despacha por nombre. |
-| [`VoiceIntentRouter.kt`](VoiceIntentRouter.kt) | Enrutador local sub-milisegundo para comandos de hardware sin ambigüedad (linterna, volumen, hora, batería, contestar/colgar llamada). Devuelve `null` para todo lo conversacional. |
+| [`VoiceIntentRouter.kt`](VoiceIntentRouter.kt) | Enrutador local sub-milisegundo para comandos de hardware sin ambigüedad (linterna, volumen, hora, batería, contestar/colgar llamada, cancelar ruta). Devuelve `null` para todo lo conversacional e informativo, incluida la ubicación y la orientación. No depende de `Context`. |
 | [`GroqToolCatalog.kt`](GroqToolCatalog.kt) | Catálogo OpenAI/Groq 100% dinámico. Genera los schemas JSON para el LLM sin acoplarse a un proveedor heredado. |
 | [`CalendarSkill.kt`](CalendarSkill.kt) | Día actual, fechas y recordatorios de calendario. |
 | [`ContactsSkill.kt`](ContactsSkill.kt) | Búsqueda, adición y notas en la agenda de contactos del teléfono. |
@@ -33,4 +33,5 @@ Catálogo de habilidades ejecutables por el LLM (Groq) y por intenciones locales
 1. **Sin respuestas hardcodeadas:** Toda skill devuelve datos estructurados en `SkillResult.data`; el LLM genera el texto hablado final con contexto y calidez. Ver ADR-0004.
 2. **VoiceIntentRouter primero:** Comandos de hardware se resuelven en microsegundos localmente. El LLM solo ve lo conversacional.
 3. **`spokenFeedback` como hint:** El campo `spokenFeedback` de `SkillResult` es solo un fallback de emergencia; el texto final siempre lo genera el LLM con los datos de `SkillResult.data`.
-4. **Resolución compartida de personas:** llamadas, mensajería y recordatorios resuelven nombres, roles y apodos con `FifoDataRepository.findContactByRoleOrName()`, respaldado por `ContactMatcher`. No reimplementes normalización de acentos ni comparación de tokens en una skill (ADR-0034).
+4. **Consultas informativas nunca se responden en el router:** ubicación (“¿dónde estoy?”), orientación activa (“¿dónde voy?”, “¿cuánto falta?”, “me desvié”) y cualquier pregunta de memoria o recomendación retornan `null`. El router solo ejecuta acciones mecánicas (contestar/colgar, hardware, cancelar ruta). Ver ADR-0039.
+5. **Resolución compartida de personas:** llamadas, mensajería y recordatorios resuelven nombres, roles y apodos con `FifoDataRepository.findContactByRoleOrName()`, respaldado por `ContactMatcher`. No reimplementes normalización de acentos ni comparación de tokens en una skill (ADR-0034).

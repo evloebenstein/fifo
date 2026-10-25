@@ -1,26 +1,24 @@
 package com.fifo.voicepipeline.skills
 
-import android.content.Context
 import android.util.Log
 import com.fifo.voicepipeline.data.FifoDataRepository
-import com.fifo.voicepipeline.location.FifoLocationHelper
 import com.fifo.voicepipeline.location.FifoNavigationManager
-import com.fifo.voicepipeline.ui.model.CurrentLocationInfo
-import java.util.Locale
 
 /**
  * Enrutador de Intenciones Rápidas Locales (Fast-Path Local Intent Router).
  *
  * Principio Arquitectónico Fundamental:
  * - Resuelve en microsegundos (<0.001 ms) ÚNICAMENTE comandos mecánicos y de hardware
- *   sin ambigüedad (colgar/atender llamadas, linterna, volumen, hora, batería, descanso).
- * - NUNCA intercepta consultas conversacionales, recuerdos, personas, anécdotas, recomendaciones,
- *   recetas médicas, vestimentas o búsquedas de lugares en el pasado:
- *   todas esas consultas retornan `null` para que Groq LPU realice razonamiento multi-paso
- *   con el pipeline GraphRAG y web_search.
+ *   sin ambigüedad (colgar/atender llamadas, linterna, volumen, hora, batería, descanso,
+ *   cancelar una ruta activa).
+ * - NUNCA intercepta consultas informativas: recuerdos, personas, anécdotas, recomendaciones,
+ *   recetas médicas, vestimentas, búsquedas de lugares en el pasado, ubicación actual ni
+ *   orientación de navegación. Todas retornan `null` para que Groq LPU componga la respuesta
+ *   con el contexto enriquecido (espacial, temporal, episódico y GraphRAG).
+ * - No depende de `Context`: el único estado que necesita es el [FifoNavigationManager]
+ *   inyectado, así que es puro-JVM y testeable sin Android.
  */
 class VoiceIntentRouter(
-    private val context: Context? = null,
     private val navigationManager: FifoNavigationManager
 ) {
 
@@ -194,70 +192,21 @@ class VoiceIntentRouter(
                 )
             }
 
-            // Preguntas directas de orientación peatonal
-            val isNavQuery = text.contains("dónde voy") || text.contains("donde voy") ||
-                    text.contains("por dónde") || text.contains("por donde") ||
-                    text.contains("hacia dónde") || text.contains("hacia donde") ||
-                    text.contains("cuánto falta") || text.contains("cuanto falta") ||
-                    text.contains("dónde sigo") || text.contains("donde sigo") ||
-                    text.contains("me desvié") || text.contains("me desvie") ||
-                    text.contains("voy bien") || text == "ahora" || text == "¿y ahora?"
-
-            if (isNavQuery) {
-                val currentLoc = if (context != null) FifoLocationHelper.getCurrentLocation(context) else CurrentLocationInfo(address = "Santiago Centro", city = "Santiago")
-                val report = navigationManager.getGuidanceReport(currentLoc)
-                if (report != null) {
-                    val distText = if (report.distanceMeters < 1200) "${report.distanceMeters} metros" else "${String.format(Locale("es", "ES"), "%.1f", report.distanceMeters / 1000.0)} km"
-
-                    val spoken = if (report.isArrived) {
-                        "Llegaste a ${report.destinationName}."
-                    } else {
-                        "${report.relativeInstruction} hacia ${report.destinationName} ($distText)."
-                    }
-
-                    return SkillResult(
-                        success = true,
-                        spokenFeedback = spoken,
-                        data = mapOf(
-                            "destination" to report.destinationName,
-                            "relative_turn" to report.relativeInstruction,
-                            "distance_meters" to report.distanceMeters,
-                            "blocks" to report.blocks,
-                            "is_arrived" to report.isArrived,
-                            "keep_listening" to true
-                        )
-                    )
-                }
-            }
+            // Las preguntas de orientación ("¿dónde voy?", "¿cuánto falta?",
+            // "me desvié", "¿y ahora?") NO se responden con plantillas locales.
+            // El sistema inyecta el bloque de CONCIENCIA ESPACIAL y el MODO
+            // NAVEGACIÓN ACTIVA al LLM (ver FifoNavigationManager
+            // .buildSystemPromptContext), que compone la respuesta con la
+            // orientación, la distancia y la ruta reales. Aquí solo quedan las
+            // acciones mecánicas que no admiten redacción (cancelar la ruta).
         }
 
-        // ── 8. CONCIENCIA ESPACIAL INMEDIATA ("¿Dónde estoy ahora?") ───────────────────────
-        val isSpatialQuery = (text.contains("dónde estoy") || text.contains("donde estoy") ||
-                text.contains("en qué calle") || text.contains("en que calle") ||
-                text.contains("dónde me encuentro") || text.contains("donde me encuentro") ||
-                text.contains("dónde estamos") || text.contains("donde estamos")) &&
-                !text.contains("ayer") && !text.contains("semana") && !text.contains("año")
-        if (isSpatialQuery) {
-            val currentLoc = if (context != null) FifoLocationHelper.getCurrentLocation(context) else CurrentLocationInfo(address = "Santiago Centro", city = "Santiago")
-            val spatialDesc = if (context != null) {
-                navigationManager.getSpatialAwarenessDescription(currentLoc)
-            } else {
-                "Te encuentras en ${currentLoc.address}, ${currentLoc.city}."
-            }
-            return SkillResult(
-                success = true,
-                spokenFeedback = spatialDesc,
-                data = mapOf(
-                    "address" to currentLoc.address,
-                    "city" to currentLoc.city,
-                    "spatial_awareness" to true,
-                    "keep_listening" to true
-                )
-            )
-        }
-
-        // TODAS LAS DEMÁS PREGUNTAS (Memoria episódica, qué dijo una persona, recomendaciones,
-        // recetas, vestimentas, dudas, noticias, etc.) pasan a Groq LPU:
+        // ── 8. El resto es informativo: lo redacta el LLM ─────────────────────────────────
+        // "¿Dónde estoy?", "¿en qué calle estoy?", "¿dónde voy?", "¿cuánto falta?",
+        // memoria episódica, qué dijo una persona, recomendaciones, recetas,
+        // vestimentas, noticias o cualquier duda requieren el contexto enriquecido
+        // (espacial, temporal, episódico) que se inyecta al prompt. No se responden
+        // con frases enlatadas: Groq LPU compone la respuesta (regla 1, ADR-0039).
         return null
     }
 

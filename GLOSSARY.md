@@ -102,6 +102,18 @@ _Avoid_: RetryCache, ConsolidationList
 Corrección de un turno anterior usando la ventana de ±1 turno. Si el turno original tiene ~10 s o menos, la corrección se locuta; si llega tarde, se guarda en diario y OLED sin interrumpir.
 _Avoid_: Retraction, UndoMessage, CorrectionCommand
 
+**Fast-path**:
+Camino local de `VoiceIntentRouter` que ejecuta en microsegundos solo acciones mecánicas y sin ambigüedad: contestar/colgar una llamada, linterna, volumen, batería, hora y cancelar una ruta. No redacta respuestas.
+_Avoid_: Atajo local, Comando directo, Router de voz
+
+**Consulta informativa**:
+Pregunta cuya respuesta depende de contexto (ubicación, orientación, memoria episódica, agenda, recomendaciones). Nunca la responde el fast-path: retorna `null` y la redacta el LLM con el contexto inyectado.
+_Avoid_: Pregunta simple, Consulta trivial
+
+**Contexto espacial**:
+Bloque que `FifoNavigationManager.buildSystemPromptContext()` inyecta al LLM con calle, comuna, orientación de la brújula, destino activo, distancia restante, cuadras, indicación relativa, desvío y destino pendiente. Es la única fuente de verdad para responder “¿dónde estoy?” u “¿cuánto falta?”.
+_Avoid_: Descripción espacial, Frase de ubicación
+
 ### Comunidad y Memoria
 
 **Estado del dispositivo Fifo**:

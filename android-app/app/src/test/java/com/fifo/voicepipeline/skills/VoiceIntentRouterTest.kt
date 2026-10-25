@@ -33,8 +33,42 @@ class VoiceIntentRouterTest {
             ),
             locationManagerProvider = { null }
         )
-        router = VoiceIntentRouter(context = null, navigationManager = navigationManager)
+        router = VoiceIntentRouter(navigationManager)
         catalog = GroqToolCatalog()
+    }
+
+    @Test
+    fun testSpatialQueriesAreDelegatedToLlm() = runBlocking {
+        val executor: suspend (String, Map<String, Any?>) -> SkillResult = { _, _ ->
+            fail("Una pregunta de ubicación no debe responderse con un mensaje local enlatado")
+            SkillResult(success = false, spokenFeedback = "")
+        }
+
+        assertNull(router.routeFastIntent("Fifo, ¿dónde estoy?", executor))
+        assertNull(router.routeFastIntent("¿en qué calle estoy?", executor))
+        assertNull(router.routeFastIntent("¿dónde estamos?", executor))
+    }
+
+    @Test
+    fun testActiveNavigationQueriesAreDelegatedToLlm() = runBlocking {
+        navigationManager.startNavigation(
+            name = "Farmacia Los Aromos",
+            latitude = -33.43,
+            longitude = -70.62,
+            fullAddress = "Av. Providencia 123",
+            road = "Av. Providencia"
+        )
+        val executor: suspend (String, Map<String, Any?>) -> SkillResult = { _, _ ->
+            fail("La orientación activa la redacta el LLM con el contexto espacial, no el fast-path")
+            SkillResult(success = false, spokenFeedback = "")
+        }
+
+        assertNull(router.routeFastIntent("¿dónde voy?", executor))
+        assertNull(router.routeFastIntent("¿cuánto falta?", executor))
+        assertNull(router.routeFastIntent("me desvié", executor))
+        assertNull(router.routeFastIntent("¿y ahora?", executor))
+        // La ruta sigue activa: delegar la redacción no cancela el acompañamiento.
+        assertTrue(navigationManager.isNavigating)
     }
 
     @Test

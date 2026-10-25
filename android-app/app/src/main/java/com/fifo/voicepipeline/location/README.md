@@ -30,6 +30,18 @@ Callers (Skills, VoiceIntentRouter, SpeechCognitionSeam)
 - **Skills** reciben `LocationAdapter` + `FifoNavigationManager` por constructor.
 - **`FifoSkillRegistry`** construye el adaptador y el manager una sola vez y los inyecta en `VoiceIntentRouter`, `CloudApiClient`, `DefaultConversationContextProvider` y `VoicePipelineManager`. No existe un singleton de navegación (ADR-0038).
 
+## Contexto espacial para el LLM (ADR-0039)
+
+`FifoNavigationManager.buildSystemPromptContext()` es la **única** fuente de
+contexto espacial del prompt: calle, comuna, orientación de la brújula, destino
+activo, distancia restante, cuadras, indicación relativa, estado de desvío y
+destino pendiente.
+
+Las preguntas “¿dónde estoy?”, “¿dónde voy?” o “¿cuánto falta?” no se responden
+con plantillas locales: `VoiceIntentRouter` las delega al LLM, que redacta con
+ese contexto. `getSpatialAwarenessDescription()` se eliminó por ser un generador
+de frases enlatadas.
+
 ## Notas importantes
 
 1. **GPS solo cuando hay ruta activa:** El listener continuo se inicia en `startNavigation()` y se detiene en `stopNavigation()` / llegada a destino.

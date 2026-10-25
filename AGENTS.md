@@ -9,6 +9,14 @@ Estas reglas son invariantes de Fifo. Si un cambio las rompe, el cambio está ma
 - **`VoiceSessionPipeline` es la raíz del camino nuevo.** Es el único lugar que construye `VoiceSession`, el adaptador de captura, `AndroidTelephonyPort` y `CallerContextCoordinator`.
 - **El facade delega, no duplica.** `VoicePipelineManager` espeja los flujos del pipeline nuevo y delega sus métodos públicos; no crees un segundo VAD, TTS o manager de telefonía.
 
+## Respuestas dinámicas
+
+- **Nada de mensajes enlatados.** La respuesta hablada se compone con contexto enriquecido (perfil, orientación, ruta, memoria episódica, agenda). Solo si ese contexto falta se admite un fallback genérico de error.
+- **El fast-path solo hace acciones mecánicas:** contestar/colgar, linterna, volumen, batería, hora y cancelar una ruta. Las consultas informativas —ubicación (“¿dónde estoy?”), orientación activa (“¿dónde voy?”, “¿cuánto falta?”, “me desvié”) y cualquier pregunta conversacional o de memoria— retornan `null` y las redacta el LLM.
+- **No agregues generadores de frases.** Si necesitas contexto nuevo, agrégalo al prompt (`buildSystemPromptContext()`, `DefaultConversationContextProvider`) o a `SkillResult.data`; no agregues métodos que devuelvan una oración armada para hablar.
+- **`spokenFeedback` es payload, no respuesta.** El LLM lo recibe como dato y solo se locuta cuando la acción la ejecuta el fast-path o como fallback de error.
+- **Pruebas de verdad:** `VoiceIntentRouterTest` verifica que ubicación y orientación activa se delegan al LLM.
+
 ## Captura de audio
 
 - **Un solo dueño de hardware:** `CaptureArbiter` (`android-app/app/src/main/java/com/fifo/voicepipeline/pipeline/session/CaptureArbiter.kt`) decide la fuente de captura. No llames a `PhoneMicRecorder` ni al reconocedor nativo desde `VoiceSession`, la UI, `MainActivity` o `FifoVoiceService`.
@@ -68,3 +76,4 @@ Estas reglas son invariantes de Fifo. Si un cambio las rompe, el cambio está ma
 - La costura de audio está descrita en `docs/adr/0008-capture-arbiter-telephony-port.md`.
 - El flag y la composición del camino nuevo están descritos en `docs/adr/0010-voice-session-pipeline-flag.md`.
 - La memoria durable, la cola de pendientes y la reparación están descritas en `docs/adr/0011-durable-memory-journal.md`.
+- La regla de respuestas dinámicas y la delegación de ubicación/orientación al LLM están descritas en `docs/adr/0039-dynamic-location-and-navigation-answers.md`.

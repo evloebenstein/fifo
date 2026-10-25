@@ -30,7 +30,7 @@ class FifoSkillRegistry(
             context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
         }
     ),
-    private val intentRouter: VoiceIntentRouter = VoiceIntentRouter(context, navigationManager)
+    private val intentRouter: VoiceIntentRouter = VoiceIntentRouter(navigationManager)
 ) {
 
     companion object {

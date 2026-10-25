@@ -250,32 +250,6 @@ class FifoNavigationManager(
     }
 
     /**
-     * SPATIAL AWARENESS ("Siente el espacio a tu alrededor"):
-     * Generates a natural Spanish description of the user's physical surroundings,
-     * including orientation and active route status.
-     */
-    fun getSpatialAwarenessDescription(currentLoc: CurrentLocationInfo): String {
-        val heading = FifoOrientationHelper.currentCardinalHeading
-        val degrees = FifoOrientationHelper.currentAzimuthDegrees.toInt()
-        val addr = currentLoc.address.ifBlank { "calle de ${currentLoc.city}" }
-        val city = currentLoc.city.ifBlank { "Santiago" }
-
-        val dest = activeRoute
-        val navClause = if (dest != null) {
-            val report = getGuidanceReport(currentLoc)
-            val dist = report?.distanceMeters ?: 0
-            val distText = if (dist < 1200) "$dist metros"
-                else "${String.format(Locale("es", "ES"), "%.1f", dist / 1000.0)} km"
-            val turn = report?.relativeInstruction ?: "sigue avanzando"
-            " Actualmente estás en camino hacia ${dest.name} (en ${dest.road}), a unos $distText de distancia. Para dirigirte allá: $turn."
-        } else {
-            ""
-        }
-
-        return "Te encuentras en $addr, en la comuna de $city. Tu teléfono apunta físicamente hacia $heading ($degrees°).$navClause"
-    }
-
-    /**
      * Builds a context block to inject into the Groq system prompt.
      */
     fun buildSystemPromptContext(currentLoc: CurrentLocationInfo): String {
