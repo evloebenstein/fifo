@@ -9,7 +9,7 @@ Catálogo de habilidades ejecutables por el LLM (Groq) y por intenciones locales
 | Archivo | Rol |
 | :--- | :--- |
 | [`FifoSkill.kt`](FifoSkill.kt) | Interfaz base: `execute(args): SkillResult`. Toda skill implementa esta interfaz. |
-| [`FifoSkillRegistry.kt`](FifoSkillRegistry.kt) | **Fachada de delegación** sobre `GroqToolCatalog` y `VoiceIntentRouter`. Registra las 13 skills activas y las despacha por nombre. |
+| [`FifoSkillRegistry.kt`](FifoSkillRegistry.kt) | **Fachada de delegación** sobre `GroqToolCatalog` y `VoiceIntentRouter`. Registra las 14 skills activas y las despacha por nombre. |
 | [`VoiceIntentRouter.kt`](VoiceIntentRouter.kt) | Enrutador local sub-milisegundo para comandos de hardware sin ambigüedad (linterna, volumen, hora, batería, contestar/colgar llamada, cancelar ruta). Devuelve `null` para todo lo conversacional e informativo, incluida la ubicación y la orientación. No depende de `Context`. |
 | [`GroqToolCatalog.kt`](GroqToolCatalog.kt) | Catálogo OpenAI/Groq 100% dinámico. Genera los schemas JSON para el LLM sin acoplarse a un proveedor heredado. |
 | [`CalendarSkill.kt`](CalendarSkill.kt) | Día actual, fechas y recordatorios de calendario. |
@@ -19,6 +19,7 @@ Catálogo de habilidades ejecutables por el LLM (Groq) y por intenciones locales
 | [`FindFifoDeviceSkill.kt`](FindFifoDeviceSkill.kt) | Hace pitar el ESP32 físico para localizarlo. |
 | [`MapsSkill.kt`](MapsSkill.kt) | Busca lugares cercanos (farmacias, supermercados, parques) por Overpass API. |
 | [`NavigationDirectionsSkill.kt`](NavigationDirectionsSkill.kt) | Guía de navegación peatonal hacia un destino con orientación corporal. No usa hardcoded fallbacks. |
+| [`NavigationSessionSkill.kt`](NavigationSessionSkill.kt) | Estado conversacional de una ruta activa (`manage_navigation_session`): encargos en el camino, pausas, reanudación y correcciones. Devuelve datos; el LLM redacta (ADR-0040). |
 | [`PhoneCallSkill.kt`](PhoneCallSkill.kt) | Inicia llamadas telefónicas con identificación de caller contextual (backend knowledge graph). |
 | [`PhoneCommunicationSkill.kt`](PhoneCommunicationSkill.kt) | Mensajería de texto y WhatsApp a contactos. |
 | [`PhoneDeviceControlSkill.kt`](PhoneDeviceControlSkill.kt) | Linterna, volumen, batería, hora — con respuestas empáticas dinámicas. |

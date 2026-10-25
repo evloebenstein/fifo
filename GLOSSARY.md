@@ -114,6 +114,14 @@ _Avoid_: Pregunta simple, Consulta trivial
 Bloque que `FifoNavigationManager.buildSystemPromptContext()` inyecta al LLM con calle, comuna, orientación de la brújula, destino activo, distancia restante, cuadras, indicación relativa, desvío y destino pendiente. Es la única fuente de verdad para responder “¿dónde estoy?” u “¿cuánto falta?”.
 _Avoid_: Descripción espacial, Frase de ubicación
 
+**Aviso de navegación**:
+Hecho estructurado (`NavigationNotice`) que `FifoNavigationManager` detecta por sí mismo —llegada, desvío, quietud, 100 m, 50 m— y entrega al pipeline. El motor no redacta: el LLM compone la locución. `fallbackSpeech()` es el único texto estático y solo se usa si el modelo no responde.
+_Avoid_: Alerta de Waze, Frase de guía, Mensaje autónomo
+
+**Sesión de navegación**:
+Estado conversacional de una ruta activa (`NavigationSessionMemory`): encargos o paradas anotadas en el camino, pausa pactada por el usuario y última corrección de ruta. Se reinicia al iniciar o terminar la ruta y el LLM la gestiona con la herramienta `manage_navigation_session`.
+_Avoid_: Memoria de ruta, Contexto de viaje
+
 ### Comunidad y Memoria
 
 **Estado del dispositivo Fifo**:

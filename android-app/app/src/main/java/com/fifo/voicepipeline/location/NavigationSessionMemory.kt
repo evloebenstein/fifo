@@ -1,0 +1,183 @@
+package com.fifo.voicepipeline.location
+
+/**
+ * Estado conversacional de una sesión de navegación.
+ *
+ * Mientras Fifo acompaña al usuario puede pasar todo tipo de cosas entre medio:
+ * la persona se detiene a comprar algo, pide más tiempo, conversa con un vecino,
+ * corrige la ruta o explica que primero debe hacer un trámite. Nada de eso debe
+ * perderse ni convertir el guiado en una locución fija: el LLM necesita ese
+ * contexto para decidir si reindica el camino, si espera o si retoma el resumen.
+ *
+ * Esta clase es puro estado de dominio: no habla, no conoce Android y no genera
+ * frases. [describeForPrompt] entrega hechos estructurados para el prompt y el
+ * LLM decide cómo decirlos.
+ */
+class NavigationSessionMemory(
+    private val clock: () -> Long = System::currentTimeMillis
+) {
+
+    data class PlannedStop(
+        val label: String,
+        val addedAtMillis: Long
+    )
+
+    data class Pause(
+        val reason: String,
+        val untilMillis: Long?,
+        val startedAtMillis: Long
+    )
+
+    private val stops = mutableListOf<PlannedStop>()
+
+    @Volatile
+    var pause: Pause? = null
+        private set
+
+    @Volatile
+    var lastCorrection: String? = null
+        private set
+
+    private var lastCorrectionAtMillis = 0L
+
+    // ── Encargos en el camino ─────────────────────────────────────────────
+
+    /**
+     * Registra una parada o encargo mencionado por el usuario ("comprar pan").
+     * Devuelve `null` si el texto está vacío o ya estaba anotado.
+     */
+    @Synchronized
+    fun addStop(label: String): PlannedStop? {
+        val clean = label.trim()
+        if (clean.isBlank()) return null
+        if (stops.any { it.label.equals(clean, ignoreCase = true) }) return null
+        val stop = PlannedStop(clean, clock())
+        stops += stop
+        return stop
+    }
+
+    @Synchronized
+    fun pendingStops(): List<PlannedStop> = stops.toList()
+
+    /** Marca todos los encargos como realizados y los devuelve. */
+    @Synchronized
+    fun completeStops(): List<PlannedStop> {
+        val done = stops.toList()
+        stops.clear()
+        return done
+    }
+
+    // ── Pausas ────────────────────────────────────────────────────────────
+
+    fun pause(reason: String?, minutes: Int?): Pause {
+        val now = clock()
+        val until = minutes?.takeIf { it > 0 }?.let { now + it * 60_000L }
+        val created = Pause(
+            reason = reason?.trim().orEmpty(),
+            untilMillis = until,
+            startedAtMillis = now
+        )
+        pause = created
+        return created
+    }
+
+    fun resume(): Pause? {
+        val previous = pause
+        pause = null
+        return previous
+    }
+
+    /**
+     * `true` si hay una pausa vigente. Una pausa con plazo se expira sola.
+     */
+    fun isPaused(): Boolean {
+        val current = pause ?: return false
+        val until = current.untilMillis
+        if (until != null && clock() >= until) {
+            pause = null
+            return false
+        }
+        return true
+    }
+
+    /** Minutos restantes de una pausa con plazo; `null` si es indefinida o no hay pausa. */
+    fun remainingPauseMinutes(): Int? {
+        if (!isPaused()) return null
+        val until = pause?.untilMillis ?: return null
+        val remaining = (until - clock()).coerceAtLeast(1L)
+        return ((remaining + 59_999L) / 60_000L).toInt().coerceAtLeast(1)
+    }
+
+    // ── Correcciones de ruta ──────────────────────────────────────────────
+
+    fun recordCorrection(text: String) {
+        val clean = text.trim()
+        if (clean.isBlank()) return
+        lastCorrection = clean
+        lastCorrectionAtMillis = clock()
+    }
+
+    fun clearCorrection() {
+        lastCorrection = null
+        lastCorrectionAtMillis = 0L
+    }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────
+
+    @Synchronized
+    fun reset() {
+        stops.clear()
+        pause = null
+        clearCorrection()
+    }
+
+    fun hasContext(): Boolean = pendingStops().isNotEmpty() || isPaused() || lastCorrection != null
+
+    /**
+     * Hechos de la sesión para inyectar en el system prompt. Devuelve cadena
+     * vacía cuando no hay nada que contar.
+     */
+    fun describeForPrompt(): String {
+        if (!hasContext()) return ""
+
+        return buildString {
+            appendLine("=== SESIÓN DE NAVEGACIÓN CONVERSACIONAL ===")
+
+            val pending = pendingStops()
+            if (pending.isNotEmpty()) {
+                append("- ENCARGOS/PARADAS PENDIENTES EN EL CAMINO: ")
+                append(
+                    pending.joinToString("; ") { stop ->
+                        "${stop.label} (anotado hace ${ageMinutes(stop.addedAtMillis)} min)"
+                    }
+                )
+                appendLine(".")
+            }
+
+            if (isPaused()) {
+                val current = pause
+                val reason = current?.reason.orEmpty().ifBlank { "sin motivo indicado" }
+                val limit = remainingPauseMinutes()
+                    ?.let { "quedan $it min" }
+                    ?: "sin límite de tiempo"
+                appendLine("- PAUSA ACTIVA DEL USUARIO: $reason ($limit). No lo apure ni lo interrumpa con avisos de desvío.")
+            }
+
+            lastCorrection?.let { correction ->
+                val age = ((clock() - lastCorrectionAtMillis) / 60_000L).toInt()
+                appendLine("- ÚLTIMA CORRECCIÓN DEL USUARIO SOBRE LA RUTA (hace $age min): \"$correction\"")
+            }
+
+            appendLine(
+                "- REGLA DE SESIÓN: use la herramienta 'manage_navigation_session' para anotar " +
+                    "encargos en el camino (add_stop), pausar o reanudar el acompañamiento " +
+                    "(pause/resume) y registrar correcciones (correct). Cuando el usuario diga " +
+                    "que está listo, reanude y retome la guía resumiendo el destino y los " +
+                    "encargos pendientes. No invente calles ni distancias."
+            )
+        }.trim()
+    }
+
+    private fun ageMinutes(millis: Long): Int =
+        ((clock() - millis).coerceAtLeast(0L) / 60_000L).toInt()
+}

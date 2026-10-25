@@ -16,11 +16,14 @@ import java.util.Locale
  *
  * Características clave:
  * 1. Monitoreo GPS continuo autónomo en segundo plano (no espera a que el usuario pregunte).
- * 2. Alertas proactivas de desvío ("Noto que te desviaste... para retomar el OXXO gira a tu derecha...").
- * 3. Detección de detención prolongada / vacilación ("¿Todo bien? Nos detuvimos aquí... te recuerdo que íbamos hacia...").
- * 4. Hitos de proximidad autónomos al aproximarse a esquinas o al destino (100m, 50m, llegada a 25m).
- * 5. Memoria inmutable de la ruta: Fifo NUNCA olvida a dónde vas ni confunde la dirección.
- * 6. Conciencia espacial y ambiental ("Siente el espacio a tu alrededor"): entiende comuna, calle, entorno
+ * 2. Avisos proactivos de desvío, quietud prolongada, proximidad (100 m, 50 m) y llegada,
+ *    entregados como [NavigationNotice] estructurados. El motor NO redacta frases: el
+ *    pipeline pide al LLM que las componga con el contexto y la conversación en curso.
+ * 3. Memoria conversacional de la sesión ([NavigationSessionMemory]): encargos en el
+ *    camino, pausas pactadas y correcciones del usuario. Durante una pausa consciente
+ *    se suspenden los avisos para no interrumpir.
+ * 4. Memoria inmutable de la ruta: Fifo NUNCA olvida a dónde vas ni confunde la dirección.
+ * 5. Conciencia espacial y ambiental: entiende comuna, calle, entorno
  *    interior/exterior, brújula del cuerpo y referencias cercanas.
  *
  * ## GeoIntentSeam (ADR-0007)
@@ -69,11 +72,61 @@ class FifoNavigationManager(
         val isFacingTarget: Boolean,
         val streetName: String,
         val isArrived: Boolean,
-        val isOffCourse: Boolean,
-        val naturalGuidanceSpoken: String
+        val isOffCourse: Boolean
     )
 
+    /**
+     * Tipo de aviso autónomo que el motor de navegación detecta por sí mismo.
+     * El motor no redacta: entrega el hecho y el LLM decide cómo decirlo.
+     */
+    enum class NavigationNoticeKind {
+        ARRIVED,
+        OFF_COURSE,
+        APPROACHING_100M,
+        APPROACHING_50M,
+        STALLED
+    }
+
+    /**
+     * Aviso autónomo estructurado. [fallbackSpeech] es el único texto estático y
+     * se usa solo cuando el LLM no está disponible (regla 1: fallback permitido).
+     */
+    data class NavigationNotice(
+        val kind: NavigationNoticeKind,
+        val destinationName: String,
+        val destinationAddress: String,
+        val streetName: String,
+        val distanceMeters: Int,
+        val blocks: Int,
+        val walkingMinutes: Int,
+        val relativeInstruction: String,
+        val cardinalDirection: String,
+        val isFacingTarget: Boolean,
+        val stalledSeconds: Int = 0,
+        val plannedStops: List<String> = emptyList(),
+        val pauseReason: String = ""
+    ) {
+        fun fallbackSpeech(): String = when (kind) {
+            NavigationNoticeKind.ARRIVED ->
+                "Llegamos a $destinationName."
+            NavigationNoticeKind.OFF_COURSE ->
+                "Parece que se desvió del camino. Para volver a $destinationName, $relativeInstruction."
+            NavigationNoticeKind.APPROACHING_100M ->
+                "Siga derecho por $streetName, está a una cuadra de $destinationName."
+            NavigationNoticeKind.APPROACHING_50M ->
+                "Está a unos 50 metros de $destinationName."
+            NavigationNoticeKind.STALLED ->
+                "¿Todo bien? Vamos hacia $destinationName y quedan unos $distanceMeters metros."
+        }
+    }
+
     // ── Navigation state ──────────────────────────────────────────────────
+
+    /**
+     * Estado conversacional de la sesión (encargos, pausas, correcciones).
+     * Se vacía al iniciar o terminar una ruta.
+     */
+    val sessionMemory = NavigationSessionMemory()
 
     @Volatile
     var activeRoute: ActiveDestination? = null
@@ -86,14 +139,21 @@ class FifoNavigationManager(
     val isNavigating: Boolean
         get() = activeRoute != null
 
-    /** Callback emitted whenever the manager produces autonomous voice guidance. */
-    var onAutonomousGuidance: ((String) -> Unit)? = null
+    /** Callback emitted whenever the manager detects an autonomous navigation event. */
+    var onAutonomousGuidance: ((NavigationNotice) -> Unit)? = null
 
     // ── GPS listener state (Android-only) ─────────────────────────────────
 
     private var locationManager: LocationManager? = null
     private var locationListener: LocationListener? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    /**
+     * Despacho de los avisos autónomos. En producción se entrega en el hilo
+     * principal; en pruebas JVM se sustituye por una entrega síncrona porque el
+     * `Handler` es un stub sin Looper.
+     */
+    internal var noticeDispatch: ((() -> Unit) -> Unit) = { block -> mainHandler.post(block) }
 
     // ── Route telemetry ───────────────────────────────────────────────────
 
@@ -135,6 +195,7 @@ class FifoNavigationManager(
         )
         pendingDestination = null
         resetTelemetry()
+        sessionMemory.reset()
         Log.i(TAG, "Navegación activa iniciada hacia: $name ($latitude, $longitude)")
         startContinuousGps()
     }
@@ -159,6 +220,7 @@ class FifoNavigationManager(
         deviationAlertTriggered = false
         announcedMilestones.clear()
         lastAnnouncedTimestamp = System.currentTimeMillis()
+        sessionMemory.reset()
         Log.i(TAG, "Destino pendiente confirmado exitosamente: ${route.name}")
         startContinuousGps()
         return route
@@ -172,6 +234,7 @@ class FifoNavigationManager(
         activeRoute = null
         pendingDestination = null
         stationaryStartTimestamp = 0L
+        sessionMemory.reset()
         stopContinuousGps()
     }
 
@@ -205,33 +268,11 @@ class FifoNavigationManager(
         val cardinal = locationAdapter.calculateCardinal(targetBearing)
         val walkingMinutes = (distanceMeters / 75).coerceAtLeast(1)
         val blocks = (distanceMeters / 100).coerceAtLeast(1)
-        val blocksText = if (blocks == 1) "1 cuadra" else "$blocks cuadras"
-        val distText = if (distanceMeters < 1200) "$distanceMeters metros"
-            else "${String.format(Locale("es", "ES"), "%.1f", distanceMeters / 1000.0)} km"
 
         val userAzimuth = FifoOrientationHelper.currentAzimuthDegrees
         val turnInfo = FifoOrientationHelper.getRelativeTurnInstruction(userAzimuth, targetBearing)
         val isArrived = distanceMeters <= 25
         val isOffCourse = distanceMeters > minDistanceReachedMeters + 30
-
-        val naturalSpoken = when {
-            isArrived -> "¡Hemos llegado! El ${dest.name} se encuentra justo aquí a su lado."
-            isOffCourse ->
-                "Noto que doblaste en otra dirección. Para retomar el camino hacia ${dest.name}: " +
-                "${turnInfo.instruction} y continúa avanzando hacia el $cardinal " +
-                "por ${dest.road.ifBlank { dest.fullAddress }}."
-            else -> {
-                val street = dest.road.ifBlank { dest.fullAddress }
-                listOf(
-                    "Vamos hacia ${dest.name}. Para orientarte: ${turnInfo.instruction} y avanza " +
-                        "$distText ($blocksText hacia $cardinal por $street). Yo te sigo indicando mientras avanzas.",
-                    "En este momento tu teléfono apunta hacia otro lado. ${turnInfo.instruction.replaceFirstChar { it.uppercase() }}; " +
-                        "te quedan unos $distText (unos $walkingMinutes minutos a pie) para llegar a ${dest.name}.",
-                    "Sigues en camino hacia ${dest.name}. ${turnInfo.instruction.replaceFirstChar { it.uppercase() }} " +
-                        "y continúa avanzando por $street. Quedan aproximadamente $distText."
-                ).random()
-            }
-        }
 
         return NavigationGuidanceReport(
             destinationName = dest.name,
@@ -244,8 +285,7 @@ class FifoNavigationManager(
             isFacingTarget = turnInfo.isFacingTarget,
             streetName = dest.road.ifBlank { dest.fullAddress },
             isArrived = isArrived,
-            isOffCourse = isOffCourse,
-            naturalGuidanceSpoken = naturalSpoken
+            isOffCourse = isOffCourse
         )
     }
 
@@ -262,35 +302,45 @@ class FifoNavigationManager(
         - ORIENTACIÓN BRÚJULA / CELULAR: El usuario apunta físicamente hacia $heading ($degrees°).
         """.trimIndent()
 
+        val sessionContext = sessionMemory.describeForPrompt()
+        fun withSession(block: String): String =
+            if (sessionContext.isBlank()) block else "$block\n$sessionContext"
+
         if (dest == null) {
             val pending = pendingDestination
             if (pending != null) {
-                return """
-                $spatialHeader
-                === DESTINO CONSULTADO RECIENTEMENTE (PENDIENTE DE CONFIRMACIÓN) ===
-                - LUGAR: ${pending.name} (${pending.fullAddressText})
-                - DISTANCIA: ${pending.distanceMeters} metros (${pending.walkingMinutes} min caminando).
-                - REGLA DE DIÁLOGO: Si el usuario responde afirmativamente ("sí", "guíame", "vamos", "porfa"), confirma con entusiasmo e inicia el acompañamiento indicando hacia dónde caminar sin volver a repetir toda la presentación ni preguntar de nuevo.
-                """.trimIndent()
+                return withSession(
+                    """
+                    $spatialHeader
+                    === DESTINO CONSULTADO RECIENTEMENTE (PENDIENTE DE CONFIRMACIÓN) ===
+                    - LUGAR: ${pending.name} (${pending.fullAddressText})
+                    - DISTANCIA: ${pending.distanceMeters} metros (${pending.walkingMinutes} min caminando).
+                    - REGLA DE DIÁLOGO: Si el usuario responde afirmativamente ("sí", "guíame", "vamos", "porfa"), confirma con entusiasmo e inicia el acompañamiento indicando hacia dónde caminar sin volver a repetir toda la presentación ni preguntar de nuevo.
+                    """.trimIndent()
+                )
             }
-            return spatialHeader
+            return withSession(spatialHeader)
         }
 
-        val report = getGuidanceReport(currentLoc) ?: return spatialHeader
+        val report = getGuidanceReport(currentLoc) ?: return withSession(spatialHeader)
         val distText = if (report.distanceMeters < 1200) "${report.distanceMeters} metros"
             else "${String.format(Locale("es", "ES"), "%.1f", report.distanceMeters / 1000.0)} km"
 
-        return """
-        $spatialHeader
-        === MODO NAVEGACIÓN ACTIVA EN TIEMPO REAL (ACOMPAÑANTE TIPO WAZE) ===
-        - DESTINO ACTUAL: ${report.destinationName} (${dest.fullAddress})
-        - CALLE PRINCIPAL: ${report.streetName}
-        - DISTANCIA RESTANTE: $distText (aprox ${report.walkingMinutes} min a pie, ${report.blocks} cuadras).
-        - RUMBO HACIA EL DESTINO: ${report.cardinalDirection} (${report.targetBearing.toInt()}°).
-        - INDICACIÓN RELATIVA SEGÚN HACIA DÓNDE MIRA EL USUARIO: "${report.relativeInstruction}".
-        - ESTADO DE RUTA: ${if (report.isOffCourse) "¡EL USUARIO SE DESVIÓ DEL CAMINO!" else "En camino correcto hacia el destino."}
-        - REGLA DE ORO DE ACOMPAÑAMIENTO: El usuario ESTÁ EN CAMINO hacia este destino. Si pregunta "¿a dónde voy?", "¿y ahora?", "¿por dónde sigo?", respóndele directamente con base en su orientación actual y la distancia restante (ej: "Para ir al ${report.destinationName}, ${report.relativeInstruction} y camina unas ${report.blocks} cuadras por ${report.streetName}"). NUNCA digas que no te acuerdas ni inventes otra dirección.
-        """.trimIndent()
+        return withSession(
+            """
+            $spatialHeader
+            === MODO NAVEGACIÓN ACTIVA EN TIEMPO REAL (ACOMPAÑANTE TIPO WAZE) ===
+            - DESTINO ACTUAL: ${report.destinationName} (${dest.fullAddress})
+            - CALLE PRINCIPAL: ${report.streetName}
+            - DISTANCIA RESTANTE: $distText (aprox ${report.walkingMinutes} min a pie, ${report.blocks} cuadras).
+            - RUMBO HACIA EL DESTINO: ${report.cardinalDirection} (${report.targetBearing.toInt()}°).
+            - INDICACIÓN RELATIVA SEGÚN HACIA DÓNDE MIRA EL USUARIO: "${report.relativeInstruction}".
+            - ESTADO DE RUTA: ${if (report.isOffCourse) "¡EL USUARIO SE DESVIÓ DEL CAMINO!" else "En camino correcto hacia el destino."}
+            - REGLA DE ORO DE ACOMPAÑAMIENTO: El usuario ESTÁ EN CAMINO hacia este destino. Si pregunta "¿a dónde voy?", "¿y ahora?", "¿por dónde sigo?", respóndele directamente con base en su orientación actual y la distancia restante (ej: "Para ir al ${report.destinationName}, ${report.relativeInstruction} y camina unas ${report.blocks} cuadras por ${report.streetName}"). NUNCA digas que no te acuerdas ni inventes otra dirección.
+            - SI EL USUARIO CORRIGE LA RUTA O INDICA QUE FIFO SE EQUIVOCÓ: reconócelo, registra la corrección con 'manage_navigation_session' (action=correct) y reorienta con la información nueva y su orientación actual; si no alcanza el contexto, investiga con 'web_search' antes de afirmar una calle.
+            - SI HABLA DE OTRA COSA: responde esa conversación sin perder la ruta; retómala cuando corresponda o cuando el usuario lo pida.
+            """.trimIndent()
+        )
     }
 
     // ── GPS listener (Android SDK, skipped in JVM tests) ─────────────────
@@ -377,15 +427,40 @@ class FifoNavigationManager(
         lastKnownLocation = currentLocation
         lastLocationTimestamp = now
 
-        // 1. ARRIVAL (< 25 m)
+        // 1. ARRIVAL (< 25 m). Se anuncia incluso en pausa: es el objetivo del viaje.
         if (distanceMeters <= 25) {
             Log.i(TAG, "Llegada al destino detectada autónomamente ($distanceMeters m)")
-            emitAutonomousGuidance("¡Llegamos! El ${dest.name} se encuentra justo aquí a tu lado.")
+            emitNotice(
+                NavigationNotice(
+                    kind = NavigationNoticeKind.ARRIVED,
+                    destinationName = dest.name,
+                    destinationAddress = dest.fullAddress,
+                    streetName = street,
+                    distanceMeters = distanceMeters,
+                    blocks = 1,
+                    walkingMinutes = 1,
+                    relativeInstruction = turnInfo.instruction,
+                    cardinalDirection = cardinal,
+                    isFacingTarget = turnInfo.isFacingTarget
+                )
+            )
             stopNavigation()
             return
         }
 
-        // 2. STATIONARY > 45 s
+        // 2. PAUSA CONSCIENTE: el usuario se detuvo a propósito (comprar, conversar,
+        //    descansar). No se le interrumpe con avisos de desvío ni de quietud; se
+        //    mantiene la referencia de distancia para no disparar un falso desvío al
+        //    reanudar. El LLM sigue teniendo el contexto de la pausa.
+        if (sessionMemory.isPaused()) {
+            stationaryStartTimestamp = 0L
+            stationaryAlertTriggered = false
+            deviationAlertTriggered = false
+            minDistanceReachedMeters = distanceMeters
+            return
+        }
+
+        // 3. STATIONARY > 45 s
         val isStationary = speed < 0.45f
         if (isStationary) {
             if (stationaryStartTimestamp == 0L) {
@@ -396,11 +471,20 @@ class FifoNavigationManager(
                 if (stationarySec >= 45 && !stationaryAlertTriggered && timeSinceSpeech >= 40_000L) {
                     stationaryAlertTriggered = true
                     lastAnnouncedTimestamp = now
-                    val distText = if (distanceMeters < 1200) "$distanceMeters metros"
-                        else "${String.format(Locale("es", "ES"), "%.1f", distanceMeters / 1000.0)} km"
-                    emitAutonomousGuidance(
-                        "¿Todo bien? Veo que nos detuvimos un momento. Te recuerdo que vamos al ${dest.name}. " +
-                        "Nos quedan unos $distText hacia el $cardinal cuando estés listo para seguir."
+                    emitNotice(
+                        NavigationNotice(
+                            kind = NavigationNoticeKind.STALLED,
+                            destinationName = dest.name,
+                            destinationAddress = dest.fullAddress,
+                            streetName = street,
+                            distanceMeters = distanceMeters,
+                            blocks = (distanceMeters / 100).coerceAtLeast(1),
+                            walkingMinutes = (distanceMeters / 75).coerceAtLeast(1),
+                            relativeInstruction = turnInfo.instruction,
+                            cardinalDirection = cardinal,
+                            isFacingTarget = turnInfo.isFacingTarget,
+                            stalledSeconds = stationarySec.toInt()
+                        )
                     )
                 }
             }
@@ -408,16 +492,26 @@ class FifoNavigationManager(
             stationaryStartTimestamp = 0L
             stationaryAlertTriggered = false
 
-            // 3. DEVIATION (distance > min reached + 35 m)
+            // 4. DEVIATION (distance > min reached + 35 m)
             if (distanceMeters > minDistanceReachedMeters + 35) {
                 val timeSinceSpeech = now - lastAnnouncedTimestamp
                 if (!deviationAlertTriggered && timeSinceSpeech >= 30_000L) {
                     deviationAlertTriggered = true
                     minDistanceReachedMeters = distanceMeters
                     lastAnnouncedTimestamp = now
-                    emitAutonomousGuidance(
-                        "Atención: parece que te desviaste un poco del camino. " +
-                        "Para retomar hacia el ${dest.name}, ${turnInfo.instruction} y avanza hacia el $cardinal por $street."
+                    emitNotice(
+                        NavigationNotice(
+                            kind = NavigationNoticeKind.OFF_COURSE,
+                            destinationName = dest.name,
+                            destinationAddress = dest.fullAddress,
+                            streetName = street,
+                            distanceMeters = distanceMeters,
+                            blocks = (distanceMeters / 100).coerceAtLeast(1),
+                            walkingMinutes = (distanceMeters / 75).coerceAtLeast(1),
+                            relativeInstruction = turnInfo.instruction,
+                            cardinalDirection = cardinal,
+                            isFacingTarget = turnInfo.isFacingTarget
+                        )
                     )
                 }
             } else if (distanceMeters < minDistanceReachedMeters) {
@@ -425,22 +519,58 @@ class FifoNavigationManager(
                 deviationAlertTriggered = false
             }
 
-            // 4. PROXIMITY MILESTONES (100 m and 50 m)
+            // 5. PROXIMITY MILESTONES (100 m and 50 m)
             val timeSinceSpeech = now - lastAnnouncedTimestamp
             if (distanceMeters in 35..65 && !announcedMilestones.contains(50) && timeSinceSpeech >= 20_000L) {
                 announcedMilestones.add(50)
                 lastAnnouncedTimestamp = now
-                emitAutonomousGuidance("Ya estás muy cerca: a unos 50 metros adelante verás el ${dest.name}.")
+                emitNotice(
+                    NavigationNotice(
+                        kind = NavigationNoticeKind.APPROACHING_50M,
+                        destinationName = dest.name,
+                        destinationAddress = dest.fullAddress,
+                        streetName = street,
+                        distanceMeters = distanceMeters,
+                        blocks = 1,
+                        walkingMinutes = 1,
+                        relativeInstruction = turnInfo.instruction,
+                        cardinalDirection = cardinal,
+                        isFacingTarget = turnInfo.isFacingTarget
+                    )
+                )
             } else if (distanceMeters in 85..130 && !announcedMilestones.contains(100) && timeSinceSpeech >= 25_000L) {
                 announcedMilestones.add(100)
                 lastAnnouncedTimestamp = now
-                emitAutonomousGuidance("Continúa avanzando derecho por $street, estás a solo una cuadra de ${dest.name}.")
+                emitNotice(
+                    NavigationNotice(
+                        kind = NavigationNoticeKind.APPROACHING_100M,
+                        destinationName = dest.name,
+                        destinationAddress = dest.fullAddress,
+                        streetName = street,
+                        distanceMeters = distanceMeters,
+                        blocks = (distanceMeters / 100).coerceAtLeast(1),
+                        walkingMinutes = (distanceMeters / 75).coerceAtLeast(1),
+                        relativeInstruction = turnInfo.instruction,
+                        cardinalDirection = cardinal,
+                        isFacingTarget = turnInfo.isFacingTarget
+                    )
+                )
             }
         }
     }
 
-    private fun emitAutonomousGuidance(speechText: String) {
-        mainHandler.post { onAutonomousGuidance?.invoke(speechText) }
+    /**
+     * Publica el aviso estructurado. El motor no redacta texto: el pipeline pide
+     * al LLM que lo componga con el contexto de la sesión y solo usa
+     * [NavigationNotice.fallbackSpeech] si el modelo no responde.
+     */
+    private fun emitNotice(notice: NavigationNotice) {
+        val enriched = notice.copy(
+            plannedStops = sessionMemory.pendingStops().map { it.label },
+            pauseReason = sessionMemory.pause?.reason.orEmpty()
+        )
+        Log.i(TAG, "Aviso de navegación autónomo: ${enriched.kind} (${enriched.distanceMeters} m)")
+        noticeDispatch { onAutonomousGuidance?.invoke(enriched) }
     }
 
     private fun resetTelemetry() {

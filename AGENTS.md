@@ -17,6 +17,14 @@ Estas reglas son invariantes de Fifo. Si un cambio las rompe, el cambio está ma
 - **`spokenFeedback` es payload, no respuesta.** El LLM lo recibe como dato y solo se locuta cuando la acción la ejecuta el fast-path o como fallback de error.
 - **Pruebas de verdad:** `VoiceIntentRouterTest` verifica que ubicación y orientación activa se delegan al LLM.
 
+## Guía autónoma y sesión de ruta
+
+- **El sensor emite hechos, no frases.** `FifoNavigationManager` publica `NavigationNotice` (desvío, quietud, 100 m, 50 m, llegada); el pipeline pide la locución al LLM. `NavigationNotice.fallbackSpeech()` es el único texto estático y solo se usa si el modelo no responde.
+- **La sesión de ruta tiene dueño.** `NavigationSessionMemory` guarda encargos (`PlannedStop`), pausas y correcciones; se reinicia al iniciar o terminar la ruta. El LLM la gestiona con la herramienta `manage_navigation_session`, no con frases armadas.
+- **Una pausa consciente silencia el acompañamiento.** No se emiten avisos de desvío, quietud ni hitos mientras dura; la llegada sí se anuncia.
+- **El aviso no se encima a un turno.** `VoicePipelineManager` espera a que el pipeline no esté en `PROCESSING`/`SPEAKING` (máx. 6 s) antes de narrar.
+- **Pruebas de verdad:** `NavigationSessionMemoryTest` cubre encargos, pausas con y sin plazo, correcciones, contexto del prompt y avisos estructurados.
+
 ## Captura de audio
 
 - **Un solo dueño de hardware:** `CaptureArbiter` (`android-app/app/src/main/java/com/fifo/voicepipeline/pipeline/session/CaptureArbiter.kt`) decide la fuente de captura. No llames a `PhoneMicRecorder` ni al reconocedor nativo desde `VoiceSession`, la UI, `MainActivity` o `FifoVoiceService`.

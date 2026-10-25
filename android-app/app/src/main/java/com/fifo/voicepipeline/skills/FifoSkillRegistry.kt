@@ -11,7 +11,7 @@ import com.fifo.voicepipeline.location.LocationAdapter
  * Registro y despachador central de Skills de Fifo.
  *
  * Actúa como fachada desacoplada para:
- * 1. Registrar y mantener las 13 herramientas nativas del teléfono y mutaciones de BD.
+ * 1. Registrar y mantener las 14 herramientas nativas del teléfono y mutaciones de BD.
  * 2. Generar el catálogo de herramientas para Groq LPU a través de [GroqToolCatalog].
  * 3. Ejecutar las herramientas solicitadas por el LLM.
  * 4. Despachar intenciones rápidas locales sin ambigüedad mediante [VoiceIntentRouter].
@@ -59,6 +59,10 @@ class FifoSkillRegistry(
         registerSkill(FindFifoDeviceSkill(context))
         registerSkill(CurrentLocationSkill(context))
         registerSkill(NavigationDirectionsSkill(
+            locationAdapter = locationAdapter,
+            navigationManager = navigationManager
+        ))
+        registerSkill(NavigationSessionSkill(
             locationAdapter = locationAdapter,
             navigationManager = navigationManager
         ))

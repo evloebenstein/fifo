@@ -14,7 +14,9 @@ import okhttp3.Response
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
+import com.fifo.voicepipeline.location.FifoNavigationManager
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Motor de diálogo de Groq LPU.
@@ -51,9 +53,18 @@ REGLAS:
    - Usa la CONCIENCIA ESPACIAL del contexto (calle, comuna, orientación y ruta activa) y responde con una referencia útil, no con coordenadas ni con la sola comuna.
    - Con una ruta activa, di el destino, la indicación relativa a la orientación actual y la distancia o cuadras restantes (2 o 3 oraciones breves). Si se desvió, avísalo con calma y retoma la guía.
    - Sin ruta activa, ofrece una referencia del entorno o del domicilio según el contexto; si hay un destino consultado y pendiente de confirmación, ofrécelo en una frase.
-   - Si no hay ubicación disponible, dilo con honestidad y ofrece ayuda alternativa; nunca inventes una calle."""
+   - Si no hay ubicación disponible, dilo con honestidad y ofrece ayuda alternativa; nunca inventes una calle.
+8. RUTA ACTIVA Y COSAS ENTRE MEDIO ('manage_navigation_session'):
+   - Si el usuario menciona una compra, trámite o parada en el camino, anótala con action=add_stop y tenla presente; recuérdasela cuando venga al caso sin repetirla en cada frase.
+   - Si pide una pausa, más tiempo o dice que se va a detener, usa action=pause (con minutes si lo indica). No lo apures ni le hables de desvíos mientras esté en pausa.
+   - Cuando diga que está listo o quiera seguir, usa action=resume, retoma la guía y resume en una frase el destino y los encargos pendientes.
+   - Si corrige la ruta o dice que Fifo se equivocó, usa action=correct, reconócelo sin excusas y reorienta con la orientación y la distancia reales; si falta contexto del lugar, investígalo con 'web_search' antes de afirmar.
+   - Puede conversar de otros temas sin perder la ruta: responde esa conversación y retoma el acompañamiento cuando corresponda."""
 
         private const val PRIMARY_MODEL = "qwen/qwen3.8-27b"
+
+        /** Tiempo máximo para redactar un aviso de navegación antes de usar el fallback. */
+        private const val NAVIGATION_NARRATION_TIMEOUT_MS = 6_000L
     }
 
     private val gson = Gson()
@@ -85,6 +96,59 @@ REGLAS:
     }
 
     fun hasRecentConversation(): Boolean = conversationHistory.isNotEmpty()
+
+    /**
+     * Redacta un aviso autónomo de navegación a partir del evento estructurado.
+     *
+     * No usa el catálogo de herramientas ni altera el historial conversacional:
+     * el aviso se compone con el contexto espacial y de sesión que ya viaja en el
+     * system prompt. Devuelve `null` si no hay clave o si el modelo no responde,
+     * para que el pipeline use [FifoNavigationManager.NavigationNotice.fallbackSpeech].
+     */
+    suspend fun narrateNavigationNotice(
+        notice: FifoNavigationManager.NavigationNotice
+    ): String? {
+        if (apiKeyProvider().isBlank()) return null
+
+        val prompt = buildString {
+            append("AVISO AUTÓNOMO DE NAVEGACIÓN (no es una pregunta del usuario).\n")
+            append("Evento: ").append(notice.kind.name).append('\n')
+            append("Destino: ").append(notice.destinationName)
+            append(" (").append(notice.destinationAddress).append(")\n")
+            append("Calle principal: ").append(notice.streetName).append('\n')
+            append("Distancia restante: ").append(notice.distanceMeters).append(" metros (")
+            append(notice.blocks).append(" cuadras, ").append(notice.walkingMinutes).append(" min a pie)\n")
+            append("Indicación relativa a la orientación actual: ").append(notice.relativeInstruction).append('\n')
+            append("Rumbo hacia el destino: ").append(notice.cardinalDirection).append('\n')
+            if (notice.kind == FifoNavigationManager.NavigationNoticeKind.ARRIVED) {
+                append("El usuario acaba de llegar y la ruta se cerró en este momento.\n")
+            } else if (!notice.isFacingTarget) {
+                append("El usuario no apunta hacia el destino: indícale hacia dónde girar.\n")
+            }
+            if (notice.stalledSeconds > 0) {
+                append("Lleva ").append(notice.stalledSeconds).append(" segundos detenido.\n")
+            }
+            if (notice.plannedStops.isNotEmpty()) {
+                append("Encargos pendientes del usuario: ")
+                append(notice.plannedStops.joinToString("; ")).append('\n')
+            }
+            if (notice.pauseReason.isNotBlank()) {
+                append("El usuario había indicado una pausa: ").append(notice.pauseReason).append('\n')
+            }
+            append("Redacta el aviso en 1 o 2 oraciones breves, en segunda persona y con calidez, ")
+            append("usando la orientación y la distancia reales. No inventes calles ni distancias. ")
+            append("No digas 'aviso' ni describas el evento: habla como un acompañante que camina al lado. ")
+            append("Si hay un encargo pendiente y encaja naturalmente, menciónalo una sola vez.")
+        }
+
+        val response = withTimeoutOrNull(NAVIGATION_NARRATION_TIMEOUT_MS) {
+            chatWithGroq(prompt, skillRegistry = null)
+        } ?: return null
+
+        val cleaned = response.trim()
+        if (cleaned.isBlank() || cleaned.startsWith("Disculp")) return null
+        return cleaned
+    }
 
     fun recordTurn(userText: String, assistantText: String) {
         if (userText.isBlank() || assistantText.isBlank()) return
@@ -234,7 +298,11 @@ REGLAS:
                             "feature", "state", "battery_level", "is_charging", "time_formatted", "volumePercent",
                             // Contexto y necesidad de navegación
                             "street", "road", "turn", "blocks", "app_used",
-                            "needs_destination", "purpose_type",
+                            "needs_destination", "purpose_type", "route_active",
+                            "destination_address", "relative_instruction", "cardinal_direction",
+                            "planned_stops", "added_stop", "completed_stops",
+                            "paused", "pause_reason", "pause_minutes", "resumed",
+                            "corrected_route", "last_correction",
                             "contextual_notes", "contextual_recommendations"
                         )
                     }

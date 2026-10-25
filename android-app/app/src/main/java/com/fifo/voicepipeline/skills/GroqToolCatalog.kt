@@ -101,6 +101,27 @@ class GroqToolCatalog {
             mapOf(
                 "type" to "function",
                 "function" to mapOf(
+                    "name" to "manage_navigation_session",
+                    "description" to "Estado de una ruta activa: anota encargos/paradas en el camino (add_stop), pausa o pide más tiempo (pause), reanuda cuando el usuario está listo (resume), corrige la ruta si el usuario dice que está mal (correct).",
+                    "parameters" to mapOf(
+                        "type" to "object",
+                        "properties" to mapOf(
+                            "action" to mapOf(
+                                "type" to "string",
+                                "enum" to listOf("add_stop", "complete_stops", "pause", "resume", "correct", "status")
+                            ),
+                            "label" to mapOf("type" to "string", "description" to "Encargo o parada (ej: comprar pan)"),
+                            "reason" to mapOf("type" to "string", "description" to "Motivo de la pausa"),
+                            "minutes" to mapOf("type" to "integer", "description" to "Minutos de pausa; omitir si es indefinida"),
+                            "correction" to mapOf("type" to "string", "description" to "Corrección de ruta del usuario")
+                        ),
+                        "required" to listOf("action")
+                    )
+                )
+            ),
+            mapOf(
+                "type" to "function",
+                "function" to mapOf(
                     "name" to "get_current_location",
                     "description" to "Obtiene ubicación GPS actual y dirección física",
                     "parameters" to mapOf("type" to "object", "properties" to emptyMap<String, Any>())

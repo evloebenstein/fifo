@@ -96,6 +96,15 @@ class CloudApiClient(
 
     fun hasRecentConversation(): Boolean = dialog.hasRecentConversation()
 
+    /**
+     * Redacta un aviso autónomo de navegación con el contexto espacial y de
+     * sesión. Devuelve `null` si el LLM no está disponible: el llamador usa
+     * entonces el fallback estático del aviso.
+     */
+    suspend fun narrateNavigationNotice(
+        notice: com.fifo.voicepipeline.location.FifoNavigationManager.NavigationNotice
+    ): String? = dialog.narrateNavigationNotice(notice)
+
     fun recordTurn(userText: String, assistantText: String) {
         dialog.recordTurn(userText, assistantText)
     }

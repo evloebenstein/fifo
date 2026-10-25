@@ -92,6 +92,24 @@ SLEEPING ──[WakeWordTrigger]──► LISTENING ──[fin de frase]──�
 
 ---
 
+## Guía autónoma de navegación (ADR-0040)
+
+`FifoNavigationManager` pertenece al registro de skills y publica
+`NavigationNotice` estructurados. `VoicePipelineManager` cablea el callback en
+ambos caminos:
+
+1. espera a que el pipeline no esté en `PROCESSING` ni `SPEAKING` (máx. 6 s);
+2. pide la locución a `CloudApiClient.narrateNavigationNotice()`;
+3. locuta la respuesta por `speakAutonomousMessage()` (legacy) o
+   `session.speakResponse()` (`SESSION`), y usa
+   `NavigationNotice.fallbackSpeech()` solo si el LLM no responde.
+
+El motor de navegación no redacta frases y la sesión de ruta no vive en
+`VoiceSession`: encargos, pausas y correcciones están en
+`NavigationSessionMemory`.
+
+---
+
 ## Invariantes (no modificar sin leer los ADRs)
 
 1. **Un solo pipeline vivo:** `VoicePipelineManager` construye `VoiceSessionPipeline` o inicializa el legacy, nunca ambos.

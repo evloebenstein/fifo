@@ -10,7 +10,8 @@ Motor de localización, orientación y navegación autónoma de Fifo.
 | [`AndroidLocationAdapter.kt`](AndroidLocationAdapter.kt) | Implementación de producción de `LocationAdapter`. Delega en `FifoLocationHelper` y mantiene el `Context` confinado a esta capa. |
 | [`InMemoryLocationAdapter.kt`](InMemoryLocationAdapter.kt) | Doble de prueba puro-JVM de `LocationAdapter`. Sin dependencias Android — permite tests unitarios de skills de navegación sin emulador ni Robolectric. |
 | [`FifoLocationHelper.kt`](FifoLocationHelper.kt) | Utilidad GPS de bajo nivel: obtención de ubicación fresca, geocodificación inversa, búsqueda Nominatim de POI cercanos, lanzamiento de intents Maps/Waze. No debe ser llamado directamente desde skills; usar `LocationAdapter`. |
-| [`FifoNavigationManager.kt`](FifoNavigationManager.kt) | Copiloto peatonal autónomo estilo Waze: monitorea GPS continuo (vía `locationManagerProvider`), detecta desvíos, emite alertas de proximidad (100 m, 50 m, llegada 25 m) y detecta detenciones prolongadas. Ya no es un `object` singleton — se inyecta como clase. |
+| [`FifoNavigationManager.kt`](FifoNavigationManager.kt) | Copiloto peatonal autónomo estilo Waze: monitorea GPS continuo (vía `locationManagerProvider`), detecta desvíos, quietud, proximidad (100 m, 50 m) y llegada. Publica `NavigationNotice` estructurados; **no redacta frases** (ADR-0040). Ya no es un `object` singleton — se inyecta como clase. |
+| [`NavigationSessionMemory.kt`](NavigationSessionMemory.kt) | Estado conversacional de la ruta activa: encargos/paradas en el camino, pausas con o sin plazo y última corrección del usuario. `describeForPrompt()` entrega hechos para el system prompt (ADR-0040). |
 | [`FifoOrientationHelper.kt`](FifoOrientationHelper.kt) | Sensor de brújula: azimuth en grados y orientación cardinal del dispositivo en español. Singleton de solo lectura, sin efectos de lado. |
 
 ## Arquitectura (ADR-0007)
@@ -41,6 +42,26 @@ Las preguntas “¿dónde estoy?”, “¿dónde voy?” o “¿cuánto falta?�
 con plantillas locales: `VoiceIntentRouter` las delega al LLM, que redacta con
 ese contexto. `getSpatialAwarenessDescription()` se eliminó por ser un generador
 de frases enlatadas.
+
+## Guía autónoma y sesión de ruta (ADR-0040)
+
+`FifoNavigationManager` no elige frases. Cuando detecta algo emite un
+`NavigationNotice` (`ARRIVED`, `OFF_COURSE`, `APPROACHING_100M`,
+`APPROACHING_50M`, `STALLED`) con destino, calle, distancia, indicación
+relativa, rumbo, segundos detenido, encargos pendientes y pausa. El pipeline
+pide al LLM que lo redacte; `NavigationNotice.fallbackSpeech()` es el único
+texto estático y solo se usa si el modelo no responde.
+
+`NavigationSessionMemory` guarda lo que pasa entre medio: encargos
+(`comprar pan`), pausas (`conversando un rato`, con o sin plazo) y correcciones
+(`la ruta sigue por Manquehue`). Se reinicia al iniciar o terminar la ruta.
+Durante una pausa consciente no se emiten avisos de desvío, quietud ni hitos; la
+llegada siempre se anuncia. El LLM la gestiona con la herramienta
+`manage_navigation_session` (`add_stop`, `complete_stops`, `pause`, `resume`,
+`correct`, `status`).
+
+`noticeDispatch` es la costura de entrega: en producción usa el `Handler`
+principal y en pruebas JVM entrega de forma síncrona.
 
 ## Notas importantes
 

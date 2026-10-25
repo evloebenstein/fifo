@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.fifo.voicepipeline.BuildConfig
 import com.fifo.voicepipeline.audio.*
+import com.fifo.voicepipeline.location.FifoNavigationManager
 import com.fifo.voicepipeline.network.BleConnectionState
 import com.fifo.voicepipeline.network.BleVoiceClient
 import com.fifo.voicepipeline.network.CloudApiClient
@@ -384,8 +385,9 @@ class VoicePipelineManager(
 
         // ── Conectar navegación autónoma en tiempo real (Copiloto Waze) ──
         // El manager pertenece al registro de skills; no hay singleton global.
-        skillRegistry.navigationManager.onAutonomousGuidance = { guidanceSpeech ->
-            speakAutonomousMessage(guidanceSpeech)
+        // El motor solo emite el hecho: la locución la redacta el LLM.
+        skillRegistry.navigationManager.onAutonomousGuidance = { notice ->
+            handleNavigationNotice(notice) { speech -> speakAutonomousMessage(speech) }
         }
 
         // Iniciar escaneo y conexión BLE con el ESP32-S3
@@ -413,8 +415,8 @@ class VoicePipelineManager(
         pipeline.start()
 
         // La navegación autónoma sigue hablando por el mismo motor de salida.
-        skillRegistry.navigationManager.onAutonomousGuidance = { guidanceSpeech ->
-            pipeline.session.speakResponse(guidanceSpeech)
+        skillRegistry.navigationManager.onAutonomousGuidance = { notice ->
+            handleNavigationNotice(notice) { speech -> pipeline.session.speakResponse(speech) }
         }
 
         _micSource.value = MicSource.ESP32
@@ -1854,6 +1856,47 @@ class VoicePipelineManager(
             _aiResponse.value = clean
             updateEspDisplay(state = "GUIANDO", response = clean)
             speakResponseChunk(clean)
+        }
+    }
+
+    /**
+     * Responde a un aviso autónomo de navegación.
+     *
+     * El motor entrega el hecho (desvío, quietud, proximidad, llegada); aquí se
+     * espera a que Fifo esté libre y se pide al LLM una locución con el contexto
+     * de la ruta y la conversación en curso. Solo si el modelo no responde se usa
+     * `notice.fallbackSpeech()`, que es el único texto estático permitido.
+     */
+    private fun handleNavigationNotice(
+        notice: FifoNavigationManager.NavigationNotice,
+        speak: (String) -> Unit
+    ) {
+        scope.launch {
+            awaitIdleForAutonomousSpeech()
+            val narrated = runCatching { cloudClient.narrateNavigationNotice(notice) }.getOrNull()
+            val speech = TextSanitizer.cleanForSpeech(narrated?.takeIf { it.isNotBlank() } ?: notice.fallbackSpeech())
+            if (speech.isBlank()) return@launch
+            if (narrated == null) {
+                Log.i(TAG, "Aviso ${notice.kind}: LLM no disponible, se usa el fallback estático")
+            } else {
+                Log.i(TAG, "Aviso ${notice.kind}: locución redactada por el LLM")
+            }
+            speak(speech)
+        }
+    }
+
+    /**
+     * Espera brevemente a que el turno en curso termine antes de interrumpir con
+     * un aviso. Si el usuario sigue pensando o Fifo hablando, el aviso cede el
+     * paso: es preferible llegar tarde que encimarse a una respuesta.
+     */
+    private suspend fun awaitIdleForAutonomousSpeech(timeoutMs: Long = 6_000L) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            when (_state.value) {
+                PipelineState.PROCESSING, PipelineState.SPEAKING -> delay(250L)
+                else -> return
+            }
         }
     }
 

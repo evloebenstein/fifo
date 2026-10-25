@@ -9,7 +9,7 @@ nube para el camino de voz.
 
 | Archivo | Rol |
 | :--- | :--- |
-| [`CloudApiClient.kt`](CloudApiClient.kt) | **Cognición en la nube** (ADR-0006). Implementa `SpeechCognitionAdapter`: Groq Whisper STT (`whisper-large-v3-turbo`), Groq LLM (`qwen/qwen3.8-27b`) con tool-calling, detección de alucinaciones, contexto conversacional y `generateRepairTurn()`. También expone `extractSessionMemoryChecked()` para la consolidación durable. |
+| [`CloudApiClient.kt`](CloudApiClient.kt) | **Cognición en la nube** (ADR-0006). Implementa `SpeechCognitionAdapter`: Groq Whisper STT (`whisper-large-v3-turbo`), Groq LLM (`qwen/qwen3.8-27b`) con tool-calling, detección de alucinaciones, contexto conversacional, `generateRepairTurn()` y `narrateNavigationNotice()` (ADR-0040). También expone `extractSessionMemoryChecked()` para la consolidación durable. |
 | [`FifoBackendClient.kt`](FifoBackendClient.kt) | **Fachada HTTP del backend propio** (ADR-0029). Conserva la API pública, los tipos `SyncedUserBundle`/`AuthResult`/`UserProfileSummary` y la `baseUrl`; delega en adaptadores por dominio. |
 | [`BackendHttp.kt`](BackendHttp.kt) | Transporte compartido: `OkHttpClient`, timeouts, `Content-Type` JSON, `baseUrl` USB/emulador y helper `postOrPatchJson`. |
 | [`BackendSyncAdapter.kt`](BackendSyncAdapter.kt) | Salud del backend y descarga/parseo del bundle completo. |
@@ -39,6 +39,16 @@ que usa como caché de contexto del LLM. **No es la fuente de verdad durable.**
   - `null` significa “no había nada significativo que recordar” y permite marcar el turno como consolidado;
   - un resultado válido se persiste en `FifoDataRepository` y en el backend.
 - Si un turno fue reparado, la consolidación usa `repairText` en lugar de la respuesta errónea original.
+
+---
+
+## Guía autónoma de navegación
+
+`GroqDialogClient.narrateNavigationNotice(notice)` compone la locución de un
+`NavigationNotice` (desvío, quietud, proximidad, llegada) con el contexto
+espacial y de sesión (ADR-0040). No usa el catálogo de herramientas ni altera el
+historial, y tiene un timeout de 6 s; `CloudApiClient` lo expone y el pipeline
+usa `NavigationNotice.fallbackSpeech()` cuando devuelve `null`.
 
 ---
 

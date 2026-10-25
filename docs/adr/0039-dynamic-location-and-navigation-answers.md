@@ -127,10 +127,11 @@ sin singleton ni orden de inicialización (ver ADR-0038).
 - Las consultas de ubicación ahora dependen de la red y del LLM: hay latencia y
   un costo por turno. Si la API falla, el pipeline usa el fallback genérico de
   error, que es el caso permitido por la regla 1.
-- La guía autónoma proactiva (`onAutonomousGuidance`) sigue usando las variantes
+- La guía autónoma proactiva (`onAutonomousGuidance`) seguía usando las variantes
   de `NavigationGuidanceReport.naturalGuidanceSpoken` para hablar sin ida y
-  vuelta al LLM. Es una locución originada por el sensor, no por una consulta
-  del usuario, y se mantiene como deuda explícita para una iteración posterior.
+  vuelta al LLM. Esa deuda quedó cerrada por
+  [ADR-0040](0040-dynamic-autonomous-navigation-guidance.md): el motor emite
+  avisos estructurados y el LLM redacta la locución.
 
 ---
 
