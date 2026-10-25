@@ -19,7 +19,8 @@ class CloudApiClient(
     var groqApiKey: String = "",
     var openAiApiKey: String = "",
     var context: android.content.Context? = null,
-    var contextProvider: ConversationContextProvider? = null
+    var contextProvider: ConversationContextProvider? = null,
+    var navigationManager: com.fifo.voicepipeline.location.FifoNavigationManager? = null
 ) : SpeechCognitionAdapter {
     /**
      * Clave efectiva para Groq: prioriza `groqApiKey` y acepta una clave `gsk_`
@@ -62,7 +63,8 @@ class CloudApiClient(
     private val dialog = GroqDialogClient(
         apiKeyProvider = { effectiveGroqKey },
         conversationContext = { contextProvider },
-        androidContext = { context }
+        androidContext = { context },
+        navigationManager = { navigationManager }
     )
     private val memoryExtractor = GroqSessionMemoryExtractor(
         apiKeyProvider = { effectiveGroqKey }

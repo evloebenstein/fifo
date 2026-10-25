@@ -168,7 +168,8 @@ class VoicePipelineManager(
         cloudClient = CloudApiClient(
             groqApiKey = groqApiKey,
             openAiApiKey = effectiveOpenAiKey,
-            context = context
+            context = context,
+            navigationManager = skillRegistry.navigationManager
         )
 
         useVoiceSession = VoicePipelineModeSelector.select(
@@ -382,9 +383,8 @@ class VoicePipelineManager(
         }
 
         // ── Conectar navegación autónoma en tiempo real (Copiloto Waze) ──
-        // FifoNavigationManager is initialised by FifoSkillRegistry; wire the callback here.
-        @Suppress("DEPRECATION")
-        com.fifo.voicepipeline.location.FifoNavigationManager.instance.onAutonomousGuidance = { guidanceSpeech ->
+        // El manager pertenece al registro de skills; no hay singleton global.
+        skillRegistry.navigationManager.onAutonomousGuidance = { guidanceSpeech ->
             speakAutonomousMessage(guidanceSpeech)
         }
 
@@ -413,8 +413,7 @@ class VoicePipelineManager(
         pipeline.start()
 
         // La navegación autónoma sigue hablando por el mismo motor de salida.
-        @Suppress("DEPRECATION")
-        com.fifo.voicepipeline.location.FifoNavigationManager.instance.onAutonomousGuidance = { guidanceSpeech ->
+        skillRegistry.navigationManager.onAutonomousGuidance = { guidanceSpeech ->
             pipeline.session.speakResponse(guidanceSpeech)
         }
 

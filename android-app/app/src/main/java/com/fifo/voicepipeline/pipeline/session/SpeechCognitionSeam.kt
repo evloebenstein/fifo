@@ -16,7 +16,8 @@ interface ConversationContextProvider {
  * hora/fecha real y ubicación GPS.
  */
 class DefaultConversationContextProvider(
-    private val context: android.content.Context? = null
+    private val context: android.content.Context? = null,
+    private val navigationManager: com.fifo.voicepipeline.location.FifoNavigationManager? = null
 ) : ConversationContextProvider {
 
     override fun buildContextWindow(): String {
@@ -35,8 +36,7 @@ class DefaultConversationContextProvider(
 
             // Contexto de navegación activa
             if (gpsInfo != null) {
-                @Suppress("DEPRECATION")
-                val navContext = com.fifo.voicepipeline.location.FifoNavigationManager.instance.buildSystemPromptContext(gpsInfo)
+                val navContext = navigationManager?.buildSystemPromptContext(gpsInfo).orEmpty()
                 if (navContext.isNotBlank()) {
                     append(navContext).append("\n")
                 }

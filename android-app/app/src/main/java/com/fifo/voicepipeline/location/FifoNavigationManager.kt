@@ -30,6 +30,9 @@ import java.util.Locale
  * that dependency is resolved lazily via the optional [locationManagerProvider].
  * In JVM unit tests, pass `locationManagerProvider = { null }` to disable
  * real GPS updates and drive state via [simulateLocationTick].
+ *
+ * No hay singleton: cada `FifoSkillRegistry` construye una instancia y la
+ * inyecta en sus consumidores (ADR-0038).
  */
 class FifoNavigationManager(
     private val locationAdapter: LocationAdapter,
@@ -42,23 +45,6 @@ class FifoNavigationManager(
 
     companion object {
         private const val TAG = "FifoNavigationManager"
-
-        /**
-         * Process-level singleton used by legacy callers that have not yet
-         * been migrated to constructor injection.  New code MUST inject
-         * [FifoNavigationManager] directly rather than accessing this field.
-         *
-         * TODO(ADR-0007): remove once all callers are migrated.
-         */
-        @Deprecated("Inject FifoNavigationManager via constructor; do not use the singleton")
-        lateinit var instance: FifoNavigationManager
-            private set
-
-        /** Initialises the process-level singleton. Called from Application.onCreate(). */
-        @Deprecated("Inject FifoNavigationManager via constructor; do not use the singleton")
-        fun initSingleton(manager: FifoNavigationManager) {
-            instance = manager
-        }
     }
 
     // ── Domain types ──────────────────────────────────────────────────────

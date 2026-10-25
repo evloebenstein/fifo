@@ -1,6 +1,10 @@
 package com.fifo.voicepipeline.skills
 
 import com.google.gson.JsonParser
+import com.fifo.voicepipeline.location.FifoNavigationManager
+import com.fifo.voicepipeline.location.InMemoryLocationAdapter
+import com.fifo.voicepipeline.location.NearbyPlaceMatch
+import com.fifo.voicepipeline.ui.model.CurrentLocationInfo
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Before
@@ -19,11 +23,73 @@ class VoiceIntentRouterTest {
 
     private lateinit var router: VoiceIntentRouter
     private lateinit var catalog: GroqToolCatalog
+    private lateinit var navigationManager: FifoNavigationManager
 
     @Before
     fun setUp() {
-        router = VoiceIntentRouter()
+        navigationManager = FifoNavigationManager(
+            locationAdapter = InMemoryLocationAdapter(
+                fixedLocation = CurrentLocationInfo(isGpsActive = false)
+            ),
+            locationManagerProvider = { null }
+        )
+        router = VoiceIntentRouter(context = null, navigationManager = navigationManager)
         catalog = GroqToolCatalog()
+    }
+
+    @Test
+    fun testPendingDestinationConfirmationUsesInjectedNavigationManager() = runBlocking {
+        navigationManager.setPendingDestination(
+            NearbyPlaceMatch(
+                name = "Farmacia Los Aromos",
+                road = "Av. Providencia",
+                houseNumber = "123",
+                neighbourhood = "Providencia",
+                suburb = "Providencia",
+                city = "Santiago",
+                latitude = -33.43,
+                longitude = -70.62,
+                distanceMeters = 180,
+                bearing = 90f,
+                cardinalDirection = "hacia el oriente",
+                walkingMinutes = 2,
+                drivingMinutes = 1,
+                blocks = 1,
+                fullAddressText = "Av. Providencia 123, Providencia",
+                relativeDirection = "gira a la derecha"
+            )
+        )
+        val executor: suspend (String, Map<String, Any?>) -> SkillResult = { _, _ ->
+            SkillResult(success = true, spokenFeedback = "ok")
+        }
+
+        val result = router.routeFastIntent("sí, guíame", executor)
+
+        assertNotNull(result)
+        assertTrue(navigationManager.isNavigating)
+        assertNull(navigationManager.pendingDestination)
+        assertEquals("Farmacia Los Aromos", navigationManager.activeRoute?.name)
+        assertTrue(result?.spokenFeedback?.contains("Farmacia Los Aromos") == true)
+    }
+
+    @Test
+    fun testCancelNavigationUsesInjectedNavigationManager() = runBlocking {
+        navigationManager.startNavigation(
+            name = "Farmacia Los Aromos",
+            latitude = -33.43,
+            longitude = -70.62,
+            fullAddress = "Av. Providencia 123",
+            road = "Av. Providencia"
+        )
+        val executor: suspend (String, Map<String, Any?>) -> SkillResult = { _, _ ->
+            SkillResult(success = true, spokenFeedback = "ok")
+        }
+
+        val result = router.routeFastIntent("cancela la ruta", executor)
+
+        assertNotNull(result)
+        assertFalse(navigationManager.isNavigating)
+        assertEquals(true, result?.data?.get("cancelled_navigation"))
     }
 
     @Test

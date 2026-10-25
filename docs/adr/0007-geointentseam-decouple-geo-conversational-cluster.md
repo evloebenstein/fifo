@@ -4,6 +4,10 @@
 **Date:** 2026-10-20  
 **Author:** Architecture Review Pass 3 — Candidate 01
 
+> **Follow-up (2026-10-24):** the deprecated `instance` / `initSingleton` shim
+> described below was removed by [ADR-0038](0038-navigation-manager-injection.md).
+> `FifoNavigationManager` is now injected everywhere and has no global state.
+
 ---
 
 ## Context
@@ -107,3 +111,5 @@ FifoNavigationManager.initSingleton(navigationManager) // shim for legacy caller
 1. Inject `FifoNavigationManager` into `VoiceIntentRouter` constructor.
 2. Pass `FifoNavigationManager` through `ConversationContextProvider` to `SpeechCognitionSeam` and `CloudApiClient`.
 3. Delete `instance`, `initSingleton`, and the `@Deprecated` annotations from `FifoNavigationManager.Companion`.
+
+**Completed in [ADR-0038](0038-navigation-manager-injection.md) (2026-10-24).**

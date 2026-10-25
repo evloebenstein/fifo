@@ -5,6 +5,7 @@ import android.location.LocationManager
 import android.util.Log
 import com.fifo.voicepipeline.location.AndroidLocationAdapter
 import com.fifo.voicepipeline.location.FifoNavigationManager
+import com.fifo.voicepipeline.location.LocationAdapter
 
 /**
  * Registro y despachador central de Skills de Fifo.
@@ -18,7 +19,18 @@ import com.fifo.voicepipeline.location.FifoNavigationManager
 class FifoSkillRegistry(
     private val context: Context,
     private val groqCatalog: GroqToolCatalog = GroqToolCatalog(),
-    private val intentRouter: VoiceIntentRouter = VoiceIntentRouter(context)
+    private val locationAdapter: LocationAdapter = AndroidLocationAdapter(context),
+    /**
+     * Motor de navegación compartido por el router, las skills y el pipeline.
+     * Se construye una sola vez por registro; no existe un singleton global.
+     */
+    val navigationManager: FifoNavigationManager = FifoNavigationManager(
+        locationAdapter = locationAdapter,
+        locationManagerProvider = {
+            context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        }
+    ),
+    private val intentRouter: VoiceIntentRouter = VoiceIntentRouter(context, navigationManager)
 ) {
 
     companion object {
@@ -34,18 +46,6 @@ class FifoSkillRegistry(
     var lastTopic: String = ""
 
     init {
-        // ── GeoIntentSeam (ADR-0007): build location adapter + navigation manager ──
-        val locationAdapter = AndroidLocationAdapter(context)
-        val navigationManager = FifoNavigationManager(
-            locationAdapter = locationAdapter,
-            locationManagerProvider = {
-                context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-            }
-        )
-        // Initialise the deprecated singleton shim so legacy callers still compile.
-        @Suppress("DEPRECATION")
-        FifoNavigationManager.initSingleton(navigationManager)
-
         registerSkill(ReminderSkill(context))
         registerSkill(CalendarSkill(context))
         registerSkill(MapsSkill(

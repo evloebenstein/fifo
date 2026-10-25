@@ -26,7 +26,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0004](adr/0004-dynamic-contextual-skills-telephony-navigation.md) | Skills contextuales, telefonía y navegación. | Aceptado. |
 | [ADR-0005](adr/0005-collapse-voice-pipeline-manager-into-voice-session.md) | Colapsar `VoicePipelineManager` en `VoiceSession`. | Aceptado; audio/telefonía reemplazados por ADR-0008. |
 | [ADR-0006](adr/0006-collapse-cloud-api-client-into-speech-cognition-seam.md) | `CloudApiClient` detrás de `SpeechCognitionSeam`. | Aceptado. |
-| [ADR-0007](adr/0007-geointentseam-decouple-geo-conversational-cluster.md) | `GeoIntentSeam`: desacoplar el clúster geo-conversacional. | Aceptado. |
+| [ADR-0007](adr/0007-geointentseam-decouple-geo-conversational-cluster.md) | `GeoIntentSeam`: desacoplar el clúster geo-conversacional. | Aceptado; shim retirado por ADR-0038. |
 | [ADR-0008](adr/0008-capture-arbiter-telephony-port.md) | `CaptureArbiter` como dueño único de captura y `TelephonyPort` fuera de la sesión. | Aceptado. |
 | [ADR-0009](adr/0009-caller-context-provider.md) | `CallerContextProvider`: anuncio local inmediato y enriquecimiento backend en paralelo. | Aceptado. |
 | [ADR-0010](adr/0010-voice-session-pipeline-flag.md) | `VoiceSessionPipeline`, flag de una release y barge-in por contenido. | Aceptado. |
@@ -57,6 +57,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0035](adr/0035-episodic-context-search-policy.md) | `EpisodicContextSearch`: recuperación local de memoria episódica como política pura. | Aceptado. |
 | [ADR-0036](adr/0036-activity-suggestion-policy.md) | `ActivitySuggestionPolicy`: borrador de actividad comunitaria como política pura. | Aceptado. |
 | [ADR-0037](adr/0037-device-location-policy.md) | `DeviceLocationPolicy`: transiciones del estado del robot como política pura. | Aceptado. |
+| [ADR-0038](adr/0038-navigation-manager-injection.md) | Retiro del singleton de `FifoNavigationManager`; inyección por constructor en todos los consumidores. | Aceptado. |
 
 ---
 

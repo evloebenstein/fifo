@@ -28,8 +28,7 @@ Callers (Skills, VoiceIntentRouter, SpeechCognitionSeam)
 ```
 
 - **Skills** reciben `LocationAdapter` + `FifoNavigationManager` por constructor.
-- **`FifoSkillRegistry`** construye y cablea el grafo.
-- **`FifoNavigationManager.instance`** (shim deprecated) permite que `VoiceIntentRouter`, `SpeechCognitionSeam` y `CloudApiClient` sigan compilando durante la migración.
+- **`FifoSkillRegistry`** construye el adaptador y el manager una sola vez y los inyecta en `VoiceIntentRouter`, `CloudApiClient`, `DefaultConversationContextProvider` y `VoicePipelineManager`. No existe un singleton de navegación (ADR-0038).
 
 ## Notas importantes
 

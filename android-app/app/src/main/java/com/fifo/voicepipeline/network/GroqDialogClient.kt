@@ -27,7 +27,8 @@ import kotlinx.coroutines.delay
 internal class GroqDialogClient(
     private val apiKeyProvider: () -> String,
     private val conversationContext: () -> ConversationContextProvider?,
-    private val androidContext: () -> android.content.Context?
+    private val androidContext: () -> android.content.Context?,
+    private val navigationManager: () -> com.fifo.voicepipeline.location.FifoNavigationManager?
 ) {
     companion object {
         private const val TAG = "GroqDialog"
@@ -641,8 +642,7 @@ Genera ÚNICAMENTE 1 oración concisa para hablar en voz alta por voz, sin intro
         } else ""
 
         val navContext = if (gpsInfo != null) {
-            @Suppress("DEPRECATION")
-            com.fifo.voicepipeline.location.FifoNavigationManager.instance.buildSystemPromptContext(gpsInfo)
+            navigationManager()?.buildSystemPromptContext(gpsInfo).orEmpty()
         } else ""
 
         return buildString {
