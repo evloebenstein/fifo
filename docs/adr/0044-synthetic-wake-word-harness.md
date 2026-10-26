@@ -171,7 +171,9 @@ Es la parte importante del ADR.
 - **No miden openWakeWord ni fifo en el mundo real.** Miden el arnés y el techo
   del enfoque por plantilla espectral. El corpus es voz sintética: no hay
   reverberación, ni efecto Lombard (hablar más fuerte con ruido), ni televisión,
-  ni música, ni voces de niños o mayores.
+  ni música, ni voces de niños o mayores. El arnés de campo de
+  [ADR-0045](0045-field-simulation-for-invocation.md) cubre sala, Lombard y
+  VTLP por simulación; televisión, música y voces reales siguen pendientes.
 - **Los falsos aceptos por hora son optimistas.** La conversación sintética es
   más limpia y menos variada que una sala real con TV; un FA/h de 0 aquí no
   significa 0 en un salón.
@@ -227,9 +229,11 @@ entrenado con aumentación de ruido debería cumplir:
 | FA/h en conversación sintética | ≤ 1 |
 
 Si un modelo no supera esta barra en el corpus sintético, no se prueba con
-grabaciones reales: se descarta. Si la supera, el siguiente paso sigue siendo
-ADR-0043: corpus de campo con 10–15 hablantes, 20 repeticiones, cuatro
-condiciones y negativos difíciles.
+grabaciones reales: se descarta. Si la supera, el siguiente paso es el corpus de
+campo: [ADR-0045](0045-field-simulation-for-invocation.md) ya simula sala,
+Lombard y VTLP sin dependencias, y sus números son diagnóstico, no certificación.
+Grabar 10–15 hablantes reales en cuatro condiciones y con negativos difíciles
+sigue siendo una decisión pendiente.
 
 ---
 

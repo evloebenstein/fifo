@@ -38,6 +38,22 @@ _Avoid_: HotwordEngine, KeywordSpotter, KWSManager
 Audio generado por el propio arnés (voz por formantes, ruido y mezcla por SNR) para medir la invocación sin grabaciones. Es determinista y vive solo en el source set de pruebas (ADR-0044).
 _Avoid_: Dataset falso, Mock de audio
 
+**Corpus de campo**:
+Variante del corpus sintético que pasa la voz por una sala, esfuerzo vocal y tractos derivados antes de mezclar ruido (ADR-0045). Es un conjunto aparte del corpus base, que se congela para conservar su tabla. Mide el simulador, no el salón.
+_Avoid_: Dataset real, Corpus de producción
+
+**RIR (respuesta al impulso de sala)**:
+Señal que describe cómo una sala refleja un impulso. En el arnés se sintetiza con el método de imagen de Allen & Berkley a partir del volumen, la superficie y el T60; el sonido directo queda a nivel unitario y la cola suma energía.
+_Avoid_: Eco sintético, Reverb fake
+
+**Efecto Lombard**:
+Cambio de voz de quien habla con ruido de fondo: más nivel, tono y formantes algo más altos, vocales más largas y más agudos. El arnés lo aproxima en el origen antes de reverberar (ADR-0045).
+_Avoid_: Grito, Voz alta
+
+**VTLP**:
+Perturbación de la longitud del tracto vocal: escala los formantes sin tocar el ritmo. Deriva voces infantiles o grandes de los locutores simulados para medir generalización (ADR-0045).
+_Avoid_: Cambio de velocidad, Pitch shift
+
 **Detector de referencia**:
 Implementación de `WakeWordDetector` que existe solo en `app/src/test` para medir el techo del enfoque por plantilla espectral. No se envía en la app ni sustituye a un modelo entrenado (ADR-0044).
 _Avoid_: Detector de producción, Baseline real

@@ -135,6 +135,14 @@ tabla de FRR por SNR, negativos difíciles, falsos aceptos/hora y latencia. No s
 envía con la app y no certifica el rendimiento de campo; fija la barra que debe
 superar el modelo entrenado.
 
+Ese arnés tiene dos corpus separados (ADR-0045). El **base** es de campo cercano
+y sala seca, y su tabla se congela. El **de campo** pasa la voz por una sala
+sintetizada con el método de imagen, aplica el efecto Lombard y deriva locutores
+por VTLP antes de mezclar ruido. Con plantillas secas el FRR en un despacho
+reverberante es 87,5 %; con plantillas de la misma sala cae a 12,5 %. La lección
+no es "la plantilla es mala", sino que el desajuste de canal domina: un modelo
+entrenado con salas es la vía, no bajar el umbral.
+
 ---
 
 ## Guía autónoma de navegación (ADR-0040 y ADR-0041)
@@ -175,3 +183,4 @@ restaura en `start()` (ADR-0041).
 10. **Un solo dueño de memoria:** `VoiceSessionPipeline` compone el diario y el consolidador; `VoiceSession` solo ve `SessionMemory` y el facade legacy no crea otro coordinador.
 11. **Una sola política léxica:** `UtterancePolicy` (ADR-0042) decide invocación, silencio, sueño, eco, pregunta y control de llamada. `TurnOrchestrator` y el facade delegan; no agregues listas o regex en ninguno de los dos.
 12. **La acústica propone, el léxico dispone:** `WakeWordDetector` (ADR-0043) solo produce candidatos; `UtterancePolicy.resolveWake()` es la única fusión y la acústica nunca autoriza `CallAction`. El detector no abre micrófono, no tiene VAD y no corre mientras Fifo habla.
+13. **El arnés no se envía y su corpus base no se toca:** `WakeWordCorpus` y `SpectralTemplateWakeWordDetector` viven en `test`. El corpus base de ADR-0044 se congela; las condiciones de sala, Lombard y VTLP van al corpus de campo de ADR-0045 y se comparan por separado.

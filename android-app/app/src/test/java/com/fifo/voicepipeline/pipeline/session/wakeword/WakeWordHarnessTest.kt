@@ -29,6 +29,14 @@ class WakeWordHarnessTest {
 
     private data class Outcome(val detected: Boolean, val latencyMs: Long?)
 
+    private data class FieldRow(
+        val id: String,
+        val cases: Int,
+        val frr: Double,
+        val medianScore: Double,
+        val p95LatencyMs: Long
+    )
+
     private data class Metrics(
         val threshold: Double,
         val frrBySnr: Map<String, Double>,
@@ -61,7 +69,7 @@ class WakeWordHarnessTest {
             val end = requireNotNull(case.wordEndSample) { "positivo sin fin: ${case.id}" }
             assertTrue("ventana vacía en ${case.id}", end > start)
             assertTrue("ventana fuera del audio en ${case.id}", end < case.pcm.size)
-            assertEquals("el audio seco cambia de tamaño en ${case.id}", case.dryPcm.size, case.pcm.size)
+            assertEquals("el audio seco cambia de tamaño en ${case.id}", case.preNoisePcm.size, case.pcm.size)
 
             val wordMs = (end - start) * 1000L / SYNTH_SAMPLE_RATE
             assertTrue("palabra demasiado corta en ${case.id}: $wordMs ms", wordMs >= 250)
@@ -71,7 +79,7 @@ class WakeWordHarnessTest {
         val noisy = positives.filter { it.condition.snrDb != null }
         assertTrue("faltan casos con ruido", noisy.size >= 60)
         noisy.forEach { case ->
-            assertTrue("el ruido no se aplicó en ${case.id}", !case.pcm.contentEquals(case.dryPcm))
+            assertTrue("el ruido no se aplicó en ${case.id}", !case.pcm.contentEquals(case.preNoisePcm))
         }
 
         val conversations = CONVERSATIONS
@@ -216,6 +224,189 @@ class WakeWordHarnessTest {
         assertTrue(
             "la detección debe caer en la ventana de la palabra: $detections vs [$start,$end]",
             detections.any { it in (start - PRE_WINDOW_MS)..(end + POST_WINDOW_MS) }
+        )
+    }
+
+    // ── Simulación de campo (ADR-0045) ────────────────────────────────────
+
+    @Test
+    fun `la sala conserva la energia y añade cola sin mover la etiqueta`() {
+        val room = Rooms.LIVING_ROOM
+        val ir = RoomAcoustics.impulseResponse(room, kotlin.random.Random(1))
+
+        val peak = ir.maxOf { abs(it) }
+        assertEquals("el sonido directo debe llegar a nivel unitario", 1.0, peak, 1e-6)
+
+        val peakIndex = ir.indices.maxBy { abs(ir[it]) }
+        assertTrue("el sonido directo debe llegar antes de 20 ms: $peakIndex", peakIndex < 320)
+
+        val tail = ir.drop(peakIndex + 1_600).sumOf { it * it }
+        assertTrue("la sala no tiene cola: $tail", tail > 1e-4)
+        assertTrue("la cola no decae", abs(ir.last()) < 0.05)
+
+        val dry = FormantSynth.renderWord(
+            SimulatedWords.FIFO,
+            WakeWordCorpus.ENROLLED.first(),
+            kotlin.random.Random(3)
+        )
+        val wet = RoomAcoustics.reverberate(dry, room, kotlin.random.Random(1))
+
+        assertEquals("la reverberación no debe mover la etiqueta temporal", dry.size, wet.size)
+        assertTrue("la sala no cambió la señal", !dry.contentEquals(wet))
+
+        val ratio = rms(wet) / rms(dry)
+        assertTrue("la sala cambió el nivel: $ratio", ratio in 0.5..3.0)
+    }
+
+    /**
+     * La convolución rápida tiene que dar lo mismo que la directa. Sin esta
+     * prueba, un error de índice en la FFT se leería como "el detector es malo".
+     */
+    @Test
+    fun `la convolucion por FFT coincide con la convolucion directa`() {
+        val signal = ShortArray(9_000) { index -> (((index * 37) % 200) - 100).toShort() }
+        val ir = DoubleArray(3_000) { index -> if (index < 12) 0.5 / (index + 1) else 0.0 }
+
+        val fast = FftConvolver.convolve(signal, ir)
+
+        val expected = DoubleArray(signal.size)
+        for (n in signal.indices) {
+            val value = signal[n] / 32768.0
+            val limit = minOf(ir.size, expected.size - n)
+            for (k in 0 until limit) expected[n + k] += value * ir[k]
+        }
+
+        var peak = 0.0
+        for (value in expected) peak = maxOf(peak, abs(value))
+        val headroom = if (peak > 0.95) 0.95 / peak else 1.0
+
+        for (i in signal.indices) {
+            assertEquals(
+                "muestra $i de la convolución",
+                expected[i] * headroom,
+                fast[i] / 32768.0,
+                1e-4
+            )
+        }
+    }
+
+    @Test
+    fun `el efecto Lombard sube el tono y alarga la palabra`() {
+        val speaker = WakeWordCorpus.ENROLLED.first()
+        val adapted = LombardEffect.adapt(speaker)
+
+        assertTrue("Lombard no sube f0", adapted.f0Hz > speaker.f0Hz)
+        assertTrue("Lombard no alarga la palabra", adapted.durationScale() > speaker.durationScale())
+        assertTrue("Lombard no sube los formantes", adapted.formantScale > speaker.formantScale)
+
+        val plain = FormantSynth.renderWord(SimulatedWords.FIFO, speaker, kotlin.random.Random(5))
+        val effort = LombardEffect.applyEffort(plain)
+
+        assertTrue("el esfuerzo vocal no cambió la señal", !plain.contentEquals(effort))
+        assertTrue("el esfuerzo vocal no sube el nivel", rms(effort) > rms(plain))
+    }
+
+    @Test
+    fun `VTLP cambia el tracto sin cambiar el ritmo`() {
+        val base = WakeWordCorpus.ENROLLED[1]
+        val child = SpeakerVariation.vtlp(base, alpha = 1.2, name = "vtlp-child")
+
+        assertEquals("VTLP no debe tocar la duración", base.durationScale(), child.durationScale(), 1e-9)
+        assertTrue("VTLP no ensancha el tracto", child.formantScale > base.formantScale)
+        assertTrue(
+            "el arnés de campo debe incluir los locutores derivados",
+            WakeWordCorpus.FIELD_SPEAKERS.containsAll(WakeWordCorpus.VARIED)
+        )
+    }
+
+    /**
+     * Tabla de campo: las mismas métricas que ADR-0044, pero con sala, esfuerzo
+     * vocal y locutores derivados. Es la lectura que se acerca al salón real.
+     */
+    @Test
+    fun `el simulador de campo degrada la invocacion como el campo real`() {
+        val positives = FIELD_POSITIVE_TRACES
+        val negatives = FIELD_NEGATIVE_TRACES
+        val conversations = FIELD_CONVERSATION_TRACES
+
+        val baseCleanMedian = medianBestScore(POSITIVE_TRACES.filter { (case, _) -> case.condition.snrDb == null })
+
+        val rows = WakeWordCorpus.FIELD_CONDITIONS.map { condition ->
+            val group = positives.filter { (case, _) -> case.condition.id == condition.id }
+            val outcomes = group.map { (case, frames) -> outcome(case, frames, REFERENCE_THRESHOLD) }
+            FieldRow(
+                id = condition.id,
+                cases = group.size,
+                frr = 1.0 - outcomes.count { it.detected }.toDouble() / outcomes.size.coerceAtLeast(1),
+                medianScore = medianBestScore(group),
+                p95LatencyMs = percentile(outcomes.mapNotNull { it.latencyMs }.sorted(), 0.95)
+            )
+        }
+
+        val accepted = negatives.count { (_, frames) -> frames.any { it.score >= REFERENCE_THRESHOLD } }
+            .toDouble() / negatives.size.coerceAtLeast(1)
+        val falseAcceptsPerHour = conversations.sumOf { (_, frames) -> countEvents(frames, REFERENCE_THRESHOLD) } /
+            conversationHours(conversations.map { it.first }).coerceAtLeast(1e-6)
+
+        // Diagnóstico: ¿la caída es la sala o el desajuste de enrollar en seco?
+        // Con plantillas grabadas en la misma sala, el techo del enfoque sube.
+        val officeCases = FIELD_POSITIVES.filter { it.condition.id == "office-clean" }
+        val matchedFrr = 1.0 - officeCases.count { case ->
+            outcome(case, trace(case, OFFICE_TEMPLATES), REFERENCE_THRESHOLD).detected
+        }.toDouble() / officeCases.size.coerceAtLeast(1)
+
+        val report = StringBuilder()
+        report.appendLine(
+            "Campo simulado: ${positives.size} positivos, ${negatives.size} negativos, " +
+                "${conversations.size} conversaciones " +
+                "(${String.format(Locale.ROOT, "%.3f", conversationHours(conversations.map { it.first }))} h)"
+        )
+        report.appendLine("Condición               casos   FRR    score-med   p95")
+        rows.forEach { row ->
+            report.appendLine(
+                String.format(
+                    Locale.ROOT,
+                    "%-21s  %2d   %s   %s    %4d ms",
+                    row.id, row.cases, pct(row.frr), fmt(row.medianScore), row.p95LatencyMs
+                )
+            )
+        }
+        report.appendLine(
+            "  mediana en seco=${fmt(baseCleanMedian)} · negativos aceptados=${pct(accepted)} · " +
+                "FA/h=${String.format(Locale.ROOT, "%.1f", falseAcceptsPerHour)}"
+        )
+        report.appendLine(
+            "  despacho con plantillas de la misma sala: FRR=${pct(matchedFrr)} " +
+                "(vs ${pct(rows.first { it.id == "office-clean" }.frr)} con plantillas secas)"
+        )
+        println(report)
+        System.out.flush()
+
+        val office = rows.first { it.id == "office-clean" }
+        val living = rows.first { it.id == "living-pink-20" }
+        val kitchen = rows.first { it.id == "kitchen-babble-10" }
+
+        assertEquals(
+            "cada condición debe cubrir todos los locutores de campo",
+            WakeWordCorpus.FIELD_SPEAKERS.size,
+            office.cases
+        )
+        assertTrue(
+            "la sala no puede mejorar el score seco: ${office.medianScore} vs $baseCleanMedian",
+            office.medianScore < baseCleanMedian + 0.02
+        )
+        assertTrue(
+            "el ruido de campo no puede mejorar la sala: ${living.medianScore} >= ${office.medianScore}",
+            living.medianScore < office.medianScore
+        )
+        assertTrue(
+            "el balbuceo no puede mejorar el ruido rosa: ${kitchen.medianScore} >= ${living.medianScore}",
+            kitchen.medianScore < living.medianScore
+        )
+        assertTrue(
+            "la plantilla grabada en la sala no puede ser peor que la seca: " +
+                "sala=$matchedFrr seca=${office.frr}",
+            matchedFrr <= office.frr + 0.01
         )
     }
 
@@ -368,11 +559,32 @@ class WakeWordHarnessTest {
         val NEGATIVES: List<WakeWordCase> by lazy { WakeWordCorpus.hardNegatives() }
         val CONVERSATIONS: List<WakeWordCase> by lazy { WakeWordCorpus.conversations() }
 
+        // Corpus de campo (ADR-0045): se construye una sola vez y se comparte.
+        val FIELD_POSITIVES: List<WakeWordCase> by lazy { WakeWordCorpus.fieldPositives() }
+        val FIELD_NEGATIVES: List<WakeWordCase> by lazy { WakeWordCorpus.fieldHardNegatives() }
+        val FIELD_CONVERSATIONS: List<WakeWordCase> by lazy { WakeWordCorpus.fieldConversations() }
+
         val TEMPLATES: List<SpectralTemplate> by lazy {
             WakeWordCorpus.ENROLLED.map { speaker ->
                 SpectralTemplateBuilder.fromPcm(
                     id = WakeWordCorpus.enrollmentClipId(speaker),
                     pcm = WakeWordCorpus.enrollmentClip(speaker),
+                    wordRange = WakeWordCorpus.enrollmentWordBounds(speaker)
+                )
+            }
+        }
+
+        /** Plantillas de la misma sala: separan el efecto de la reverberación del de enrollar en seco. */
+        val OFFICE_TEMPLATES: List<SpectralTemplate> by lazy {
+            WakeWordCorpus.ENROLLED.map { speaker ->
+                val clip = RoomAcoustics.reverberate(
+                    WakeWordCorpus.enrollmentClip(speaker),
+                    Rooms.OFFICE,
+                    kotlin.random.Random(Seeding.of("room", Rooms.OFFICE.id))
+                )
+                SpectralTemplateBuilder.fromPcm(
+                    id = WakeWordCorpus.enrollmentClipId(speaker) + "-office",
+                    pcm = clip,
                     wordRange = WakeWordCorpus.enrollmentWordBounds(speaker)
                 )
             }
@@ -386,6 +598,27 @@ class WakeWordHarnessTest {
         }
         val CONVERSATION_TRACES: List<Pair<WakeWordCase, List<ScoredFrame>>> by lazy {
             CONVERSATIONS.map { it to trace(it, TEMPLATES) }
+        }
+
+        val FIELD_POSITIVE_TRACES: List<Pair<WakeWordCase, List<ScoredFrame>>> by lazy {
+            FIELD_POSITIVES.map { it to trace(it, TEMPLATES) }
+        }
+        val FIELD_NEGATIVE_TRACES: List<Pair<WakeWordCase, List<ScoredFrame>>> by lazy {
+            FIELD_NEGATIVES.map { it to trace(it, TEMPLATES) }
+        }
+        val FIELD_CONVERSATION_TRACES: List<Pair<WakeWordCase, List<ScoredFrame>>> by lazy {
+            FIELD_CONVERSATIONS.map { it to trace(it, TEMPLATES) }
+        }
+
+        /** RMS en escala 0..1, para comparar niveles sin depender de la longitud. */
+        fun rms(pcm: ShortArray): Double {
+            if (pcm.isEmpty()) return 0.0
+            var squares = 0.0
+            for (sample in pcm) {
+                val value = sample / 32768.0
+                squares += value * value
+            }
+            return kotlin.math.sqrt(squares / pcm.size)
         }
 
         /**

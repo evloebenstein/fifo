@@ -59,8 +59,11 @@ Estas reglas son invariantes de Fifo. Si un cambio las rompe, el cambio está ma
 - **La acústica nunca autoriza telefonía.** `classifyCallAction()` sigue exigiendo "Fifo" en la transcripción; un candidato acústico con "contesta" no contesta.
 - **El candidato caduca y se consume una vez** (~8 s, para cubrir una pregunta larga) y el detector se reinicia al dormir, silenciar o reiniciar.
 - **El arnés es sintético y no mide campo.** `WakeWordCorpus` + `WakeWordHarnessTest` (ADR-0044) generan el corpus y miden FRR por SNR, negativos difíciles, falsos aceptos/hora y latencia sin binarios ni descargas. Sirven para regresión y para comparar motores; no certifican el rendimiento con televisión y voces reales.
+- **El corpus de campo es simulado, no grabado.** `RoomAcoustics` (RIR por método de imagen), `LombardEffect` y `SpeakerVariation.vtlp` (ADR-0045) añaden sala, esfuerzo vocal y tractos distintos en Kotlin puro. Miden el simulador, no el salón: sus números sirven para decidir que hace falta un modelo entrenado, no para certificar el FRR real.
+- **El corpus base se congela.** `positives()`, `hardNegatives()` y `conversations()` conservan sus casos y su tabla; cualquier condición nueva va a `fieldPositives()`/`fieldHardNegatives()`/`fieldConversations()`. No mezcles ambos corpus en una misma comparación.
+- **Diagnóstico antes de culpar al detector.** Si el arnés de campo cae, comprueba el desajuste de canal (plantillas secas vs plantillas de la misma sala) antes de tocar features o umbrales. Con la sala corregida, el FRR de `office-clean` pasa de 87,5 % a 12,5 %.
 - **El detector de referencia vive en `test`, nunca en la app.** `SpectralTemplateWakeWordDetector` mide el techo del enfoque por plantilla espectral; no se envía y no sustituye a un modelo entrenado.
-- **Pruebas de verdad:** `UtterancePolicyTest` (tabla de fusión), `WakeWordCascadeTest` (integración con detector falso; sin modelo descargado) y `WakeWordHarnessTest` (corpus sintético y métricas).
+- **Pruebas de verdad:** `UtterancePolicyTest` (tabla de fusión), `WakeWordCascadeTest` (integración con detector falso; sin modelo descargado) y `WakeWordHarnessTest` (corpus base y de campo, RIR/FFT, Lombard y VTLP).
 
 ## Telefonía
 
