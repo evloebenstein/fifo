@@ -15,6 +15,8 @@ import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 import com.fifo.voicepipeline.location.FifoNavigationManager
+import com.fifo.voicepipeline.location.NavigationNotice
+import com.fifo.voicepipeline.location.NavigationNoticeKind
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -103,10 +105,10 @@ REGLAS:
      * No usa el catálogo de herramientas ni altera el historial conversacional:
      * el aviso se compone con el contexto espacial y de sesión que ya viaja en el
      * system prompt. Devuelve `null` si no hay clave o si el modelo no responde,
-     * para que el pipeline use [FifoNavigationManager.NavigationNotice.fallbackSpeech].
+     * para que el pipeline use [NavigationNotice.fallbackSpeech].
      */
     suspend fun narrateNavigationNotice(
-        notice: FifoNavigationManager.NavigationNotice
+        notice: NavigationNotice
     ): String? {
         if (apiKeyProvider().isBlank()) return null
 
@@ -120,7 +122,7 @@ REGLAS:
             append(notice.blocks).append(" cuadras, ").append(notice.walkingMinutes).append(" min a pie)\n")
             append("Indicación relativa a la orientación actual: ").append(notice.relativeInstruction).append('\n')
             append("Rumbo hacia el destino: ").append(notice.cardinalDirection).append('\n')
-            if (notice.kind == FifoNavigationManager.NavigationNoticeKind.ARRIVED) {
+            if (notice.kind == NavigationNoticeKind.ARRIVED) {
                 append("El usuario acaba de llegar y la ruta se cerró en este momento.\n")
             } else if (!notice.isFacingTarget) {
                 append("El usuario no apunta hacia el destino: indícale hacia dónde girar.\n")

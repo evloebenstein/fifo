@@ -1,6 +1,6 @@
 package com.fifo.voicepipeline.pipeline
 
-import com.fifo.voicepipeline.location.FifoNavigationManager
+import com.fifo.voicepipeline.location.NavigationNotice
 
 /**
  * Cola de coalescencia de avisos autónomos de navegación (ADR-0041).
@@ -18,14 +18,14 @@ import com.fifo.voicepipeline.location.FifoNavigationManager
 internal class NavigationNoticeQueue {
 
     private val lock = Any()
-    private var pending: FifoNavigationManager.NavigationNotice? = null
+    private var pending: NavigationNotice? = null
     private var draining = false
 
     /**
      * Encola [notice] (el último gana). Devuelve `true` si hay que arrancar el
      * drenaje; `false` si ya hay uno en curso y basta con reemplazar el pendiente.
      */
-    fun offer(notice: FifoNavigationManager.NavigationNotice): Boolean = synchronized(lock) {
+    fun offer(notice: NavigationNotice): Boolean = synchronized(lock) {
         pending = notice
         if (draining) {
             false
@@ -36,7 +36,7 @@ internal class NavigationNoticeQueue {
     }
 
     /** Toma el aviso más reciente. `null` indica que no queda nada y libera la tanda. */
-    fun poll(): FifoNavigationManager.NavigationNotice? = synchronized(lock) {
+    fun poll(): NavigationNotice? = synchronized(lock) {
         val next = pending
         pending = null
         if (next == null) draining = false

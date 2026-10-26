@@ -1,6 +1,7 @@
 package com.fifo.voicepipeline.pipeline
 
-import com.fifo.voicepipeline.location.FifoNavigationManager
+import com.fifo.voicepipeline.location.NavigationNotice
+import com.fifo.voicepipeline.location.NavigationNoticeKind
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -18,10 +19,10 @@ import org.junit.Test
 class NavigationNoticeQueueTest {
 
     private fun notice(
-        kind: FifoNavigationManager.NavigationNoticeKind =
-            FifoNavigationManager.NavigationNoticeKind.STALLED,
+        kind: NavigationNoticeKind =
+            NavigationNoticeKind.STALLED,
         name: String = "OXXO Manquehue"
-    ) = FifoNavigationManager.NavigationNotice(
+    ) = NavigationNotice(
         kind = kind,
         destinationName = name,
         destinationAddress = "Manquehue Norte 1234, Vitacura",
@@ -39,7 +40,7 @@ class NavigationNoticeQueueTest {
         val queue = NavigationNoticeQueue()
 
         assertTrue(queue.offer(notice()))
-        assertFalse(queue.offer(notice(kind = FifoNavigationManager.NavigationNoticeKind.APPROACHING_50M)))
+        assertFalse(queue.offer(notice(kind = NavigationNoticeKind.APPROACHING_50M)))
     }
 
     @Test

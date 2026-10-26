@@ -111,17 +111,29 @@ ya no representa el viaje que la persona está haciendo.
 - Un solo drenaje puede estar activo a la vez; `release()` cubre el cierre
   anormal del job.
 
-`VoicePipelineManager.handleNavigationNotice()` ya no usa deadline:
+`VoicePipelineManager` ya no implementa ese drenaje: lo delega en
+`pipeline/NavigationNoticeDispatcher.kt`, un módulo profundo que recibe la
+espera, la ruta activa, el narrador y la forma de hablar como costuras. El
+dispatcher:
 
 1. encola el aviso;
-2. `awaitIdleForAutonomousSpeech()` espera, sin límite, a que el pipeline no esté
-   en `PROCESSING` ni `SPEAKING`;
-3. si mientras esperaba llegó otro hecho, se locuta el más reciente y se descarta
-   el anterior;
+2. espera, sin límite, a que el pipeline no esté en `PROCESSING` ni `SPEAKING`
+   observando su `StateFlow` (sin sondeo por temporizador);
+3. si mientras esperaba llegó otro hecho, locuta el más reciente y descarta el
+   anterior;
 4. pide la narración al LLM y usa `fallbackSpeech()` solo si no responde;
 5. solo descarta un aviso si el destino activo cambió. `ARRIVED` se anuncia
    aunque la ruta ya se haya cerrado al detectarla; si el usuario arrancó otro
    viaje distinto, la llegada vieja se descarta.
+
+El facade solo entrega el hecho (`handleNavigationNotice`) y elige el motor de
+salida (`speakNavigation`: `VoiceSession` en `SESSION`, TTS legacy en el resto).
+La relevancia (`isNavigationNoticeRelevant`) es una función pura junto al
+dispatcher, con tests propios.
+
+`NavigationNotice` y `NavigationNoticeKind` salen de `FifoNavigationManager` a
+`location/NavigationNotice.kt`: el contrato de la guía deja de depender del
+manager para que cola, dispatcher, red y tests hablen del mismo tipo de dominio.
 
 No se descarta nada por duración: el acompañamiento no se pierde porque una
 respuesta tarde más de 6 s.
@@ -134,12 +146,15 @@ respuesta tarde más de 6 s.
 |---|---|
 | `location/NavigationSessionStore.kt` | **New** — foto durable, interfaz, implementación `SharedPreferences` y doble en memoria. |
 | `location/NavigationSessionMemory.kt` | **Updated** — `Snapshot`, `snapshot()`, `restore()`, `onChanged`; mutadores sincronizados y notificación solo en cambios efectivos. |
-| `location/FifoNavigationManager.kt` | **Updated** — `sessionStore`, `persistSession()`, `restorePersistedSession()` con TTL de 6 h. |
+| `location/FifoNavigationManager.kt` | **Updated** — `sessionStore`, `persistSession()`, `restorePersistedSession()` con TTL de 6 h; el contrato de avisos sale del manager. |
+| `location/NavigationNotice.kt` | **New** — `NavigationNoticeKind` y `NavigationNotice` como tipo de dominio independiente del manager. |
 | `pipeline/NavigationNoticeQueue.kt` | **New** — coalescencia “el último gana” y dueño único del drenaje. |
-| `pipeline/VoicePipelineManager.kt` | **Updated** — cola de avisos, espera sin plazo, descarte solo por cambio de destino, restauración en `start()`. |
+| `pipeline/NavigationNoticeDispatcher.kt` | **New** — orquesta cola, espera sin plazo, relevancia, narración y fallback; relevancia como función pura. |
+| `pipeline/VoicePipelineManager.kt` | **Updated** — delega el aviso al dispatcher, espera por `StateFlow`, elige el motor de salida y restaura la ruta en `start()`. |
 | `skills/FifoSkillRegistry.kt` | **Updated** — inyecta `SharedPreferencesNavigationSessionStore(context)` en el manager. |
 | `test/.../location/NavigationSessionPersistenceTest.kt` | **New** — snapshot/restore, notificaciones, persistencia, restauración y caducidad. |
 | `test/.../pipeline/NavigationNoticeQueueTest.kt` | **New** — coalescencia y liberación de la tanda. |
+| `test/.../pipeline/NavigationNoticeDispatcherTest.kt` | **New** — coalescencia mientras espera, descarte por destino, llegada, fallback y relevancia pura. |
 
 ---
 
@@ -202,6 +217,14 @@ respuesta tarde más de 6 s.
   - el más reciente gana;
   - `poll()` vacío libera la tanda;
   - `release()` recupera el drenaje tras un cierre anormal.
+- `NavigationNoticeDispatcherTest` (10 tests, `runTest`):
+  - el aviso más reciente gana mientras el pipeline está ocupado;
+  - un aviso de otro destino no se narra;
+  - la llegada se anuncia aunque la ruta ya esté cerrada;
+  - el fallback habla si el modelo no responde, devuelve texto vacío o falla;
+  - un TTS que falla no bloquea el aviso siguiente;
+  - la relevancia exige mismo destino y dirección, y trata la llegada como
+    excepción.
 - Emulador Android (`Pixel_9_Pro`, API 36): con una ruta activa,
   `shared_prefs/fifo_navigation.xml` contenía la foto completa (destino,
   coordenadas, inicio, encargos, pausa); tras `am force-stop` y relanzar la app,

@@ -13,6 +13,7 @@ Motor de localización, orientación y navegación autónoma de Fifo.
 | [`FifoNavigationManager.kt`](FifoNavigationManager.kt) | Copiloto peatonal autónomo estilo Waze: monitorea GPS continuo (vía `locationManagerProvider`), detecta desvíos, quietud, proximidad (100 m, 50 m) y llegada. Publica `NavigationNotice` estructurados; **no redacta frases** (ADR-0040). Ya no es un `object` singleton — se inyecta como clase. |
 | [`NavigationSessionMemory.kt`](NavigationSessionMemory.kt) | Estado conversacional de la ruta activa: encargos/paradas en el camino, pausas con o sin plazo y última corrección del usuario. `snapshot()`/`restore()` permiten persistirlo y `describeForPrompt()` entrega hechos para el system prompt (ADR-0040, ADR-0041). |
 | [`NavigationSessionStore.kt`](NavigationSessionStore.kt) | **Costura de persistencia de la ruta (ADR-0041).** `PersistedNavigationSession`/`PersistedStop`, la interfaz `NavigationSessionStore`, la implementación `SharedPreferences` con Gson y el doble en memoria para tests JVM. |
+| [`NavigationNotice.kt`](NavigationNotice.kt) | Contrato de la guía autónoma (ADR-0040): `NavigationNoticeKind` y `NavigationNotice` con `fallbackSpeech()`. Es un tipo de dominio independiente del manager, para que cola, dispatcher, red y tests dependan del contrato. |
 | [`FifoOrientationHelper.kt`](FifoOrientationHelper.kt) | Sensor de brújula: azimuth en grados y orientación cardinal del dispositivo en español. Singleton de solo lectura, sin efectos de lado. |
 
 ## Arquitectura (ADR-0007)

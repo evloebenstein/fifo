@@ -164,7 +164,7 @@ class NavigationSessionMemoryTest {
 /**
  * Avisos autónomos estructurados del [FifoNavigationManager] (ADR-0040).
  *
- * El motor no redacta: entrega un [FifoNavigationManager.NavigationNotice] y el
+ * El motor no redacta: entrega un [NavigationNotice] y el
  * pipeline pide la locución al LLM. [NavigationNotice.fallbackSpeech] es el
  * único texto estático y solo se usa cuando el modelo no responde.
  */
@@ -179,7 +179,7 @@ class NavigationNoticeTest {
     )
 
     private lateinit var navManager: FifoNavigationManager
-    private val notices = mutableListOf<FifoNavigationManager.NavigationNotice>()
+    private val notices = mutableListOf<NavigationNotice>()
 
     private fun newManager(): FifoNavigationManager {
         val manager = FifoNavigationManager(
@@ -214,7 +214,7 @@ class NavigationNoticeTest {
 
         assertEquals(1, notices.size)
         val notice = notices.single()
-        assertEquals(FifoNavigationManager.NavigationNoticeKind.ARRIVED, notice.kind)
+        assertEquals(NavigationNoticeKind.ARRIVED, notice.kind)
         assertEquals("OXXO Manquehue", notice.destinationName)
         assertEquals("Manquehue Norte", notice.streetName)
         assertEquals(listOf("comprar pan"), notice.plannedStops)

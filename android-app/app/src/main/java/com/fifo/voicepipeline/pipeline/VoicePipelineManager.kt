@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.fifo.voicepipeline.BuildConfig
 import com.fifo.voicepipeline.audio.*
-import com.fifo.voicepipeline.location.FifoNavigationManager
+import com.fifo.voicepipeline.location.NavigationNotice
 import com.fifo.voicepipeline.network.BleConnectionState
 import com.fifo.voicepipeline.network.BleVoiceClient
 import com.fifo.voicepipeline.network.CloudApiClient
@@ -13,6 +13,7 @@ import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 
 /**
  * Orquestador principal del pipeline de voz FIFO — 100% Bluetooth (BLE).
@@ -151,9 +152,17 @@ class VoicePipelineManager(
 
     /**
      * Avisos autónomos pendientes de narrar (ADR-0041). Coalescen al más
-     * reciente y esperan, sin plazo, a que el turno en curso termine.
+     * reciente, esperan sin plazo a que el turno en curso termine y solo se
+     * descartan si el destino activo cambió.
      */
-    private val navigationNotices = NavigationNoticeQueue()
+    private val navigationNotices = NavigationNoticeDispatcher(
+        scope = scope,
+        awaitIdle = ::awaitIdleForAutonomousSpeech,
+        activeDestination = { skillRegistry.navigationManager.activeRoute },
+        narrate = { notice -> cloudClient.narrateNavigationNotice(notice) },
+        speak = ::speakNavigation,
+        log = { message -> Log.i(TAG, message) }
+    )
 
     // ── Módulo profundo de Sesión de Voz (VoiceSession) ──────
     // Solo existe cuando el camino nuevo está activo. No se crea de forma perezosa
@@ -397,7 +406,7 @@ class VoicePipelineManager(
         // El manager pertenece al registro de skills; no hay singleton global.
         // El motor solo emite el hecho: la locución la redacta el LLM.
         skillRegistry.navigationManager.onAutonomousGuidance = { notice ->
-            handleNavigationNotice(notice) { speech -> speakAutonomousMessage(speech) }
+            handleNavigationNotice(notice)
         }
 
         // Iniciar escaneo y conexión BLE con el ESP32-S3
@@ -426,7 +435,7 @@ class VoicePipelineManager(
 
         // La navegación autónoma sigue hablando por el mismo motor de salida.
         skillRegistry.navigationManager.onAutonomousGuidance = { notice ->
-            handleNavigationNotice(notice) { speech -> pipeline.session.speakResponse(speech) }
+            handleNavigationNotice(notice)
         }
 
         _micSource.value = MicSource.ESP32
@@ -1870,91 +1879,37 @@ class VoicePipelineManager(
     }
 
     /**
-     * Responde a un aviso autónomo de navegación.
-     *
-     * El motor entrega el hecho (desvío, quietud, proximidad, llegada); aquí se
-     * espera a que Fifo esté libre y se pide al LLM una locución con el contexto
-     * de la ruta y la conversación en curso. Solo si el modelo no responde se usa
-     * `notice.fallbackSpeech()`, que es el único texto estático permitido.
-     *
-     * Los avisos no se descartan por duración: coalescen al más reciente y se
-     * locutan cuando el turno en curso termina (ADR-0041). Solo se descarta un
-     * aviso si mientras esperaba el usuario cambió de destino.
+     * Encola un aviso autónomo de navegación. La cola, la espera y la narración
+     * viven en [NavigationNoticeDispatcher] (ADR-0041): el facade solo entrega
+     * el hecho y el dispatcher decide cuándo y cómo locutarlo.
      */
-    private fun handleNavigationNotice(
-        notice: FifoNavigationManager.NavigationNotice,
-        speak: (String) -> Unit
-    ) {
-        if (!navigationNotices.offer(notice)) return
-
-        scope.launch {
-            try {
-                while (true) {
-                    val first = navigationNotices.poll() ?: break
-                    awaitIdleForAutonomousSpeech()
-
-                    // Mientras esperaba pudo llegar un hecho más nuevo: gana el último.
-                    val latest = if (navigationNotices.hasPending()) {
-                        navigationNotices.poll() ?: first
-                    } else {
-                        first
-                    }
-                    if (!isNavigationNoticeRelevant(latest)) {
-                        Log.i(TAG, "Aviso ${latest.kind} descartado: el destino activo ya cambió")
-                        continue
-                    }
-
-                    val narrated = runCatching { cloudClient.narrateNavigationNotice(latest) }.getOrNull()
-                    val speech = TextSanitizer.cleanForSpeech(
-                        narrated?.takeIf { it.isNotBlank() } ?: latest.fallbackSpeech()
-                    )
-                    if (speech.isBlank()) continue
-                    if (narrated == null) {
-                        Log.i(TAG, "Aviso ${latest.kind}: LLM no disponible, se usa el fallback estático")
-                    } else {
-                        Log.i(TAG, "Aviso ${latest.kind}: locución redactada por el LLM")
-                    }
-                    runCatching { speak(speech) }.onFailure {
-                        Log.e(TAG, "No se pudo locutar el aviso ${latest.kind}: ${it.message}")
-                    }
-                }
-            } finally {
-                navigationNotices.release()
-            }
-        }
+    private fun handleNavigationNotice(notice: NavigationNotice) {
+        navigationNotices.dispatch(notice)
     }
 
     /**
-     * Solo se descarta un aviso si la ruta activa ya no es la que lo originó.
-     * La llegada se anuncia aunque la ruta se haya cerrado al detectarla; si el
-     * usuario ya arrancó otro viaje, la llegada vieja deja de tener sentido.
+     * Locuta un aviso por el motor del camino activo: `VoiceSession` en
+     * `SESSION`, el parlante/TTS legacy en caso contrario. La selección se hace
+     * en tiempo de llamada porque el camino nuevo se construye después del
+     * registro de skills.
      */
-    private fun isNavigationNoticeRelevant(
-        notice: FifoNavigationManager.NavigationNotice
-    ): Boolean {
-        val active = skillRegistry.navigationManager.activeRoute
-        if (notice.kind == FifoNavigationManager.NavigationNoticeKind.ARRIVED) {
-            return active == null || sameDestination(active, notice)
+    private fun speakNavigation(speech: String) {
+        val session = sessionPipeline?.session
+        if (session != null) {
+            session.speakResponse(speech)
+        } else {
+            speakAutonomousMessage(speech)
         }
-        return active != null && sameDestination(active, notice)
     }
-
-    private fun sameDestination(
-        active: FifoNavigationManager.ActiveDestination,
-        notice: FifoNavigationManager.NavigationNotice
-    ): Boolean =
-        active.name.equals(notice.destinationName, ignoreCase = true) &&
-            active.fullAddress.equals(notice.destinationAddress, ignoreCase = true)
 
     /**
      * Espera a que el pipeline no esté en `PROCESSING` ni `SPEAKING` antes de
      * interrumpir con un aviso. No hay plazo: es preferible llegar tarde que
-     * perder el acompañamiento o encimarse a una respuesta.
+     * perder el acompañamiento o encimarse a una respuesta. Se observa el
+     * `StateFlow` en vez de sondear con un temporizador.
      */
     private suspend fun awaitIdleForAutonomousSpeech() {
-        while (_state.value == PipelineState.PROCESSING || _state.value == PipelineState.SPEAKING) {
-            delay(250L)
-        }
+        _state.first { it != PipelineState.PROCESSING && it != PipelineState.SPEAKING }
     }
 
     /**

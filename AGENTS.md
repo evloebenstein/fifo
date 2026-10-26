@@ -23,8 +23,8 @@ Estas reglas son invariantes de Fifo. Si un cambio las rompe, el cambio está ma
 - **La sesión de ruta tiene dueño.** `NavigationSessionMemory` guarda encargos (`PlannedStop`), pausas y correcciones; se reinicia al iniciar o terminar la ruta. El LLM la gestiona con la herramienta `manage_navigation_session`, no con frases armadas.
 - **La ruta sobrevive al proceso.** `FifoNavigationManager` persiste la foto con `NavigationSessionStore` en cada cambio y `VoicePipelineManager.start()` la restaura con caducidad de 6 h (ADR-0041). No metas Android ni `SharedPreferences` dentro de `NavigationSessionMemory`: la costura es inyectable.
 - **Una pausa consciente silencia el acompañamiento.** No se emiten avisos de desvío, quietud ni hitos mientras dura; la llegada sí se anuncia.
-- **El aviso no se encima a un turno.** `VoicePipelineManager` encola el aviso, espera sin plazo a que no esté en `PROCESSING`/`SPEAKING` y locuta el más reciente; solo lo descarta si el destino activo cambió.
-- **Pruebas de verdad:** `NavigationSessionMemoryTest`, `NavigationSessionPersistenceTest` y `NavigationNoticeQueueTest` cubren encargos, pausas, correcciones, contexto del prompt, avisos estructurados, persistencia/restauración/caducidad y coalescencia.
+- **El aviso no se encima a un turno.** `NavigationNoticeDispatcher` es el dueño de la cola, la espera sin plazo y la narración; `VoicePipelineManager` solo entrega el hecho y elige el motor de salida. Nunca descartes por duración: el más reciente gana y solo se descarta si el destino activo cambió.
+- **Pruebas de verdad:** `NavigationSessionMemoryTest`, `NavigationSessionPersistenceTest`, `NavigationNoticeQueueTest` y `NavigationNoticeDispatcherTest` cubren encargos, pausas, correcciones, contexto del prompt, avisos estructurados, persistencia/restauración/caducidad, coalescencia, relevancia y fallback.
 
 ## Captura de audio
 

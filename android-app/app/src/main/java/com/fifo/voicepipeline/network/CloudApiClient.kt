@@ -102,7 +102,7 @@ class CloudApiClient(
      * entonces el fallback estático del aviso.
      */
     suspend fun narrateNavigationNotice(
-        notice: com.fifo.voicepipeline.location.FifoNavigationManager.NavigationNotice
+        notice: com.fifo.voicepipeline.location.NavigationNotice
     ): String? = dialog.narrateNavigationNotice(notice)
 
     fun recordTurn(userText: String, assistantText: String) {
