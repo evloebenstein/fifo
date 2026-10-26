@@ -23,7 +23,8 @@ se elimina junto con el legacy en la release siguiente.
 | :--- | :--- |
 | [`PipelineState.kt`](PipelineState.kt) | `PipelineState`: `DISCONNECTED · SLEEPING · IDLE · LISTENING · PROCESSING · SPEAKING · ERROR` y `MicSource`: `ESP32 · PHONE`. |
 | [`VoicePipelineMode.kt`](VoicePipelineMode.kt) | `VoicePipelineMode` (`LEGACY`/`SESSION`) y el selector puro que evalúa el flag y el STT de nube. |
-| [`VoicePipelineManager.kt`](VoicePipelineManager.kt) | **Fachada única para `MainActivity`/`FifoVoiceService`.** En `SESSION` espeja los `StateFlow` y delega en `VoiceSessionPipeline`; en `LEGACY` conserva el camino anterior. No crea una segunda sesión, VAD, TTS ni manager de telefonía. |
+| [`VoicePipelineManager.kt`](VoicePipelineManager.kt) | **Fachada única para `MainActivity`/`FifoVoiceService`.** En `SESSION` espeja los `StateFlow` y delega en `VoiceSessionPipeline`; en `LEGACY` conserva el camino anterior. No crea una segunda sesión, VAD, TTS ni manager de telefonía. Restaura la ruta persistida en `start()` (ADR-0041). |
+| [`NavigationNoticeQueue.kt`](NavigationNoticeQueue.kt) | Cola pura-JVM de avisos autónomos: un solo drenaje activo, el aviso más reciente reemplaza a los anteriores y `poll()` vacío libera la tanda (ADR-0041). |
 | [`session/VoiceSessionPipeline.kt`](session/VoiceSessionPipeline.kt) | **Raíz de composición del camino nuevo.** Es el único lugar que construye `VoiceSession`, los adaptadores de audio, `AndroidTelephonyPort` y `CallerContextCoordinator`, además de `MemoryCoordinator` + `SqliteConversationJournal` + `RepositorySessionMemoryConsolidator`. |
 | [`session/VoiceSession.kt`](session/VoiceSession.kt) | **Sesión conversacional profunda.** Recibe tramas, usa el RMS solo para boca/OLED, transcribe, decide barge-in/eco/acciones de llamada, journaliza antes de hablar y pide consolidación al dormir. |
 | [`session/TurnOrchestrator.kt`](session/TurnOrchestrator.kt) | Máquina de estados del **ConversationalTurn**: wake-word, ventana de follow-up (~14 s), barge-in por contenido y auto-sueño (~25 s, o ~120 s en modo continuo). |
@@ -92,21 +93,29 @@ SLEEPING ──[WakeWordTrigger]──► LISTENING ──[fin de frase]──�
 
 ---
 
-## Guía autónoma de navegación (ADR-0040)
+## Guía autónoma de navegación (ADR-0040 y ADR-0041)
 
 `FifoNavigationManager` pertenece al registro de skills y publica
 `NavigationNotice` estructurados. `VoicePipelineManager` cablea el callback en
 ambos caminos:
 
-1. espera a que el pipeline no esté en `PROCESSING` ni `SPEAKING` (máx. 6 s);
-2. pide la locución a `CloudApiClient.narrateNavigationNotice()`;
-3. locuta la respuesta por `speakAutonomousMessage()` (legacy) o
+1. encola el aviso en `NavigationNoticeQueue`: el más reciente reemplaza a los
+   anteriores;
+2. espera, **sin plazo**, a que el pipeline no esté en `PROCESSING` ni
+   `SPEAKING`;
+3. pide la locución a `CloudApiClient.narrateNavigationNotice()`;
+4. locuta la respuesta por `speakAutonomousMessage()` (legacy) o
    `session.speakResponse()` (`SESSION`), y usa
    `NavigationNotice.fallbackSpeech()` solo si el LLM no responde.
 
+Solo se descarta un aviso si mientras esperaba el usuario cambió de destino
+(`ARRIVED` se anuncia aunque la ruta ya se haya cerrado). Nada se descarta por
+duración.
+
 El motor de navegación no redacta frases y la sesión de ruta no vive en
 `VoiceSession`: encargos, pausas y correcciones están en
-`NavigationSessionMemory`.
+`NavigationSessionMemory`, que se persiste con `NavigationSessionStore` y se
+restaura en `start()` (ADR-0041).
 
 ---
 

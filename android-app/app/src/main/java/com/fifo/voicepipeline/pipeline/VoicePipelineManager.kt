@@ -149,6 +149,12 @@ class VoicePipelineManager(
     // ── Coroutine scope ─────────────────────────────
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    /**
+     * Avisos autónomos pendientes de narrar (ADR-0041). Coalescen al más
+     * reciente y esperan, sin plazo, a que el turno en curso termine.
+     */
+    private val navigationNotices = NavigationNoticeQueue()
+
     // ── Módulo profundo de Sesión de Voz (VoiceSession) ──────
     // Solo existe cuando el camino nuevo está activo. No se crea de forma perezosa
     // para que el modo legacy nunca construya una segunda sesión.
@@ -164,6 +170,10 @@ class VoicePipelineManager(
      */
     fun start() {
         Log.i(TAG, "Iniciando pipeline de voz FIFO (Groq LPU / Qwen 27B)...")
+
+        // Una ruta guardada sobrevive al cierre de la app: al volver a arrancar,
+        // Fifo retoma el destino, los encargos y la pausa (ADR-0041).
+        skillRegistry.navigationManager.restorePersistedSession()
 
         val effectiveOpenAiKey = if (openAiApiKey.isNotBlank()) openAiApiKey else if (groqApiKey.startsWith("gsk_")) groqApiKey else ""
         cloudClient = CloudApiClient(
@@ -1866,37 +1876,84 @@ class VoicePipelineManager(
      * espera a que Fifo esté libre y se pide al LLM una locución con el contexto
      * de la ruta y la conversación en curso. Solo si el modelo no responde se usa
      * `notice.fallbackSpeech()`, que es el único texto estático permitido.
+     *
+     * Los avisos no se descartan por duración: coalescen al más reciente y se
+     * locutan cuando el turno en curso termina (ADR-0041). Solo se descarta un
+     * aviso si mientras esperaba el usuario cambió de destino.
      */
     private fun handleNavigationNotice(
         notice: FifoNavigationManager.NavigationNotice,
         speak: (String) -> Unit
     ) {
+        if (!navigationNotices.offer(notice)) return
+
         scope.launch {
-            awaitIdleForAutonomousSpeech()
-            val narrated = runCatching { cloudClient.narrateNavigationNotice(notice) }.getOrNull()
-            val speech = TextSanitizer.cleanForSpeech(narrated?.takeIf { it.isNotBlank() } ?: notice.fallbackSpeech())
-            if (speech.isBlank()) return@launch
-            if (narrated == null) {
-                Log.i(TAG, "Aviso ${notice.kind}: LLM no disponible, se usa el fallback estático")
-            } else {
-                Log.i(TAG, "Aviso ${notice.kind}: locución redactada por el LLM")
+            try {
+                while (true) {
+                    val first = navigationNotices.poll() ?: break
+                    awaitIdleForAutonomousSpeech()
+
+                    // Mientras esperaba pudo llegar un hecho más nuevo: gana el último.
+                    val latest = if (navigationNotices.hasPending()) {
+                        navigationNotices.poll() ?: first
+                    } else {
+                        first
+                    }
+                    if (!isNavigationNoticeRelevant(latest)) {
+                        Log.i(TAG, "Aviso ${latest.kind} descartado: el destino activo ya cambió")
+                        continue
+                    }
+
+                    val narrated = runCatching { cloudClient.narrateNavigationNotice(latest) }.getOrNull()
+                    val speech = TextSanitizer.cleanForSpeech(
+                        narrated?.takeIf { it.isNotBlank() } ?: latest.fallbackSpeech()
+                    )
+                    if (speech.isBlank()) continue
+                    if (narrated == null) {
+                        Log.i(TAG, "Aviso ${latest.kind}: LLM no disponible, se usa el fallback estático")
+                    } else {
+                        Log.i(TAG, "Aviso ${latest.kind}: locución redactada por el LLM")
+                    }
+                    runCatching { speak(speech) }.onFailure {
+                        Log.e(TAG, "No se pudo locutar el aviso ${latest.kind}: ${it.message}")
+                    }
+                }
+            } finally {
+                navigationNotices.release()
             }
-            speak(speech)
         }
     }
 
     /**
-     * Espera brevemente a que el turno en curso termine antes de interrumpir con
-     * un aviso. Si el usuario sigue pensando o Fifo hablando, el aviso cede el
-     * paso: es preferible llegar tarde que encimarse a una respuesta.
+     * Solo se descarta un aviso si la ruta activa ya no es la que lo originó.
+     * La llegada se anuncia aunque la ruta se haya cerrado al detectarla; si el
+     * usuario ya arrancó otro viaje, la llegada vieja deja de tener sentido.
      */
-    private suspend fun awaitIdleForAutonomousSpeech(timeoutMs: Long = 6_000L) {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        while (System.currentTimeMillis() < deadline) {
-            when (_state.value) {
-                PipelineState.PROCESSING, PipelineState.SPEAKING -> delay(250L)
-                else -> return
-            }
+    private fun isNavigationNoticeRelevant(
+        notice: FifoNavigationManager.NavigationNotice
+    ): Boolean {
+        val active = skillRegistry.navigationManager.activeRoute
+        if (notice.kind == FifoNavigationManager.NavigationNoticeKind.ARRIVED) {
+            return active == null || sameDestination(active, notice)
+        }
+        return active != null && sameDestination(active, notice)
+    }
+
+    private fun sameDestination(
+        active: FifoNavigationManager.ActiveDestination,
+        notice: FifoNavigationManager.NavigationNotice
+    ): Boolean =
+        active.name.equals(notice.destinationName, ignoreCase = true) &&
+            active.fullAddress.equals(notice.destinationAddress, ignoreCase = true)
+
+    /**
+     * Espera a que el pipeline no esté en `PROCESSING` ni `SPEAKING` antes de
+     * interrumpir con un aviso. No hay plazo: es preferible llegar tarde que
+     * perder el acompañamiento o encimarse a una respuesta.
+     */
+    private suspend fun awaitIdleForAutonomousSpeech() {
+        while (_state.value == PipelineState.PROCESSING || _state.value == PipelineState.SPEAKING) {
+            delay(250L)
         }
     }
 

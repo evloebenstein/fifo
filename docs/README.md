@@ -60,6 +60,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0038](adr/0038-navigation-manager-injection.md) | Retiro del singleton de `FifoNavigationManager`; inyección por constructor en todos los consumidores. | Aceptado. |
 | [ADR-0039](adr/0039-dynamic-location-and-navigation-answers.md) | Ubicación y orientación se responden con el LLM y contexto espacial; el fast-path deja de usar plantillas. | Aceptado. |
 | [ADR-0040](adr/0040-dynamic-autonomous-navigation-guidance.md) | La guía autónoma se redacta con el LLM a partir de avisos estructurados; memoria conversacional de la ruta (encargos, pausas, correcciones). | Aceptado. |
+| [ADR-0041](adr/0041-durable-navigation-session-and-notice-coalescing.md) | La ruta activa y su sesión sobreviven al cierre de la app; los avisos coalescen al más reciente y esperan sin plazo al turno en curso. | Aceptado. |
 
 ---
 

@@ -12,6 +12,9 @@ package com.fifo.voicepipeline.location
  * Esta clase es puro estado de dominio: no habla, no conoce Android y no genera
  * frases. [describeForPrompt] entrega hechos estructurados para el prompt y el
  * LLM decide cómo decirlos.
+ *
+ * [snapshot] y [restore] son la costura de persistencia (ADR-0041): el dueño de
+ * la ruta guarda la foto en disco y la repone al volver a arrancar.
  */
 class NavigationSessionMemory(
     private val clock: () -> Long = System::currentTimeMillis
@@ -28,7 +31,27 @@ class NavigationSessionMemory(
         val startedAtMillis: Long
     )
 
+    /**
+     * Foto inmutable del estado para persistirlo o restaurarlo (ADR-0041).
+     * No incluye la identidad de la ruta: eso vive en [FifoNavigationManager].
+     */
+    data class Snapshot(
+        val stops: List<PlannedStop>,
+        val pause: Pause?,
+        val lastCorrection: String?,
+        val lastCorrectionAtMillis: Long
+    )
+
     private val stops = mutableListOf<PlannedStop>()
+
+    /**
+     * Se invoca tras cada mutación efectiva para que el dueño de la ruta
+     * persista la foto. No se dispara durante [restore] ni cuando no cambia nada.
+     */
+    @Volatile
+    var onChanged: (() -> Unit)? = null
+
+    private var suppressNotify = false
 
     @Volatile
     var pause: Pause? = null
@@ -53,6 +76,7 @@ class NavigationSessionMemory(
         if (stops.any { it.label.equals(clean, ignoreCase = true) }) return null
         val stop = PlannedStop(clean, clock())
         stops += stop
+        notifyChanged()
         return stop
     }
 
@@ -64,11 +88,13 @@ class NavigationSessionMemory(
     fun completeStops(): List<PlannedStop> {
         val done = stops.toList()
         stops.clear()
+        if (done.isNotEmpty()) notifyChanged()
         return done
     }
 
     // ── Pausas ────────────────────────────────────────────────────────────
 
+    @Synchronized
     fun pause(reason: String?, minutes: Int?): Pause {
         val now = clock()
         val until = minutes?.takeIf { it > 0 }?.let { now + it * 60_000L }
@@ -78,29 +104,35 @@ class NavigationSessionMemory(
             startedAtMillis = now
         )
         pause = created
+        notifyChanged()
         return created
     }
 
+    @Synchronized
     fun resume(): Pause? {
         val previous = pause
         pause = null
+        if (previous != null) notifyChanged()
         return previous
     }
 
     /**
      * `true` si hay una pausa vigente. Una pausa con plazo se expira sola.
      */
+    @Synchronized
     fun isPaused(): Boolean {
         val current = pause ?: return false
         val until = current.untilMillis
         if (until != null && clock() >= until) {
             pause = null
+            notifyChanged()
             return false
         }
         return true
     }
 
     /** Minutos restantes de una pausa con plazo; `null` si es indefinida o no hay pausa. */
+    @Synchronized
     fun remainingPauseMinutes(): Int? {
         if (!isPaused()) return null
         val until = pause?.untilMillis ?: return null
@@ -110,16 +142,21 @@ class NavigationSessionMemory(
 
     // ── Correcciones de ruta ──────────────────────────────────────────────
 
+    @Synchronized
     fun recordCorrection(text: String) {
         val clean = text.trim()
         if (clean.isBlank()) return
         lastCorrection = clean
         lastCorrectionAtMillis = clock()
+        notifyChanged()
     }
 
+    @Synchronized
     fun clearCorrection() {
+        if (lastCorrection == null && lastCorrectionAtMillis == 0L) return
         lastCorrection = null
         lastCorrectionAtMillis = 0L
+        notifyChanged()
     }
 
     // ── Lifecycle ─────────────────────────────────────────────────────────
@@ -128,7 +165,43 @@ class NavigationSessionMemory(
     fun reset() {
         stops.clear()
         pause = null
-        clearCorrection()
+        lastCorrection = null
+        lastCorrectionAtMillis = 0L
+        notifyChanged()
+    }
+
+    /** Foto consistente del estado para persistir (ADR-0041). */
+    @Synchronized
+    fun snapshot(): Snapshot = Snapshot(
+        stops = stops.toList(),
+        pause = pause,
+        lastCorrection = lastCorrection,
+        lastCorrectionAtMillis = lastCorrectionAtMillis
+    )
+
+    /**
+     * Reemplaza el estado con una foto guardada. Una pausa con plazo ya vencido
+     * se restaura sin pausa: el usuario ya no está esperando.
+     */
+    @Synchronized
+    fun restore(snapshot: Snapshot) {
+        suppressNotify = true
+        try {
+            stops.clear()
+            stops += snapshot.stops
+            val restoredPause = snapshot.pause
+            val until = restoredPause?.untilMillis
+            pause = if (until != null && clock() >= until) null else restoredPause
+            lastCorrection = snapshot.lastCorrection
+            lastCorrectionAtMillis = snapshot.lastCorrectionAtMillis
+        } finally {
+            suppressNotify = false
+        }
+    }
+
+    private fun notifyChanged() {
+        if (suppressNotify) return
+        onChanged?.invoke()
     }
 
     fun hasContext(): Boolean = pendingStops().isNotEmpty() || isPaused() || lastCorrection != null

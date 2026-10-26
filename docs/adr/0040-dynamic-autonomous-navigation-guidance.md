@@ -6,6 +6,10 @@
 
 **Author:** Architecture Review — Acompañamiento de navegación
 
+**Enmienda:** la persistencia de la sesión de ruta y la cola de avisos sin
+deadline se deciden en [ADR-0041](0041-durable-navigation-session-and-notice-coalescing.md).
+Este ADR conserva el resto de la decisión.
+
 ---
 
 ## Context
@@ -125,9 +129,11 @@ error.
 `VoicePipelineManager` cablea ambos caminos (legacy y `VoiceSessionPipeline`)
 con `handleNavigationNotice(notice, speak)`:
 
-1. espera a que el pipeline no esté en `PROCESSING` ni `SPEAKING` (máx. 6 s);
-2. pide la narración al LLM;
-3. locuta la respuesta o, si es nula, `notice.fallbackSpeech()`.
+1. encola el aviso y coalesce al más reciente;
+2. espera a que el pipeline no esté en `PROCESSING` ni `SPEAKING` (sin plazo,
+   ADR-0041);
+3. pide la narración al LLM;
+4. locuta la respuesta o, si es nula, `notice.fallbackSpeech()`.
 
 El aviso nunca interrumpe un turno en curso: es preferible llegar tarde que
 encimarse a una respuesta.
@@ -194,11 +200,8 @@ las claves nuevas de sesión en `compactData`.
 
 - Cada aviso autónomo cuesta un turno de LLM y añade latencia. Es el trade-off
   aceptado por diseño; el fallback cubre la falta de red.
-- Un aviso puede descartarse si el turno en curso dura más de 6 s. Se prefiere
-  eso a encimarse a la respuesta del usuario.
-- La memoria de la sesión de ruta vive en RAM y se reinicia con la ruta. No es
-  memoria durable: los turnos siguen pasando por `SessionMemory` cuando
-  corresponde.
+- La locución de un aviso espera al turno en curso. La cola, la persistencia y
+  el descarte por cambio de destino se resuelven en ADR-0041.
 - Los hitos de 100 m y 50 m exigen antigüedad mínima entre locuciones, así que
   en tramos muy cortos puede anunciarse solo uno.
 
@@ -226,6 +229,8 @@ las claves nuevas de sesión en `compactData`.
 
 ## Related
 
+- [ADR-0041](0041-durable-navigation-session-and-notice-coalescing.md) — sesión
+  de ruta durable y avisos que no se pierden por esperar.
 - [ADR-0039](0039-dynamic-location-and-navigation-answers.md) — ubicación y
   orientación delegadas al LLM; deuda de la guía autónoma que este ADR cierra.
 - [ADR-0038](0038-navigation-manager-injection.md) — el manager se inyecta y no

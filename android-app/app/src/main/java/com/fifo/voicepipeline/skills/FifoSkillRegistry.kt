@@ -6,6 +6,8 @@ import android.util.Log
 import com.fifo.voicepipeline.location.AndroidLocationAdapter
 import com.fifo.voicepipeline.location.FifoNavigationManager
 import com.fifo.voicepipeline.location.LocationAdapter
+import com.fifo.voicepipeline.location.NavigationSessionStore
+import com.fifo.voicepipeline.location.SharedPreferencesNavigationSessionStore
 
 /**
  * Registro y despachador central de Skills de Fifo.
@@ -21,6 +23,11 @@ class FifoSkillRegistry(
     private val groqCatalog: GroqToolCatalog = GroqToolCatalog(),
     private val locationAdapter: LocationAdapter = AndroidLocationAdapter(context),
     /**
+     * Persistencia de la ruta activa y su sesión conversacional (ADR-0041).
+     * Producción usa `SharedPreferences`; las pruebas pueden inyectar un doble.
+     */
+    sessionStore: NavigationSessionStore = SharedPreferencesNavigationSessionStore(context),
+    /**
      * Motor de navegación compartido por el router, las skills y el pipeline.
      * Se construye una sola vez por registro; no existe un singleton global.
      */
@@ -28,7 +35,8 @@ class FifoSkillRegistry(
         locationAdapter = locationAdapter,
         locationManagerProvider = {
             context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-        }
+        },
+        sessionStore = sessionStore
     ),
     private val intentRouter: VoiceIntentRouter = VoiceIntentRouter(navigationManager)
 ) {

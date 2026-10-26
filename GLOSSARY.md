@@ -115,12 +115,16 @@ Bloque que `FifoNavigationManager.buildSystemPromptContext()` inyecta al LLM con
 _Avoid_: Descripción espacial, Frase de ubicación
 
 **Aviso de navegación**:
-Hecho estructurado (`NavigationNotice`) que `FifoNavigationManager` detecta por sí mismo —llegada, desvío, quietud, 100 m, 50 m— y entrega al pipeline. El motor no redacta: el LLM compone la locución. `fallbackSpeech()` es el único texto estático y solo se usa si el modelo no responde.
+Hecho estructurado (`NavigationNotice`) que `FifoNavigationManager` detecta por sí mismo -llegada, desvío, quietud, 100 m, 50 m- y entrega al pipeline. El motor no redacta: el LLM compone la locución. `fallbackSpeech()` es el único texto estático y solo se usa si el modelo no responde. Los avisos coalescen al más reciente y esperan sin plazo al turno en curso; solo se descartan si el destino activo cambió (ADR-0041).
 _Avoid_: Alerta de Waze, Frase de guía, Mensaje autónomo
 
 **Sesión de navegación**:
-Estado conversacional de una ruta activa (`NavigationSessionMemory`): encargos o paradas anotadas en el camino, pausa pactada por el usuario y última corrección de ruta. Se reinicia al iniciar o terminar la ruta y el LLM la gestiona con la herramienta `manage_navigation_session`.
+Estado conversacional de una ruta activa (`NavigationSessionMemory`): encargos o paradas anotadas en el camino, pausa pactada por el usuario y última corrección de ruta. Se reinicia al iniciar o terminar la ruta y el LLM la gestiona con la herramienta `manage_navigation_session`. Su foto (`PersistedNavigationSession`) se guarda con `NavigationSessionStore` y se restaura al arrancar con caducidad de 6 h (ADR-0041).
 _Avoid_: Memoria de ruta, Contexto de viaje
+
+**Foto de ruta**:
+`PersistedNavigationSession`: destino, encargos, pausa y corrección serializados en `SharedPreferences` (`fifo_navigation`). No es la memoria durable de conversación (ADR-0011): es el estado de la ruta activa que sobrevive al cierre de la app.
+_Avoid_: Snapshot de memoria, Journal de ruta
 
 ### Comunidad y Memoria
 

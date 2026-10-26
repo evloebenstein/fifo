@@ -25,6 +25,8 @@ import java.util.Locale
  * 4. Memoria inmutable de la ruta: Fifo NUNCA olvida a dónde vas ni confunde la dirección.
  * 5. Conciencia espacial y ambiental: entiende comuna, calle, entorno
  *    interior/exterior, brújula del cuerpo y referencias cercanas.
+ * 6. Persistencia de la ruta activa (ADR-0041): destino, encargos, pausa y
+ *    corrección sobreviven al cierre de la app y se restauran al arrancar.
  *
  * ## GeoIntentSeam (ADR-0007)
  * This class no longer holds a reference to `android.content.Context`. All
@@ -43,7 +45,12 @@ class FifoNavigationManager(
      * Factory that returns the Android [LocationManager], or `null` in test
      * environments where no real GPS hardware is available.
      */
-    private val locationManagerProvider: () -> LocationManager? = { null }
+    private val locationManagerProvider: () -> LocationManager? = { null },
+    /**
+     * Persistencia de la ruta activa y de su sesión conversacional (ADR-0041).
+     * `null` deja el manager puramente volátil, como en los dobles de prueba.
+     */
+    private val sessionStore: NavigationSessionStore? = null
 ) {
 
     companion object {
@@ -155,6 +162,12 @@ class FifoNavigationManager(
      */
     internal var noticeDispatch: ((() -> Unit) -> Unit) = { block -> mainHandler.post(block) }
 
+    init {
+        // Cada mutación de la sesión (encargo, pausa, corrección, reset) deja su
+        // foto en disco; el manager es el único dueño de la ruta (ADR-0041).
+        sessionMemory.onChanged = { persistSession() }
+    }
+
     // ── Route telemetry ───────────────────────────────────────────────────
 
     private var minDistanceReachedMeters = Int.MAX_VALUE
@@ -236,6 +249,56 @@ class FifoNavigationManager(
         stationaryStartTimestamp = 0L
         sessionMemory.reset()
         stopContinuousGps()
+    }
+
+    /**
+     * Restaura la ruta y la sesión conversacional guardadas antes del cierre de
+     * la app (ADR-0041). Es idempotente: si ya hay una ruta activa no toca nada.
+     *
+     * Una foto más vieja que [PersistedNavigationSession.DEFAULT_TTL_MILLIS] se
+     * descarta: pasado ese plazo ya no es el viaje que la persona está haciendo.
+     */
+    fun restorePersistedSession(nowMillis: Long = System.currentTimeMillis()): ActiveDestination? {
+        val store = sessionStore ?: return null
+        activeRoute?.let { return it }
+
+        val saved = store.load() ?: return null
+        if (saved.isExpired(nowMillis)) {
+            store.clear()
+            Log.i(TAG, "Sesión de navegación guardada caducada; se descarta (${saved.destinationName})")
+            return null
+        }
+
+        val route = ActiveDestination(
+            name = saved.destinationName,
+            latitude = saved.latitude,
+            longitude = saved.longitude,
+            fullAddress = saved.fullAddress,
+            road = saved.road,
+            startedAtTimestamp = saved.routeStartedAtMillis
+        )
+        activeRoute = route
+        pendingDestination = null
+        resetTelemetry()
+        sessionMemory.restore(
+            NavigationSessionMemory.Snapshot(
+                stops = saved.stops.map {
+                    NavigationSessionMemory.PlannedStop(it.label, it.addedAtMillis)
+                },
+                pause = saved.pauseStartedAtMillis.takeIf { it > 0L }?.let { startedAt ->
+                    NavigationSessionMemory.Pause(
+                        reason = saved.pauseReason,
+                        untilMillis = saved.pauseUntilMillis,
+                        startedAtMillis = startedAt
+                    )
+                },
+                lastCorrection = saved.lastCorrection,
+                lastCorrectionAtMillis = saved.lastCorrectionAtMillis
+            )
+        )
+        Log.i(TAG, "Ruta restaurada tras reinicio: ${route.name} (${route.latitude}, ${route.longitude})")
+        startContinuousGps()
+        return route
     }
 
     /**
@@ -571,6 +634,38 @@ class FifoNavigationManager(
         )
         Log.i(TAG, "Aviso de navegación autónomo: ${enriched.kind} (${enriched.distanceMeters} m)")
         noticeDispatch { onAutonomousGuidance?.invoke(enriched) }
+    }
+
+    /**
+     * Guarda la foto de la ruta y su sesión. Sin ruta activa no hay nada que
+     * restaurar, así que se limpia lo persistido (fin de ruta, llegada o reset).
+     */
+    private fun persistSession() {
+        val store = sessionStore ?: return
+        val route = activeRoute
+        if (route == null) {
+            store.clear()
+            return
+        }
+
+        val snapshot = sessionMemory.snapshot()
+        store.save(
+            PersistedNavigationSession(
+                savedAtMillis = System.currentTimeMillis(),
+                destinationName = route.name,
+                latitude = route.latitude,
+                longitude = route.longitude,
+                fullAddress = route.fullAddress,
+                road = route.road,
+                routeStartedAtMillis = route.startedAtTimestamp,
+                stops = snapshot.stops.map { PersistedStop(it.label, it.addedAtMillis) },
+                pauseReason = snapshot.pause?.reason.orEmpty(),
+                pauseUntilMillis = snapshot.pause?.untilMillis,
+                pauseStartedAtMillis = snapshot.pause?.startedAtMillis ?: 0L,
+                lastCorrection = snapshot.lastCorrection,
+                lastCorrectionAtMillis = snapshot.lastCorrectionAtMillis
+            )
+        )
     }
 
     private fun resetTelemetry() {
