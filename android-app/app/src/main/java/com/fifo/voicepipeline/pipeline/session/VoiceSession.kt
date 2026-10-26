@@ -51,6 +51,7 @@ class VoiceSession(
     private val onCallAction: ((CallAction) -> Boolean)? = null,
     initialMicMuted: Boolean = false,
     private val memory: SessionMemory? = null,
+    private val wakeWordDetector: WakeWordDetector = NoopWakeWordDetector,
     private val nowProvider: () -> Long = System::currentTimeMillis
 ) {
     // ── Estados observables para la UI / Servicios ──────────────
@@ -75,6 +76,14 @@ class VoiceSession(
     /** Evita transcribir dos segmentos en paralelo y abrir dos turnos duplicados. */
     @Volatile
     private var isTranscribing = false
+
+    /**
+     * Último candidato acústico aún no consumido por un turno (ADR-0043).
+     * Es una referencia: leerla y reemplazarla desde hilos distintos no requiere
+     * bloqueo, y solo la consume [processUserUtterance].
+     */
+    @Volatile
+    private var pendingAcousticCandidate: WakeWordDetection? = null
 
     /**
      * Procesa una intención de alto nivel enviada por la UI o el sistema (telefonía, pantalla).
@@ -142,6 +151,8 @@ class VoiceSession(
             return SpeechSegment.Silence(0.0)
         }
 
+        evaluateAcousticWakeWord(pcmData)
+
         val segment = speechSegmenter.processFrame(
             pcmData = pcmData,
             isSpeakingNow = speechOutbound.isSpeaking
@@ -162,6 +173,47 @@ class VoiceSession(
         }
 
         return segment
+    }
+
+    /**
+     * Etapa acústica de la cascada de invocación (ADR-0043).
+     *
+     * Solo corre mientras Fifo duerme: es el único momento en que hace falta y,
+     * además, evita que la propia locución ("Fifo contesta" / "Fifo cuelga")
+     * dispare el detector. No abre micrófono, no habla y no decide nada: guarda
+     * el candidato para que [processUserUtterance] lo confirme con el texto.
+     */
+    private fun evaluateAcousticWakeWord(pcmData: ByteArray) {
+        if (speechOutbound.isSpeaking) return
+        if (turnOrchestrator.state.value != PipelineState.SLEEPING) return
+
+        val detection = wakeWordDetector.accept(pcmData, nowProvider()) ?: return
+        pendingAcousticCandidate = detection
+
+        // Despertar por acústica no locuta: la frase la compone el LLM cuando
+        // llegue la transcripción (regla de respuestas dinámicas).
+        turnOrchestrator.wakeUpExplicitly()
+        _statusMessage.value = "Te escucho..."
+    }
+
+    /**
+     * Consume el candidato acústico si sigue vigente y lo invalida para que no
+     * se reutilice en un turno posterior.
+     */
+    private fun consumeAcousticCandidate(now: Long): Boolean {
+        val candidate = pendingAcousticCandidate ?: return false
+        pendingAcousticCandidate = null
+        return now - candidate.detectedAtMillis in 0..ACOUSTIC_CANDIDATE_WINDOW_MS
+    }
+
+    /**
+     * Descarta la ventana del detector y el candidato pendiente. Se llama al
+     * silenciar, al dormir y al reiniciar: un candidato viejo no debe despertar
+     * un turno futuro.
+     */
+    private fun clearAcousticWakeState() {
+        pendingAcousticCandidate = null
+        wakeWordDetector.reset()
     }
 
     /**
@@ -233,13 +285,15 @@ class VoiceSession(
             if (text.isBlank()) return@launch
 
             val now = nowProvider()
+            val hasAcousticCandidate = consumeAcousticCandidate(now)
             val isSpeakingNow = turnOrchestrator.state.value == PipelineState.SPEAKING ||
                 speechOutbound.isSpeaking
             val isEcho = turnOrchestrator.isEchoOfLastSpokenSentence(text, isSpeakingNow)
 
             val isFollowUp = turnOrchestrator.expectFollowUp.value
             val isBargeIn = turnOrchestrator.isWaitingForBargeInResolution
-            val isWakeWord = turnOrchestrator.isWakeWord(text)
+            val wakeResolution = UtterancePolicy.resolveWake(text, hasAcousticCandidate)
+            val isWakeWord = wakeResolution == WakeResolution.CONFIRMED
             val previousTurn = try {
                 memory?.recentTurns(1)?.firstOrNull()
             } catch (_: Exception) {
@@ -284,9 +338,18 @@ class VoiceSession(
             }
 
             // Si no dijo "Fifo" y no estamos en follow-up, barge-in ni reparación,
-            // descartar audio ambiental. La corrección se acepta sin wake word solo
-            // cuando existe un turno anterior y la política la reconoce.
-            if (!isWakeWord && !isFollowUp && !isBargeIn && !isCorrection) {
+            // descartar audio ambiental. La acústica puede rescatar el turno cuando
+            // el ruido se comió la palabra (ADR-0043), pero nunca convierte una
+            // transcripción inutilizable en una consulta.
+            if (wakeResolution == WakeResolution.RETRY) {
+                _statusMessage.value = "Te escucho..."
+                turnOrchestrator.wakeUpExplicitly()
+                return@launch
+            }
+
+            if (wakeResolution == WakeResolution.IGNORE &&
+                !isFollowUp && !isBargeIn && !isCorrection
+            ) {
                 _statusMessage.value = "Audio ambiental descartado"
                 return@launch
             }
@@ -491,6 +554,7 @@ class VoiceSession(
     fun interruptAndQuiet() {
         speechOutbound.stopAndCaptureInterrupted()
         turnOrchestrator.goToSleep()
+        clearAcousticWakeState()
         _statusMessage.value = "Fifo en silencio"
         _rmsLevel.value = 0.0
     }
@@ -528,6 +592,7 @@ class VoiceSession(
 
     fun sleep() {
         turnOrchestrator.goToSleep()
+        clearAcousticWakeState()
         _statusMessage.value = "Fifo durmiendo · Diga 'Fifo'"
         _rmsLevel.value = 0.0
         memory?.requestConsolidation()
@@ -545,5 +610,17 @@ class VoiceSession(
         _aiResponse.value = ""
         _statusMessage.value = "Fifo listo · Diga 'Fifo'"
         memory?.requestConsolidation()
+    }
+
+    private companion object {
+        /**
+         * Vida máxima de un candidato acústico.
+         *
+         * Se mide desde la detección hasta que llega la transcripción, así que debe
+         * cubrir una pregunta larga dicha de una sola vez ("Fifo, ¿puedes decirme
+         * qué tiempo va a hacer mañana por la tarde?"), no solo el instante de la
+         * palabra. Al dormir, silenciar o reiniciar se descarta igualmente.
+         */
+        const val ACOUSTIC_CANDIDATE_WINDOW_MS = 8_000L
     }
 }

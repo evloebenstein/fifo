@@ -50,6 +50,16 @@ Estas reglas son invariantes de Fifo. Si un cambio las rompe, el cambio está ma
 - **El estado entra como parámetro.** `isEcho()` recibe la frase hablada y si Fifo espera respuesta; no leas `StateFlow` ni estado mutable dentro de la política.
 - **Pruebas de verdad:** `UtterancePolicyTest` es la tabla de verdad; `TurnOrchestratorTest` y `VoiceSessionTest` cubren la integración.
 
+## Invocación (cascada acústica + léxica)
+
+- **El detector acústico propone, no decide.** `WakeWordDetector` (`pipeline/session/WakeWordDetector.kt`, ADR-0043) devuelve un `WakeWordDetection` con score e instante; no habla, no despierta por sí solo y no autoriza acciones.
+- **No abre micrófono ni tiene VAD.** `VoiceSession` le entrega las mismas tramas que ya captura `CaptureArbiter`; `SpeechSegmenter` sigue siendo el dueño único del VAD y del pre-roll.
+- **Solo se evalúa mientras Fifo duerme.** Durante una locución la propia voz dispararía el detector ("Fifo contesta"/"Fifo cuelga"). Ese es el escudo de eco de la etapa acústica; el barge-in sigue siendo por transcripción.
+- **Una sola fusión.** `UtterancePolicy.resolveWake()` decide `CONFIRMED`, `ACOUSTIC_ONLY`, `RETRY` o `IGNORE`. No agregues una segunda regla en `VoiceSession` ni en el detector.
+- **La acústica nunca autoriza telefonía.** `classifyCallAction()` sigue exigiendo "Fifo" en la transcripción; un candidato acústico con "contesta" no contesta.
+- **El candidato caduca y se consume una vez** (~8 s, para cubrir una pregunta larga) y el detector se reinicia al dormir, silenciar o reiniciar.
+- **Pruebas de verdad:** `UtterancePolicyTest` (tabla de fusión) y `WakeWordCascadeTest` (integración con detector falso; sin modelo descargado).
+
 ## Telefonía
 
 - **La telefonía vive fuera de `VoiceSession`.** La sesión solo recibe `callState` y entrega la acción por `onCallAction`; no contesta, no cuelga y no toca `AudioManager`.

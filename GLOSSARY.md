@@ -22,6 +22,18 @@ _Avoid_: AudioCut, HardStop, MuteInterrupt, RmsCut
 La detección de la palabra de activación ("Fifo"), tanto de forma aislada como incrustada de forma natural dentro de una frase continua hablada por el usuario.
 _Avoid_: Hotword, KeywordDetection
 
+**Cascada de invocación**:
+Las dos etapas que despiertan a Fifo: un detector acústico propone un candidato y `UtterancePolicy.resolveWake()` lo confirma o lo descarta contra la transcripción. Ninguna etapa decide sola (ADR-0043).
+_Avoid_: Doble wake word, Hotword + STT
+
+**Candidato acústico**:
+Evidencia de que en una ventana de audio hubo algo parecido a "Fifo": un score y un instante, sin decisión. Caduca en segundos y nunca autoriza una acción de llamada.
+_Avoid_: Detección, Trigger, Match
+
+**WakeWordDetector**:
+Costura que genera candidatos acústicos a partir de las tramas que ya captura `CaptureArbiter`. No abre micrófono, no tiene VAD, no habla y no conoce el estado conversacional.
+_Avoid_: HotwordEngine, KeywordSpotter, KWSManager
+
 **Política de locución**:
 Única autoridad léxica de Fifo (`UtterancePolicy`, ADR-0042). Clasifica invocación, consulta, saludo, silencio, sueño, eco, pregunta y control de llamada con las mismas reglas en el camino `SESSION` y en el legacy. Es pura y no redacta respuestas; solo decide qué hizo o pidió el usuario.
 _Avoid_: Diccionario de comandos, Reglas de voz, IntentParser

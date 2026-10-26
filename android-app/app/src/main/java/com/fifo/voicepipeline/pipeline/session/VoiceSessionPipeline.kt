@@ -63,6 +63,16 @@ internal class VoiceSessionPipeline(
         userIdProvider = { FifoDataRepository.userProfile.value.id }
     )
 
+    /**
+     * Detector acústico de invocación (ADR-0043).
+     *
+     * Hoy es [NoopWakeWordDetector]: el léxico sigue siendo el único que despierta
+     * a Fifo. El modelo entrenado (openWakeWord) se enchufa exactamente aquí, y
+     * `VoiceSession` le entrega las tramas que ya captura `CaptureArbiter`: el
+     * detector nunca abre micrófono, no habla y no autoriza acciones.
+     */
+    private val wakeWordDetector: WakeWordDetector = NoopWakeWordDetector
+
     val session = VoiceSession(
         scope = scope,
         outboundAdapter = outbound,
@@ -71,7 +81,8 @@ internal class VoiceSessionPipeline(
         callState = telephony.callState,
         onCallAction = { action -> handleCallAction(action) },
         initialMicMuted = initialMicMuted,
-        memory = memory
+        memory = memory,
+        wakeWordDetector = wakeWordDetector
     )
 
     val state: StateFlow<com.fifo.voicepipeline.pipeline.PipelineState> = session.state

@@ -27,9 +27,10 @@ se elimina junto con el legacy en la release siguiente.
 | [`NavigationNoticeQueue.kt`](NavigationNoticeQueue.kt) | Cola pura-JVM de avisos autónomos: un solo drenaje activo, el aviso más reciente reemplaza a los anteriores y `poll()` vacío libera la tanda (ADR-0041). |
 | [`NavigationNoticeDispatcher.kt`](NavigationNoticeDispatcher.kt) | **Módulo profundo de locución autónoma (ADR-0041).** Encadena cola, espera sin plazo, descarte por destino y narración con fallback. Recibe espera/ruta/narrador/habla como costuras y se prueba en JVM con `runTest`. |
 | [`session/VoiceSessionPipeline.kt`](session/VoiceSessionPipeline.kt) | **Raíz de composición del camino nuevo.** Es el único lugar que construye `VoiceSession`, los adaptadores de audio, `AndroidTelephonyPort` y `CallerContextCoordinator`, además de `MemoryCoordinator` + `SqliteConversationJournal` + `RepositorySessionMemoryConsolidator`. |
-| [`session/VoiceSession.kt`](session/VoiceSession.kt) | **Sesión conversacional profunda.** Recibe tramas, usa el RMS solo para boca/OLED, transcribe, decide barge-in/eco/acciones de llamada, journaliza antes de hablar y pide consolidación al dormir. |
+| [`session/VoiceSession.kt`](session/VoiceSession.kt) | **Sesión conversacional profunda.** Recibe tramas, usa el RMS solo para boca/OLED, transcribe, decide barge-in/eco/acciones de llamada, journaliza antes de hablar y pide consolidación al dormir. Alimenta el detector acústico solo dormida y consume el candidato con ventana de 8 s (ADR-0043). |
 | [`session/TurnOrchestrator.kt`](session/TurnOrchestrator.kt) | Máquina de estados del **ConversationalTurn**: wake-word, ventana de follow-up (~14 s), barge-in por contenido y auto-sueño (~25 s, o ~120 s en modo continuo). Delega las reglas léxicas en `UtterancePolicy`. |
-| [`session/UtterancePolicy.kt`](session/UtterancePolicy.kt) | **Única autoridad léxica (ADR-0042).** Política pura de invocación, consulta, saludo, silencio, sueño, eco, pregunta y control de llamada (`CallAction`). La comparten `TurnOrchestrator` y el facade legacy; se prueba en JVM con `UtterancePolicyTest`. |
+| [`session/UtterancePolicy.kt`](session/UtterancePolicy.kt) | **Única autoridad léxica (ADR-0042).** Política pura de invocación, consulta, saludo, silencio, sueño, eco, pregunta y control de llamada (`CallAction`). Incluye la fusión acústica + léxica `resolveWake()` (ADR-0043). La comparten `TurnOrchestrator` y el facade legacy; se prueba en JVM con `UtterancePolicyTest`. |
+| [`session/WakeWordDetector.kt`](session/WakeWordDetector.kt) | **Costura del candidato acústico (ADR-0043).** Devuelve `WakeWordDetection` (score, instante, `modelId`); no abre micrófono, no tiene VAD, no habla y no autoriza acciones. `NoopWakeWordDetector` es el valor por defecto. |
 | [`session/SpeechSegmenter.kt`](session/SpeechSegmenter.kt) | **Dueño único del VAD, el pre-roll (~480 ms) y el WAV** en el camino nuevo. No conoce Android, TTS, UI ni telefonía. |
 | [`session/CaptureArbiter.kt`](session/CaptureArbiter.kt) | **Dueño único de la ruta de captura.** Decide `STOPPED`, `PHONE_NORMAL`, `PHONE_CALL`, `BLE_MIC` o `NATIVE_RECOGNIZER`; solo reconfigura hardware cuando la ruta efectiva cambia y descarta tramas tardías. |
 | [`session/AndroidCaptureHardware.kt`](session/AndroidCaptureHardware.kt) | Implementación Android de `CaptureHardware`: envuelve `PhoneMicRecorder` y, cuando corresponde, el reconocedor nativo. |
@@ -109,6 +110,25 @@ caminos:
 barge-in) y `VoicePipelineManager` delega en las mismas funciones. La política
 clasifica; no redacta ni locuta.
 
+### Invocación en dos etapas (ADR-0043)
+
+La invocación ya no depende solo del STT. `VoiceSession` alimenta un
+`WakeWordDetector` con las tramas que captura `CaptureArbiter` y, **solo mientras
+Fifo duerme**, guarda el candidato que devuelve. Cuando llega la transcripción,
+`UtterancePolicy.resolveWake()` decide:
+
+| Acústica | Transcripción | Resultado |
+| :--- | :--- | :--- |
+| — | contiene "Fifo" | `CONFIRMED` (turno normal) |
+| — | sin "Fifo" | `IGNORE` (audio ambiental) |
+| candidato | texto sin "Fifo" | `ACOUSTIC_ONLY` (la transcripción es la consulta) |
+| candidato | vacío | `RETRY` (despierta sin hablar) |
+
+Despertar por acústica no locuta: la frase la compone el LLM. La acústica nunca
+autoriza `ANSWER`/`HANGUP` y no toca el barge-in, que sigue exigiendo invocación
+transcrita. El detector es `Noop` hasta que exista un modelo medido; cambiarlo es
+una línea en `VoiceSessionPipeline`.
+
 ---
 
 ## Guía autónoma de navegación (ADR-0040 y ADR-0041)
@@ -148,3 +168,4 @@ restaura en `start()` (ADR-0041).
 9. **Memoria antes de hablar:** `recordTurn()` ocurre antes de `speakResponse`; la cola pendiente vive en `conversation_journal`, no en RAM.
 10. **Un solo dueño de memoria:** `VoiceSessionPipeline` compone el diario y el consolidador; `VoiceSession` solo ve `SessionMemory` y el facade legacy no crea otro coordinador.
 11. **Una sola política léxica:** `UtterancePolicy` (ADR-0042) decide invocación, silencio, sueño, eco, pregunta y control de llamada. `TurnOrchestrator` y el facade delegan; no agregues listas o regex en ninguno de los dos.
+12. **La acústica propone, el léxico dispone:** `WakeWordDetector` (ADR-0043) solo produce candidatos; `UtterancePolicy.resolveWake()` es la única fusión y la acústica nunca autoriza `CallAction`. El detector no abre micrófono, no tiene VAD y no corre mientras Fifo habla.

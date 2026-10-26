@@ -62,6 +62,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0040](adr/0040-dynamic-autonomous-navigation-guidance.md) | La guía autónoma se redacta con el LLM a partir de avisos estructurados; memoria conversacional de la ruta (encargos, pausas, correcciones). | Aceptado. |
 | [ADR-0041](adr/0041-durable-navigation-session-and-notice-coalescing.md) | La ruta activa y su sesión sobreviven al cierre de la app; los avisos coalescen al más reciente y esperan sin plazo al turno en curso. | Aceptado. |
 | [ADR-0042](adr/0042-single-utterance-policy.md) | `UtterancePolicy` es la única autoridad léxica: invocación, silencio, sueño, eco, pregunta y control de llamada se comparten entre `SESSION` y legacy. | Aceptado. |
+| [ADR-0043](adr/0043-two-stage-wake-word-invocation.md) | La invocación se resuelve con un candidato acústico (`WakeWordDetector`) que solo despierta, y la confirmación léxica de `UtterancePolicy`; la acústica nunca autoriza llamadas. | Aceptado. |
 
 ---
 

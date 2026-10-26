@@ -15,6 +15,34 @@ enum class CallAction {
 }
 
 /**
+ * Resultado de combinar la evidencia acústica con la transcripción (ADR-0043).
+ *
+ * La cascada tiene dos etapas: un detector acústico propone un candidato y el
+ * léxico confirma o rescata el turno. Ninguna de las dos por separado abre una
+ * acción de llamada.
+ */
+enum class WakeResolution {
+
+    /** Ni la acústica ni la transcripción sugieren invocación: audio ambiental. */
+    IGNORE,
+
+    /** La transcripción contiene la invocación: turno normal con consulta completa. */
+    CONFIRMED,
+
+    /**
+     * La acústica detectó "Fifo" pero el STT no la escribió (el fallo típico
+     * con ruido). La transcripción se usa como consulta.
+     */
+    ACOUSTIC_ONLY,
+
+    /**
+     * La acústica detectó algo parecido a "Fifo" y no hay texto utilizable.
+     * Se despierta sin hablar; pedir que repita es cosa del LLM.
+     */
+    RETRY
+}
+
+/**
  * Única política léxica de Fifo (ADR-0042): invocación, extracción de la
  * consulta, saludo, silencio, sueño, eco, pregunta y control de llamada.
  *
@@ -76,6 +104,39 @@ object UtterancePolicy {
 
         // 3. Expresiones de dos palabras tipo "fi fo".
         return cleaned.contains("fi fo") || cleaned.contains("fe fo")
+    }
+
+    /**
+     * Resuelve la invocación combinando la evidencia acústica con el texto
+     * transcrito (ADR-0043).
+     *
+     * El léxico manda cuando está: si el STT escribió "Fifo", el turno es
+     * normal y la consulta se extrae como siempre. La acústica solo **rescata**
+     * el caso en que el ruido se comió la palabra y el STT transcribió únicamente
+     * la consulta ("qué hora es"), que hoy se descartaría como audio ambiental.
+     *
+     * [hasAcousticCandidate] debe venir de una detección reciente (la ventana la
+     * decide la sesión y cubre una pregunta larga, no solo la palabra). Sin
+     * candidato acústico el comportamiento es exactamente el anterior a ADR-0043.
+     *
+     * Esta función clasifica, no autoriza: en particular, nunca convierte un
+     * comando de llamada en válido. `classifyCallAction` sigue exigiendo "Fifo"
+     * en la transcripción.
+     */
+    fun resolveWake(transcript: String, hasAcousticCandidate: Boolean): WakeResolution {
+        if (isWakeWord(transcript)) return WakeResolution.CONFIRMED
+        if (!hasAcousticCandidate) return WakeResolution.IGNORE
+        return if (hasUsableTranscript(transcript)) WakeResolution.ACOUSTIC_ONLY else WakeResolution.RETRY
+    }
+
+    /**
+     * Verdadero si el texto tiene al menos una palabra real (2+ letras): "sí",
+     * "ok" o "agua" sirven; ".", "…" o una vocal suelta no.
+     */
+    private fun hasUsableTranscript(transcript: String): Boolean {
+        val normalized = normalize(transcript)
+        if (normalized.isBlank()) return false
+        return normalized.split(" ").any { token -> token.length >= 2 && token.any(Char::isLetter) }
     }
 
     /**

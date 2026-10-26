@@ -252,4 +252,43 @@ class UtterancePolicyTest {
         )
         assertNull(UtterancePolicy.classifyCallAction("Fifo responde", isRinging = false))
     }
+
+    // ── Cascada acústica + léxica (ADR-0043) ──────────────────────────────
+
+    @Test
+    fun `sin evidencia acustica el comportamiento es el lexico de siempre`() {
+        assertEquals(WakeResolution.CONFIRMED, UtterancePolicy.resolveWake("Fifo, ¿qué hora es?", false))
+        assertEquals(WakeResolution.IGNORE, UtterancePolicy.resolveWake("pásame la sal", false))
+        assertEquals(WakeResolution.IGNORE, UtterancePolicy.resolveWake("", false))
+    }
+
+    @Test
+    fun `la acustica rescata la consulta cuando el ruido se comio la invocacion`() {
+        assertEquals(WakeResolution.ACOUSTIC_ONLY, UtterancePolicy.resolveWake("qué hora es", true))
+        assertEquals(WakeResolution.ACOUSTIC_ONLY, UtterancePolicy.resolveWake("A las cinco", true))
+        assertEquals(WakeResolution.ACOUSTIC_ONLY, UtterancePolicy.resolveWake("sí", true))
+    }
+
+    @Test
+    fun `la acustica sin texto utilizable despierta sin inventar una consulta`() {
+        assertEquals(WakeResolution.RETRY, UtterancePolicy.resolveWake("", true))
+        assertEquals(WakeResolution.RETRY, UtterancePolicy.resolveWake("   ", true))
+        assertEquals(WakeResolution.RETRY, UtterancePolicy.resolveWake("...", true))
+        assertEquals(WakeResolution.RETRY, UtterancePolicy.resolveWake("a", true))
+    }
+
+    @Test
+    fun `el lexico confirmado gana sobre la acustica y no se degrada`() {
+        assertEquals(WakeResolution.CONFIRMED, UtterancePolicy.resolveWake("Fifo cállate", true))
+        assertEquals(WakeResolution.CONFIRMED, UtterancePolicy.resolveWake("fifo", true))
+    }
+
+    @Test
+    fun `la acustica sola nunca autoriza una accion de llamada`() {
+        assertEquals(WakeResolution.ACOUSTIC_ONLY, UtterancePolicy.resolveWake("contesta", true))
+        assertNull(UtterancePolicy.classifyCallAction("contesta", isRinging = true))
+
+        assertEquals(WakeResolution.ACOUSTIC_ONLY, UtterancePolicy.resolveWake("cuelga", true))
+        assertNull(UtterancePolicy.classifyCallAction("cuelga", isRinging = false))
+    }
 }
