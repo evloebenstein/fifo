@@ -41,14 +41,21 @@ Estas reglas son invariantes de Fifo. Si un cambio las rompe, el cambio está ma
 - **El RMS no corta locuciones.** Solo mueve la boca/OLED y el nivel de UI. El corte se decide después de transcribir.
 - **Barge-in por contenido:** una nueva invocación “Fifo …” o una orden de silencio corta TTS; un ruido fuerte no.
 - **El eco se ignora antes de cualquier acción.** El anuncio de timbrado contiene “Fifo contesta”/“Fifo cuelga”; un eco nunca debe contestar una llamada.
-- **Pruebas de verdad:** `SpeechSegmenterTest` y `VoiceSessionTest` cubren pre-roll, cierre de frase, eco y barge-in por transcripción.
+- **Pruebas de verdad:** `SpeechSegmenterTest`, `UtterancePolicyTest` y `VoiceSessionTest` cubren pre-roll, cierre de frase, eco y barge-in por transcripción.
+
+## Política de locución
+
+- **Una sola autoridad léxica:** `UtterancePolicy` (`pipeline/session/UtterancePolicy.kt`, ADR-0042) decide invocación, consulta, saludo, silencio, sueño, eco, pregunta y control de llamada. `TurnOrchestrator` y el facade legacy delegan; no agregues listas, regex o frases nuevas en ninguno de los dos.
+- **La política clasifica, no redacta.** No devuelve oraciones para hablar ni conoce TTS, Android o el pipeline. La respuesta la sigue componiendo el LLM.
+- **El estado entra como parámetro.** `isEcho()` recibe la frase hablada y si Fifo espera respuesta; no leas `StateFlow` ni estado mutable dentro de la política.
+- **Pruebas de verdad:** `UtterancePolicyTest` es la tabla de verdad; `TurnOrchestratorTest` y `VoiceSessionTest` cubren la integración.
 
 ## Telefonía
 
 - **La telefonía vive fuera de `VoiceSession`.** La sesión solo recibe `callState` y entrega la acción por `onCallAction`; no contesta, no cuelga y no toca `AudioManager`.
 - **`FifoCallManager` es `internal` y no tiene efectos globales en el constructor.** Enlaza/desenlaza acciones con `bindRepositoryActions()`/`unbindRepositoryActions()`.
 - **Un solo manager en el camino nuevo.** `AndroidTelephonyPort` es la única clase que lo construye; no crees managers desechables en receivers o skills.
-- **Contestar/colgar por voz exige la palabra clave completa:** “Fifo contesta” / “Fifo cuelga”. “Contesta” a secas no es válido.
+- **Contestar/colgar por voz exige la palabra clave completa:** “Fifo contesta” / “Fifo cuelga”. “Contesta” a secas no es válido. `UtterancePolicy.classifyCallAction()` es el único clasificador; el legacy y el camino nuevo lo comparten.
 - **El control de llamada se evalúa después del escudo de eco.** El anuncio de timbrado contiene las mismas frases; no dejes que el eco conteste.
 - **Conocido vs desconocido es de primera clase.** `CallSnapshot` no debe colapsar un llamante desconocido en un nombre inventado.
 

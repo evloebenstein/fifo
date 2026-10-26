@@ -850,48 +850,15 @@ class VoicePipelineManager(
     }
 
     /**
-     * Determina si el texto reconocido corresponde a un comando de control de llamada
-     * (contestar, colgar, rechazar, etc.).
-     * Durante el timbrado, acepta comandos directos ("contesta", "cuelga").
-     * Durante la llamada en curso, acepta "cuelga la llamada", "corta la llamada" o comandos con 'Fifo'.
+     * Determina si el texto reconocido corresponde a un comando de control de
+     * llamada (contestar, colgar, rechazar, consultar quién llama).
+     *
+     * Delega en [UtterancePolicy] (ADR-0042): la invocación "Fifo" es
+     * obligatoria en ambos caminos, también durante el timbrado. "Contesta" a
+     * secas no es una orden válida.
      */
-    private fun isCallActionCommand(text: String, isRinging: Boolean): Boolean {
-        val normalized = java.text.Normalizer.normalize(text.lowercase().trim(), java.text.Normalizer.Form.NFD)
-            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-        val hasWakeWord = isWakeWord(normalized)
-
-        if (isRinging) {
-            val answerWords = listOf(
-                "contesta", "contestar", "contestame", "atiende", "atender", "atiendeme",
-                "acepta", "aceptar", "responder", "responde", "si contesta",
-                "toma la llamada", "tomar la llamada"
-            )
-            val hangupWords = listOf(
-                "cuelga", "colgar", "rechaza", "rechazar", "rechazale", "corta", "cortar",
-                "no contestes", "no contestar", "deten la llamada", "detener llamada",
-                "cancela la llamada", "termina la llamada", "finaliza la llamada"
-            )
-            val statusWords = listOf(
-                "quien llama", "quien es", "quien esta llamando"
-            )
-            return answerWords.any { normalized.contains(it) } ||
-                   hangupWords.any { normalized.contains(it) } ||
-                   statusWords.any { normalized.contains(it) }
-        } else {
-            val explicitHangupPhrases = listOf(
-                "cuelga la llamada", "colgar la llamada", "corta la llamada", "cortar la llamada",
-                "termina la llamada", "terminar la llamada", "finaliza la llamada", "finalizar la llamada",
-                "deten la llamada", "corta llamada", "cuelga llamada"
-            )
-            if (explicitHangupPhrases.any { normalized.contains(it) }) return true
-            return hasWakeWord && (
-                normalized.contains("cuelga") || normalized.contains("colgar") ||
-                normalized.contains("corta") || normalized.contains("cortar") ||
-                normalized.contains("termina") || normalized.contains("finaliza") ||
-                normalized.contains("rechaza") || normalized.contains("deten")
-            )
-        }
-    }
+    private fun isCallActionCommand(text: String, isRinging: Boolean): Boolean =
+        UtterancePolicy.classifyCallAction(text, isRinging) != null
 
     // ═════════════════════════════════════════════════
     //  Procesamiento de Audio Entrante
@@ -1082,74 +1049,15 @@ class VoicePipelineManager(
     }
 
     /**
-     * Detecta órdenes de silencio / callarse ("Fifo silencio", "Fifo cállate", "Fifo para", "cállate", "silencio", etc.).
-     * Si [whileSpeaking] es true (Fifo está hablando), interrumpe inmediatamente ante cualquier palabra de detención
-     * sin exigir la palabra clave "Fifo" para máxima receptividad.
+     * Detecta órdenes de silencio / callarse ("Fifo silencio", "Fifo cállate",
+     * "Fifo para", "cállate", "silencio", etc.).
+     *
+     * Delega en [UtterancePolicy] (ADR-0042): el legacy y el camino `SESSION`
+     * comparten las mismas reglas, así que el modo debug se comporta como la
+     * release.
      */
-    fun isSilenceCommand(text: String, whileSpeaking: Boolean = false): Boolean {
-        if (text.isBlank()) return false
-        val normalized = java.text.Normalizer.normalize(text.lowercase().trim(), java.text.Normalizer.Form.NFD)
-            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-            .replace(Regex("[^a-z0-9\\s]"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-
-        val tokens = normalized.split(" ").filter { it.isNotBlank() }
-        if (tokens.isEmpty()) return false
-
-        // Frases explícitas e inequívocas de detención / silencio
-        val explicitStopPhrases = listOf(
-            "silencio", "callate", "cállate", "basta", "detente", "stop",
-            "shh", "shhh", "no hables", "deja de hablar", "para ya",
-            "para de hablar", "corta ya", "cortala", "apagate", "apágate",
-            "mute", "no te estoy hablando", "callate fifo", "silencio fifo",
-            "fifo silencio", "fifo callate", "fifo cállate", "fifo para", "para fifo",
-            "fifo basta", "basta fifo", "fifo detente", "detente fifo", "fifo stop",
-            "fifo ya", "fifo calma", "fifo cállate ya", "fifo para ya", "calma fifo"
-        )
-
-        val matchesExplicitPhrase = explicitStopPhrases.any { phrase ->
-            normalized == phrase ||
-            normalized.contains(Regex("\\b${Regex.escape(phrase)}\\b"))
-        }
-
-        // Si la frase es larga (> 5 palabras) pero contiene una orden explícita (ej: "Fifo, no te estoy hablando. Silencio.")
-        if (matchesExplicitPhrase) {
-            // Verificar que no sea un falso positivo si contiene palabras de consulta o instrucción
-            val isTaskInstruction = normalized.contains("guiarme") ||
-                    normalized.contains("ubica") ||
-                    normalized.contains("donde") ||
-                    normalized.contains("como ") ||
-                    normalized.contains("quiero") ||
-                    normalized.contains("busca")
-
-            if (!isTaskInstruction) {
-                return true
-            }
-        }
-
-        // Caso especial para la palabra 'para': en español 'para' es frecuentemente preposición ("para ir", "para guiarme").
-        // Solo es orden de silencio si es comando exacto o de 1-2 palabras como "para", "para ya", "fifo para".
-        val isExplicitParaOrder = (normalized == "para" || normalized == "parate" || normalized == "para ya" ||
-                normalized == "fifo para" || normalized == "para fifo")
-
-        if (isExplicitParaOrder) {
-            return true
-        }
-
-        // Si mientras habla (Barge-in) el usuario dice palabras aisladas de detención de 1 o 2 palabras:
-        if (whileSpeaking) {
-            val quickBargeInWords = listOf("callate", "silencio", "basta", "stop", "shh", "shhh", "detente")
-            val hasQuickWord = quickBargeInWords.any { word ->
-                tokens.contains(word)
-            }
-            if (hasQuickWord && tokens.size <= 4) {
-                return true
-            }
-        }
-
-        return false
-    }
+    fun isSilenceCommand(text: String, whileSpeaking: Boolean = false): Boolean =
+        UtterancePolicy.isSilenceCommand(text, whileSpeaking)
 
     /**
      * Detiene inmediatamente la locución de Fifo y lo pone en reposo silencioso.
@@ -1174,115 +1082,28 @@ class VoicePipelineManager(
         resetAutoSleepTimer()
     }
 
+    /** Detecta la invocación "Fifo" y sus variantes fonéticas ([UtterancePolicy]). */
+    private fun isWakeWord(text: String): Boolean = UtterancePolicy.isWakeWord(text)
+
+    /** Quita la invocación y los saludos iniciales de la consulta ([UtterancePolicy]). */
+    private fun extractQuery(text: String): String = UtterancePolicy.extractQuery(text)
+
+    /** Órdenes explícitas de despedida o descanso ([UtterancePolicy]). */
+    private fun isSleepCommand(textLower: String): Boolean =
+        UtterancePolicy.isSleepCommand(textLower)
+
     /**
-     * Lista de palabras clave y aproximaciones fonéticas cuando hay música o ruido de fondo.
-     * Soporta 'Fifo', detectando repeticiones ("fi fo", "fifooo") y acentos para máxima sensibilidad.
+     * Determina si el texto transcrito es un eco de la propia voz de Fifo.
+     * Nunca descarta audio si Fifo terminó y espera respuesta (follow-up o
+     * barge-in): "Boleros", "Sí" o "A las ocho" pueden coincidir con la pregunta.
      */
-    private fun isWakeWord(text: String): Boolean {
-        if (text.isBlank()) return false
-        val normalized = java.text.Normalizer.normalize(text.lowercase().trim(), java.text.Normalizer.Form.NFD)
-            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-        val cleaned = normalized.replace(Regex("[^a-z0-9\\s]"), " ").replace(Regex("\\s+"), " ").trim()
-        val noSpaces = cleaned.replace(" ", "")
-
-        // 1. Coincidencia directa o comprimida ("fi fo", "fi-fo", "fiiifo", "fifo", "pifo")
-        if (noSpaces.contains("fifo") || Regex("f+i+f+o+").containsMatchIn(noSpaces) ||
-            noSpaces.contains("pifo") || Regex("p+i+f+o+").containsMatchIn(noSpaces) ||
-            noSpaces.contains("fijo") || Regex("f+i+j+o+").containsMatchIn(noSpaces)) {
-            return true
-        }
-
-        // 2. Variantes fonéticas cuando Whisper escucha a la persona con ruido o voz suave
-        val wakeWords = listOf(
-            "fifo", "feefo", "fefo", "fito", "fido", "fifa", "fibo", "fipo",
-            "pifo", "phifo", "fi fo", "fe fo", "fijo", "filo", "figo", "fife",
-            "fifu", "cifo", "kiko", "tito"
+    private fun isEchoOfLastSpokenSentence(text: String, isSpeakingNow: Boolean = false): Boolean =
+        UtterancePolicy.isEcho(
+            spokenSentence = lastSpokenSentence,
+            text = text,
+            isSpeakingNow = isSpeakingNow,
+            awaitingAnswer = expectFollowUpQuestion || isWaitingForBargeInFollowUp
         )
-        val matchedInPhrase = wakeWords.any { word ->
-            cleaned.contains(Regex("\\b$word\\b")) ||
-            cleaned.startsWith("$word ") ||
-            cleaned.endsWith(" $word") ||
-            cleaned == word
-        }
-        if (matchedInPhrase) return true
-
-        // 3. Fallback de palabra aislada o saludo inicial (cuando el usuario solo dijo "Fifo" para despertar)
-        val words = cleaned.split(" ")
-        if (words.size <= 2) {
-            val candidate = words.lastOrNull() ?: ""
-            if (candidate in listOf("fijo", "filo", "figo", "fito", "fido", "dijo", "hijo", "kiko", "tito", "pico", "vivo", "tipo", "feefo", "pifo", "fefo")) {
-                return true
-            }
-        }
-
-        return false
-    }
-
-    /**
-     * Extrae la consulta eliminando prefijos de activación como "Fifo", "Hola Fifo", etc.
-     */
-    private fun extractQuery(text: String): String {
-        return text.replace(Regex("(?i)\\b(hola|oye|hey|che|ok|bueno|dime|saludos)\\s+(fifo|pifo|feefo|fefo|fito|fido|fifa|fibo|fipo|phifo|fi\\s+fo|fijo|filo|figo|kiko|tito)\\b"), "")
-            .replace(Regex("(?i)\\b(fifo|pifo|feefo|fefo|fito|fido|fifa|fibo|fipo|phifo|fi\\s+fo|fijo|filo|figo|kiko|tito)\\b"), "")
-            .trim()
-            .trimStart(',', '.', ':', ';', '!', '?', ' ')
-            .trim()
-    }
-
-    /**
-     * Identifica órdenes explícitas de despedida o descanso.
-     */
-    private fun isSleepCommand(textLower: String): Boolean {
-        // "buenas noches" solo es comando de dormir si va acompañado de despedida explícita
-        val isNightSleep = (textLower.contains("buenas noches") && (textLower.contains("descansa") || textLower.contains("a dormir") || textLower.contains("hasta mañana") || textLower.contains("que descanses"))) ||
-                textLower.contains("hasta mañana") || textLower.contains("a dormir") || textLower.contains("a descansar") || textLower.contains("me voy a dormir")
-
-        val isDirectSleep = textLower.contains("duérmete") || textLower.contains("duermete") ||
-                textLower.contains("descansa") || textLower.contains("adiós") ||
-                textLower.contains("adios") || textLower.contains("hasta luego") ||
-                textLower.contains("deja de escuchar") || textLower.contains("ya no escuches") ||
-                textLower.contains("apágate") || textLower.contains("apagate") ||
-                textLower.contains("no necesito nada") || textLower.contains("no quiero nada") ||
-                textLower.contains("eso es todo") || textLower.contains("eso sería todo") ||
-                textLower.contains("chao fifo") || textLower.contains("cállate") || textLower.contains("callate")
-
-        return isNightSleep || isDirectSleep
-    }
-
-    /**
-     * Determina si el texto transcrito corresponde a un eco acústico de la propia voz de Fifo
-     * saliendo por el parlante del dispositivo.
-     */
-    private fun isEchoOfLastSpokenSentence(text: String, isSpeakingNow: Boolean = false): Boolean {
-        if (lastSpokenSentence.isBlank() || text.isBlank()) return false
-        // Si Fifo ya terminó de hablar y está esperando la respuesta del usuario (follow-up o barge-in), jamás descartar como eco
-        // para permitir responder con palabras presentes en la pregunta (ej: "Boleros", "Sí", "A las ocho", "Jardinería")
-        if (!isSpeakingNow && (expectFollowUpQuestion || isWaitingForBargeInFollowUp)) return false
-
-        val normSpoken = java.text.Normalizer.normalize(lastSpokenSentence.lowercase().trim(), java.text.Normalizer.Form.NFD)
-            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-            .replace(Regex("[^a-z0-9\\s]"), " ")
-            .trim()
-        val normText = java.text.Normalizer.normalize(text.lowercase().trim(), java.text.Normalizer.Form.NFD)
-            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-            .replace(Regex("[^a-z0-9\\s]"), " ")
-            .trim()
-
-        if (isSpeakingNow) {
-            if (normSpoken.contains(normText) || normText.contains(normSpoken)) return true
-            val wordsText = normText.split(" ").filter { it.length >= 3 }
-            if (wordsText.isNotEmpty()) {
-                val matching = wordsText.count { normSpoken.contains(it) }
-                if (matching.toFloat() / wordsText.size >= 0.5f) return true
-            }
-        } else {
-            // Fuera de locución activa: solo descartar si es repetición idéntica o prácticamente completa (>20 caracteres)
-            if (normText.length >= 20 && (normSpoken == normText || normSpoken.contains(normText))) {
-                return true
-            }
-        }
-        return false
-    }
 
     /**
      * Genera un saludo dinámico según la hora del día y la continuidad conversacional.
@@ -2017,38 +1838,12 @@ class VoicePipelineManager(
     }
 
     /**
-     * Determina si la frase emitida por Fifo formula una pregunta directa al usuario
-     * para quedarse en modo follow-up esperando la respuesta.
+     * Determina si la frase emitida por Fifo formula una pregunta directa al
+     * usuario para quedarse en modo follow-up esperando la respuesta
+     * ([UtterancePolicy]).
      */
-    private fun isAskingQuestion(text: String): Boolean {
-        if (text.isBlank()) return false
-        val trimmed = text.trim()
-
-        // 1. Signos explícitos de interrogación en cualquier parte del texto (? o ¿)
-        if (trimmed.contains("?") || trimmed.contains("¿")) return true
-
-        val lower = java.text.Normalizer.normalize(trimmed.lowercase(), java.text.Normalizer.Form.NFD)
-            .replace(Regex("\\p{InCombiningDiacriticalMarks}+"), "")
-
-        // 2. Invitaciones explícitas a responder ubicadas al final de la frase
-        val endPrompts = listOf(
-            "cuentame", "cuenteme", "dime", "digame",
-            "que opinas", "que piensa", "que piensas", "que le parece", "te parece",
-            "cual prefieres", "cual prefiere", "como te sientes", "como se siente"
-        )
-        if (endPrompts.any { lower.endsWith(it) || lower.endsWith("$it.") || lower.endsWith("$it!") }) {
-            return true
-        }
-
-        // 3. La última oración empieza con una invitación directa a responder ("Dime...", "Cuéntame...", etc.)
-        val lastSentence = lower.split(Regex("[.!?]")).filter { it.isNotBlank() }.lastOrNull()?.trim() ?: lower
-        val startPrompts = listOf("dime ", "digame ", "cuentame ", "cuenteme ")
-        if (startPrompts.any { lastSentence.startsWith(it) }) {
-            return true
-        }
-
-        return false
-    }
+    private fun isAskingQuestion(text: String): Boolean =
+        UtterancePolicy.isAskingQuestion(text)
 
     /**
      * Maneja la transición de estado cuando termina de hablar por parlante (Android TTS u OpenAI).

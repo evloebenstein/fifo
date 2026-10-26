@@ -22,6 +22,10 @@ _Avoid_: AudioCut, HardStop, MuteInterrupt, RmsCut
 La detección de la palabra de activación ("Fifo"), tanto de forma aislada como incrustada de forma natural dentro de una frase continua hablada por el usuario.
 _Avoid_: Hotword, KeywordDetection
 
+**Política de locución**:
+Única autoridad léxica de Fifo (`UtterancePolicy`, ADR-0042). Clasifica invocación, consulta, saludo, silencio, sueño, eco, pregunta y control de llamada con las mismas reglas en el camino `SESSION` y en el legacy. Es pura y no redacta respuestas; solo decide qué hizo o pidió el usuario.
+_Avoid_: Diccionario de comandos, Reglas de voz, IntentParser
+
 **AudioSeam**:
 La costura de interfaz que desacopla la captura y emisión física de tramas PCM (micrófono del teléfono o BLE ESP32) de la máquina de estados conversacional.
 _Avoid_: AudioBridge, HardwareBoundary
