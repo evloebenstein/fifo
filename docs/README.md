@@ -63,6 +63,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0041](adr/0041-durable-navigation-session-and-notice-coalescing.md) | La ruta activa y su sesión sobreviven al cierre de la app; los avisos coalescen al más reciente y esperan sin plazo al turno en curso. | Aceptado. |
 | [ADR-0042](adr/0042-single-utterance-policy.md) | `UtterancePolicy` es la única autoridad léxica: invocación, silencio, sueño, eco, pregunta y control de llamada se comparten entre `SESSION` y legacy. | Aceptado. |
 | [ADR-0043](adr/0043-two-stage-wake-word-invocation.md) | La invocación se resuelve con un candidato acústico (`WakeWordDetector`) que solo despierta, y la confirmación léxica de `UtterancePolicy`; la acústica nunca autoriza llamadas. | Aceptado. |
+| [ADR-0044](adr/0044-synthetic-wake-word-harness.md) | La invocación se mide con un corpus sintético determinista y un arnés en JVM: FRR por SNR, negativos difíciles, falsos aceptos/hora y latencia. El detector de referencia por plantilla espectral vive solo en pruebas y documenta el techo del enfoque. | Aceptado. |
 
 ---
 

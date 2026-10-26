@@ -58,7 +58,9 @@ Estas reglas son invariantes de Fifo. Si un cambio las rompe, el cambio está ma
 - **Una sola fusión.** `UtterancePolicy.resolveWake()` decide `CONFIRMED`, `ACOUSTIC_ONLY`, `RETRY` o `IGNORE`. No agregues una segunda regla en `VoiceSession` ni en el detector.
 - **La acústica nunca autoriza telefonía.** `classifyCallAction()` sigue exigiendo "Fifo" en la transcripción; un candidato acústico con "contesta" no contesta.
 - **El candidato caduca y se consume una vez** (~8 s, para cubrir una pregunta larga) y el detector se reinicia al dormir, silenciar o reiniciar.
-- **Pruebas de verdad:** `UtterancePolicyTest` (tabla de fusión) y `WakeWordCascadeTest` (integración con detector falso; sin modelo descargado).
+- **El arnés es sintético y no mide campo.** `WakeWordCorpus` + `WakeWordHarnessTest` (ADR-0044) generan el corpus y miden FRR por SNR, negativos difíciles, falsos aceptos/hora y latencia sin binarios ni descargas. Sirven para regresión y para comparar motores; no certifican el rendimiento con televisión y voces reales.
+- **El detector de referencia vive en `test`, nunca en la app.** `SpectralTemplateWakeWordDetector` mide el techo del enfoque por plantilla espectral; no se envía y no sustituye a un modelo entrenado.
+- **Pruebas de verdad:** `UtterancePolicyTest` (tabla de fusión), `WakeWordCascadeTest` (integración con detector falso; sin modelo descargado) y `WakeWordHarnessTest` (corpus sintético y métricas).
 
 ## Telefonía
 

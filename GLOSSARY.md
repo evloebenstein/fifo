@@ -34,6 +34,14 @@ _Avoid_: Detección, Trigger, Match
 Costura que genera candidatos acústicos a partir de las tramas que ya captura `CaptureArbiter`. No abre micrófono, no tiene VAD, no habla y no conoce el estado conversacional.
 _Avoid_: HotwordEngine, KeywordSpotter, KWSManager
 
+**Corpus sintético**:
+Audio generado por el propio arnés (voz por formantes, ruido y mezcla por SNR) para medir la invocación sin grabaciones. Es determinista y vive solo en el source set de pruebas (ADR-0044).
+_Avoid_: Dataset falso, Mock de audio
+
+**Detector de referencia**:
+Implementación de `WakeWordDetector` que existe solo en `app/src/test` para medir el techo del enfoque por plantilla espectral. No se envía en la app ni sustituye a un modelo entrenado (ADR-0044).
+_Avoid_: Detector de producción, Baseline real
+
 **Política de locución**:
 Única autoridad léxica de Fifo (`UtterancePolicy`, ADR-0042). Clasifica invocación, consulta, saludo, silencio, sueño, eco, pregunta y control de llamada con las mismas reglas en el camino `SESSION` y en el legacy. Es pura y no redacta respuestas; solo decide qué hizo o pidió el usuario.
 _Avoid_: Diccionario de comandos, Reglas de voz, IntentParser

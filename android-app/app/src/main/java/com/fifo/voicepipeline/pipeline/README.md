@@ -129,6 +129,12 @@ autoriza `ANSWER`/`HANGUP` y no toca el barge-in, que sigue exigiendo invocació
 transcrita. El detector es `Noop` hasta que exista un modelo medido; cambiarlo es
 una línea en `VoiceSessionPipeline`.
 
+El arnés que mide esa sustitución vive en `app/src/test/.../wakeword/` (ADR-0044):
+corpus sintético determinista, detector de referencia por plantilla espectral y
+tabla de FRR por SNR, negativos difíciles, falsos aceptos/hora y latencia. No se
+envía con la app y no certifica el rendimiento de campo; fija la barra que debe
+superar el modelo entrenado.
+
 ---
 
 ## Guía autónoma de navegación (ADR-0040 y ADR-0041)
