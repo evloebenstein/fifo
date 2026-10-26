@@ -143,6 +143,36 @@ reverberante es 87,5 %; con plantillas de la misma sala cae a 12,5 %. La lecció
 no es "la plantilla es mala", sino que el desajuste de canal domina: un modelo
 entrenado con salas es la vía, no bajar el umbral.
 
+### Entrenar sobre el corpus: resultado negativo (ADR-0046)
+
+El intento de convertir ese diagnóstico en un detector está documentado en
+ADR-0046. Se probaron tres enfoques con locutores y posiciones de sala que no
+aparecen en la evaluación:
+
+| Enfoque | FRR despacho | Negativos aceptados | FA/h |
+| :--- | ---: | ---: | ---: |
+| Regresión logística (40 locutores) | 100 % | 7,0 % | 343 |
+| Red 257→24→1 (12 locutores) | 12,5 % | 98,4 % | 1.924 |
+| Plantillas de sala, umbral 0,65 | 0,0 % | 9,4 % | 26,4 |
+
+Ninguno cumple el punto de trabajo de ≤1 FA/h. La red memoriza a sus 12
+locutores y dispara en habla no vista; la logística no aprende y falla incluso
+en el corpus base (73,1 % de FRR y 834 FA/h). Las plantillas de sala arreglan el
+canal, pero dejan el salón y la cocina al 100 %: el ruido sigue ganando. La causa
+es la representación (el vector CMVN no es un embedding) y la falta de voces
+reales, no el umbral ni el tamaño del modelo.
+
+Los experimentos quedan en `test`, reproducibles y **apagados por defecto**:
+
+```powershell
+$env:FIFO_WAKEWORD_EXPERIMENT="1"
+.\gradlew.bat testDebugUnitTest --tests "*WakeWordLearningTest" --tests "*AugmentedTemplateTest"
+```
+
+Sin esa variable JUnit los omite. `NoopWakeWordDetector` sigue siendo el valor
+por defecto; el siguiente paso es openWakeWord/microWakeWord con embeddings y un
+corpus multi-locutor, medido contra la misma barra.
+
 ---
 
 ## Guía autónoma de navegación (ADR-0040 y ADR-0041)
@@ -184,3 +214,4 @@ restaura en `start()` (ADR-0041).
 11. **Una sola política léxica:** `UtterancePolicy` (ADR-0042) decide invocación, silencio, sueño, eco, pregunta y control de llamada. `TurnOrchestrator` y el facade delegan; no agregues listas o regex en ninguno de los dos.
 12. **La acústica propone, el léxico dispone:** `WakeWordDetector` (ADR-0043) solo produce candidatos; `UtterancePolicy.resolveWake()` es la única fusión y la acústica nunca autoriza `CallAction`. El detector no abre micrófono, no tiene VAD y no corre mientras Fifo habla.
 13. **El arnés no se envía y su corpus base no se toca:** `WakeWordCorpus` y `SpectralTemplateWakeWordDetector` viven en `test`. El corpus base de ADR-0044 se congela; las condiciones de sala, Lombard y VTLP van al corpus de campo de ADR-0045 y se comparan por separado.
+14. **El corpus sintético mide, no entrena:** los clasificadores y las plantillas aumentadas de ADR-0046 viven en `test`, se activan con `FIFO_WAKEWORD_EXPERIMENT=1` y no sustituyen a `NoopWakeWordDetector` hasta superar la barra de ADR-0044 con validación de campo.

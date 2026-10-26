@@ -58,6 +58,18 @@ _Avoid_: Cambio de velocidad, Pitch shift
 Implementación de `WakeWordDetector` que existe solo en `app/src/test` para medir el techo del enfoque por plantilla espectral. No se envía en la app ni sustituye a un modelo entrenado (ADR-0044).
 _Avoid_: Detector de producción, Baseline real
 
+**Modelo ligero**:
+Clasificador entrenado en la JVM sobre el vector CMVN del arnés (regresión logística o red de una capa oculta) para comprobar si la aumentación de campo basta para sustituir a la plantilla. Vive solo en `test`; en ADR-0046 ninguno alcanzó la barra y no se envía.
+_Avoid_: Modelo de producción, KWS casero
+
+**FA/h (falsos aceptos por hora)**:
+Activaciones espontáneas del detector por hora de audio que no contiene la palabra. Es la métrica que decide el producto: un 1 % de ventanas falsas se convierte en miles de FA/h porque el detector evalúa decenas de duraciones por segundo. La barra es ≤1 FA/h (ADR-0044).
+_Avoid_: Tasa de error, Precisión
+
+**Experimento offline**:
+Prueba de aprendizaje que no corre en la suite normal. Se activa con `FIFO_WAKEWORD_EXPERIMENT=1`, entrena y calibra en la JVM, y solo imprime tablas para comparar enfoques; no cambia el detector de producción (ADR-0046).
+_Avoid_: Test de integración, Benchmark de CI
+
 **Política de locución**:
 Única autoridad léxica de Fifo (`UtterancePolicy`, ADR-0042). Clasifica invocación, consulta, saludo, silencio, sueño, eco, pregunta y control de llamada con las mismas reglas en el camino `SESSION` y en el legacy. Es pura y no redacta respuestas; solo decide qué hizo o pidió el usuario.
 _Avoid_: Diccionario de comandos, Reglas de voz, IntentParser

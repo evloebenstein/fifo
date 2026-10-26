@@ -255,7 +255,10 @@ salas y ruido), no para **certificar** el rendimiento de campo.
    MUSAN/DEMAND para ruido, fuera de CI.
 3. **Entrenamiento.** openWakeWord con TTS español (Piper `es_ES`/`es_MX`), RIRs
    y ruido, medido contra la barra de ADR-0044. Cuidado con la pronunciación de
-   "Fifo" y con los negativos adversariales en español.
+   "Fifo" y con los negativos adversariales en español. El primer intento, con
+   modelos ligeros entrenados sobre el corpus sintético, está en
+   [ADR-0046](0046-synthetic-corpus-does-not-train.md): no alcanzó la barra y
+   confirma que hace falta un frontend de embeddings con muchas voces.
 4. **Licencias.** Decidir si el modelo puede usar AudioSet/FMA/FSD50K o si se
    restringe a datasets con licencia compatible con la publicación.
 

@@ -63,6 +63,9 @@ Estas reglas son invariantes de Fifo. Si un cambio las rompe, el cambio está ma
 - **El corpus base se congela.** `positives()`, `hardNegatives()` y `conversations()` conservan sus casos y su tabla; cualquier condición nueva va a `fieldPositives()`/`fieldHardNegatives()`/`fieldConversations()`. No mezcles ambos corpus en una misma comparación.
 - **Diagnóstico antes de culpar al detector.** Si el arnés de campo cae, comprueba el desajuste de canal (plantillas secas vs plantillas de la misma sala) antes de tocar features o umbrales. Con la sala corregida, el FRR de `office-clean` pasa de 87,5 % a 12,5 %.
 - **El detector de referencia vive en `test`, nunca en la app.** `SpectralTemplateWakeWordDetector` mide el techo del enfoque por plantilla espectral; no se envía y no sustituye a un modelo entrenado.
+- **El corpus sintético mide, no entrena.** `WakeWordTrainingCorpus`, la logística, la red 257→24→1 y las plantillas aumentadas de ADR-0046 viven en `test` como evidencia reproducible. Ninguno alcanzó ≤1 FA/h: la mejor logística dejó 73,1 % de FRR y 834 FA/h incluso en el corpus base. No presentes esos números como validación de campo.
+- **Los experimentos de aprendizaje están apagados por defecto.** `WakeWordLearningTest` y `AugmentedTemplateTest` solo corren con `FIFO_WAKEWORD_EXPERIMENT=1`; sin esa variable JUnit los omite y la suite normal no paga minutos de entrenamiento.
+- **La barra de producción es ≤1 FA/h y no se negocia.** `NoopWakeWordDetector` sigue siendo el valor por defecto. Cambiarlo exige un modelo que supere la barra de ADR-0044 (FRR por SNR, negativos difíciles, FA/h y latencia) y validación con grabaciones reales; un buen número en el corpus sintético no basta.
 - **Pruebas de verdad:** `UtterancePolicyTest` (tabla de fusión), `WakeWordCascadeTest` (integración con detector falso; sin modelo descargado) y `WakeWordHarnessTest` (corpus base y de campo, RIR/FFT, Lombard y VTLP).
 
 ## Telefonía
