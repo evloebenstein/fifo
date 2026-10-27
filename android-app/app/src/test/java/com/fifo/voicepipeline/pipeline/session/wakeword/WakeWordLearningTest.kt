@@ -19,6 +19,10 @@ import kotlin.math.roundToInt
  * el corpus de evaluación. El umbral se calibra con un tercer conjunto
  * (validación) y solo después se mide el campo. Si se calibrara con el mismo
  * conjunto que se reporta, el número sería una profecía.
+ *
+ * Usa la copia congelada de 40 + 8 locutores (`adr0046*Clips`) para que la
+ * tabla de ADR-0046 siga siendo reproducible aunque el corpus de exportación de
+ * ADR-0047 haya crecido.
  */
 class WakeWordLearningTest {
 
@@ -210,7 +214,7 @@ class WakeWordLearningTest {
         const val POST_WINDOW_MS = 500L
         const val MERGE_GAP_MS = 400L
 
-        val TRAIN_CLIPS: List<TrainingClip> by lazy { WakeWordTrainingCorpus.trainingClips() }
+        val TRAIN_CLIPS: List<TrainingClip> by lazy { WakeWordTrainingCorpus.adr0046TrainingClips() }
         val TRAIN_SET: List<WakeWordTrainer.Sample> by lazy { WakeWordTrainer.samples(TRAIN_CLIPS) }
 
         val MODEL: WakeWordScoreModel by lazy {
@@ -323,7 +327,7 @@ class WakeWordLearningTest {
          * inalcanzable para conservar todos los scores.
          */
         fun calibrate(model: WakeWordScoreModel): Double {
-            val clips = WakeWordTrainingCorpus.validationClips().filter { it.id.contains("-talk-") }
+            val clips = WakeWordTrainingCorpus.adr0046ValidationClips().filter { it.id.contains("-talk-") }
             val traces = ArrayList<ScoredFrame>()
             for (clip in clips) {
                 val detector = LearnedWakeWordDetector(

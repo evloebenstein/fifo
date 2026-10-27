@@ -159,6 +159,9 @@ minutos de entrenamiento.
 
 1. **Exportar el corpus** (`WakeWordCorpus` + `WakeWordTrainingCorpus`) a WAV y
    metadatos, fuera de la app, con una tarea de Gradle o un `main` de pruebas.
+   Hecho en [ADR-0047](0047-export-corpus-and-mel-cnn.md), junto con un
+   entrenador log-mel + CNN que mejoró el FRR de campo a ~33 % sin llegar a
+   ≤1 FA/h.
 2. **Entrenar openWakeWord** con TTS español (Piper `es_ES`/`es_MX`), RIRs
    sintéticas y ruido; validar con locutores no vistos.
 3. **Medir contra la barra de ADR-0044** en el arnés actual: FRR limpio ≤5 %,

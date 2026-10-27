@@ -69,3 +69,9 @@ local_fifo.db
 # Debug dump files
 db_dump.json
 recent_output.txt
+
+# Wake word offline artifacts (ADR-0047)
+tools/wakeword/corpus/
+tools/wakeword/models/
+tools/wakeword/**/*.pt
+tools/wakeword/**/*.wav

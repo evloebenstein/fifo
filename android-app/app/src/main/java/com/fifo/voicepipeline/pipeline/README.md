@@ -173,6 +173,27 @@ Sin esa variable JUnit los omite. `NoopWakeWordDetector` sigue siendo el valor
 por defecto; el siguiente paso es openWakeWord/microWakeWord con embeddings y un
 corpus multi-locutor, medido contra la misma barra.
 
+### Exportar y entrenar fuera de la JVM (ADR-0047)
+
+El corpus se exporta a WAV mono 16 kHz PCM16 + `manifest.jsonl` con
+`WakeWordCorpusExportTest` (apagado salvo con `FIFO_WAKEWORD_EXPORT_DIR`). Sobre
+esa exportación, `tools/wakeword/train_mel_cnn.py` entrena un log-mel de 40
+bandas + CNN pequeña con 100 locutores y conversaciones en todas las condiciones
+con ruido. Es una herramienta de desarrollo: `torch`/`numpy` no entran en la app.
+
+| Enfoque | FRR campo | Negativos difíciles | FA/h |
+| :--- | ---: | ---: | ---: |
+| Log-mel + CNN, 1 ventana | 79,2 % | 1,6 % | 0,0 |
+| Log-mel + CNN, 2 ventanas | 33,3 % | 6,2 % | 13,2 |
+| Log-mel + CNN, oráculo con ≤1 FA/h | 41,7 % | 3,9 % | 0,0 |
+
+La representación mejora el resultado de ADR-0046 (100 % de FRR), pero no
+alcanza el punto de trabajo. El falso acepto está en el salón y la cocina se
+come el 62,5 % de los positivos. La causa ya no es solo la representación: el
+corpus de campo tiene 0,076 h de conversación y un solo evento son 13,2 FA/h.
+`NoopWakeWordDetector` sigue por defecto; el siguiente paso son voces reales o
+TTS y decenas de horas de negativo, no otro barrido de umbral.
+
 ---
 
 ## Guía autónoma de navegación (ADR-0040 y ADR-0041)
@@ -215,3 +236,4 @@ restaura en `start()` (ADR-0041).
 12. **La acústica propone, el léxico dispone:** `WakeWordDetector` (ADR-0043) solo produce candidatos; `UtterancePolicy.resolveWake()` es la única fusión y la acústica nunca autoriza `CallAction`. El detector no abre micrófono, no tiene VAD y no corre mientras Fifo habla.
 13. **El arnés no se envía y su corpus base no se toca:** `WakeWordCorpus` y `SpectralTemplateWakeWordDetector` viven en `test`. El corpus base de ADR-0044 se congela; las condiciones de sala, Lombard y VTLP van al corpus de campo de ADR-0045 y se comparan por separado.
 14. **El corpus sintético mide, no entrena:** los clasificadores y las plantillas aumentadas de ADR-0046 viven en `test`, se activan con `FIFO_WAKEWORD_EXPERIMENT=1` y no sustituyen a `NoopWakeWordDetector` hasta superar la barra de ADR-0044 con validación de campo.
+15. **La exportación y el entrenador son de desarrollo:** `WakeWordCorpusExportTest` (gated por `FIFO_WAKEWORD_EXPORT_DIR`) es el único contrato WAV/manifiesto; `tools/wakeword/` no entra en el APK y su `.pt` no se envía. El resultado de ADR-0047 (33,3 % de FRR y 13,2 FA/h) no autoriza a cambiar el detector de producción.

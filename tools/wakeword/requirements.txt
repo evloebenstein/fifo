@@ -1,0 +1,4 @@
+# Dependencias solo de desarrollo para tools/wakeword (ADR-0047).
+# No se instalan en la app ni se empaquetan en el APK.
+torch>=2.12
+numpy>=2.4

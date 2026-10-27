@@ -62,6 +62,18 @@ _Avoid_: Detector de producción, Baseline real
 Clasificador entrenado en la JVM sobre el vector CMVN del arnés (regresión logística o red de una capa oculta) para comprobar si la aumentación de campo basta para sustituir a la plantilla. Vive solo en `test`; en ADR-0046 ninguno alcanzó la barra y no se envía.
 _Avoid_: Modelo de producción, KWS casero
 
+**Exportación del corpus**:
+Contrato determinista que escribe el corpus sintético como WAV mono a 16 kHz PCM16 más `manifest.jsonl` (split, familia, etiqueta, locutor, condición y tiempos) para entrenar fuera de la JVM. Se activa con `FIFO_WAKEWORD_EXPORT_DIR`; los WAV no se commitean (ADR-0047).
+_Avoid_: Dataset, Volcado de audio
+
+**Detector log-mel + CNN**:
+Modelo entrenado offline sobre la exportación del corpus, con 40 bandas mel, ventanas de 0,8 s y una CNN pequeña. Mide si la representación cierra la brecha de campo; en ADR-0047 deja 33,3 % de FRR y 13,2 FA/h, así que no se envía.
+_Avoid_: Modelo de producción, Wake word definitivo
+
+**Persistencia temporal**:
+Regla por la que una detección exige varias ventanas consecutivas por encima del umbral. Separa una palabra de un pico de conversación: en ADR-0047 dos ventanas bajan el FRR de campo de 79,2 % a 33,3 %. Si se envía un detector acústico, la histéresis vive en su interfaz, no en el consumidor.
+_Avoid_: Debounce, Filtro de picos
+
 **FA/h (falsos aceptos por hora)**:
 Activaciones espontáneas del detector por hora de audio que no contiene la palabra. Es la métrica que decide el producto: un 1 % de ventanas falsas se convierte en miles de FA/h porque el detector evalúa decenas de duraciones por segundo. La barra es ≤1 FA/h (ADR-0044).
 _Avoid_: Tasa de error, Precisión

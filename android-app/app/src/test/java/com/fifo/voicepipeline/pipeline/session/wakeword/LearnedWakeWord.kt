@@ -24,20 +24,36 @@ internal data class TrainingClip(
     val pcm: ShortArray,
     val wordStartSample: Int?,
     val wordEndSample: Int?,
-    val positive: Boolean
+    val positive: Boolean,
+    val family: String,
+    val speakerName: String,
+    val condition: CorpusCondition
 )
 
 internal object WakeWordTrainingCorpus {
 
     /**
-     * Doce locutores de entrenamiento. Los tractos se sortean en un rango más
+     * Cien locutores de entrenamiento. Los tractos se sortean en un rango más
      * ancho que el de evaluación para cubrir niños y voces grandes sin depender
-     * de un VTLP explícito.
+     * de un VTLP explícito. ADR-0046 midió que con 40 el modelo memoriza; este
+     * tamaño es la variable que comprueba si el problema era la cobertura de
+     * voces o la representación.
      */
-    val TRAIN_SPEAKERS: List<SimulatedSpeaker> = speakers("train", 40, baseSeed = 0x51A7_0001L)
+    val TRAIN_SPEAKERS: List<SimulatedSpeaker> = speakers("train", 100, baseSeed = 0x51A7_0001L)
 
-    /** Ocho locutores que el modelo nunca ve: validan el umbral. */
-    val VALIDATION_SPEAKERS: List<SimulatedSpeaker> = speakers("validation", 8, baseSeed = 0x51A7_0002L)
+    /** Dieciséis locutores que el modelo nunca ve: validan el umbral. */
+    val VALIDATION_SPEAKERS: List<SimulatedSpeaker> = speakers("validation", 16, baseSeed = 0x51A7_0002L)
+
+    /**
+     * Copia congelada del corpus de ADR-0046 (40 + 8 locutores y conversaciones
+     * solo en las dos condiciones secas). Mantiene reproducible la tabla de ese
+     * ADR aunque el corpus de exportación crezca; no la usa el entrenador nuevo.
+     */
+    val ADR0046_TRAIN_SPEAKERS: List<SimulatedSpeaker> =
+        speakers("train", 40, baseSeed = 0x51A7_0001L)
+
+    val ADR0046_VALIDATION_SPEAKERS: List<SimulatedSpeaker> =
+        speakers("validation", 8, baseSeed = 0x51A7_0002L)
 
     private val DRY_CLEAN = CorpusCondition(id = "train-dry-clean", snrDb = null, noise = NoiseKind.WHITE)
 
@@ -93,10 +109,18 @@ internal object WakeWordTrainingCorpus {
 
     fun validationClips(): List<TrainingClip> = clips(VALIDATION_SPEAKERS, VALIDATION_CONDITIONS, "validation")
 
+    /** Corpus exacto con el que se midió ADR-0046; solo para su prueba. */
+    fun adr0046TrainingClips(): List<TrainingClip> =
+        clips(ADR0046_TRAIN_SPEAKERS, TRAIN_CONDITIONS, "train", maxConversationConditions = 2)
+
+    fun adr0046ValidationClips(): List<TrainingClip> =
+        clips(ADR0046_VALIDATION_SPEAKERS, VALIDATION_CONDITIONS, "validation")
+
     private fun clips(
         speakers: List<SimulatedSpeaker>,
         conditions: List<CorpusCondition>,
-        tag: String
+        tag: String,
+        maxConversationConditions: Int = Int.MAX_VALUE
     ): List<TrainingClip> = buildList {
         val words = SimulatedWords.HARD_NEGATIVES.entries.toList()
 
@@ -110,7 +134,8 @@ internal object WakeWordTrainingCorpus {
                         condition = condition,
                         phonemes = SimulatedWords.FIFO,
                         isWord = true,
-                        positive = true
+                        positive = true,
+                        family = "positive"
                     )
                 )
 
@@ -126,18 +151,19 @@ internal object WakeWordTrainingCorpus {
                             condition = condition,
                             phonemes = phonemes,
                             isWord = true,
-                            positive = false
+                            positive = false,
+                            family = "hard_negative"
                         )
                     )
                 }
             }
 
-            // Conversación en las condiciones con ruido: es el material que
-            // calibra el umbral de falsos aceptos. En validación se incluye
-            // también la condición con Lombard, que es la que más se le escapa
-            // a un modelo entrenado sin ella.
+            // Conversación en **todas** las condiciones con ruido. Filtrar solo
+            // las secas dejaba al modelo sin negativos en sala, Lombard y
+            // balbuceo, que es exactamente donde dispara el corpus de campo.
+            // El corpus congelado de ADR-0046 limita a las dos primeras.
             val conversationConditions = conditions.filter { it.snrDb != null }
-                .let { if (tag == "validation") it else it.take(2) }
+                .take(maxConversationConditions)
             for (condition in conversationConditions) {
                 val seed = Seeding.of(tag, "talk", speaker.name, condition.id)
                 add(
@@ -149,6 +175,7 @@ internal object WakeWordTrainingCorpus {
                         phonemes = SimulatedWords.sentence(Random(seed), CONVERSATION_SYLLABLES),
                         isWord = false,
                         positive = false,
+                        family = "conversation",
                         leadMs = 300,
                         tailMs = 300
                     )
@@ -165,6 +192,7 @@ internal object WakeWordTrainingCorpus {
         phonemes: List<Phoneme>,
         isWord: Boolean,
         positive: Boolean,
+        family: String,
         leadMs: Int = 250,
         tailMs: Int = 350
     ): TrainingClip {
@@ -190,7 +218,10 @@ internal object WakeWordTrainingCorpus {
             pcm = pcm,
             wordStartSample = bounds?.first,
             wordEndSample = bounds?.last,
-            positive = positive
+            positive = positive,
+            family = family,
+            speakerName = speaker.name,
+            condition = condition
         )
     }
 

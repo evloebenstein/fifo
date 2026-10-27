@@ -66,6 +66,7 @@ código o un ADR, la fuente de verdad es el ADR y las invariantes de
 | [ADR-0044](adr/0044-synthetic-wake-word-harness.md) | La invocación se mide con un corpus sintético determinista y un arnés en JVM: FRR por SNR, negativos difíciles, falsos aceptos/hora y latencia. El detector de referencia por plantilla espectral vive solo en pruebas y documenta el techo del enfoque. | Aceptado. |
 | [ADR-0045](adr/0045-field-simulation-for-invocation.md) | El arnés añade un corpus de campo simulado (RIR por método de imagen, efecto Lombard y VTLP) sin dependencias. Con plantillas de la misma sala el FRR cae de 87,5 % a 12,5 %: el límite es el canal, no las features. | Aceptado. |
 | [ADR-0046](adr/0046-synthetic-corpus-does-not-train.md) | El corpus sintético mide pero no entrena: regresión logística, red 257→24→1 y plantillas aumentadas fallan la barra de ≤1 FA/h. `NoopWakeWordDetector` sigue por defecto; el siguiente paso es openWakeWord con embeddings y muchas voces. | Aceptado; resultado negativo, no se envía. |
+| [ADR-0047](adr/0047-export-corpus-and-mel-cnn.md) | El corpus se exporta a WAV + manifiesto y se entrena un log-mel + CNN con 100 locutores. La representación baja el FRR de campo de 100 % a 33 %, pero sigue sin cumplir ≤1 FA/h; no se envía. | Aceptado; resultado negativo, herramientas solo de desarrollo. |
 
 ---
 
