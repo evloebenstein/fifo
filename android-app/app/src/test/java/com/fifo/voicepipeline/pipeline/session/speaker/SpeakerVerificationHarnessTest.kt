@@ -67,6 +67,38 @@ class SpeakerVerificationHarnessTest {
     }
 
     @Test
+    fun `la calibracion usa locutores disjuntos y cumple el FAR objetivo`() {
+        val calibrationNames = SpeakerVerificationCorpus.CALIBRATION_SPEAKERS.map { it.name }.toSet()
+        val evaluationNames = SpeakerVerificationCorpus.SPEAKERS.map { it.name }.toSet()
+        assertTrue(
+            "calibración y evaluación no pueden compartir locutores: ${calibrationNames.intersect(evaluationNames)}",
+            calibrationNames.intersect(evaluationNames).isEmpty()
+        )
+
+        val calibrationTrials = SpeakerVerificationEvaluator.scoreTrials(
+            SpeakerVerificationCorpus.calibrationEnrollment(),
+            SpeakerVerificationCorpus.calibrationTests()
+        )
+        val evaluationTrials = SpeakerVerificationEvaluator.scoreTrials(
+            SpeakerVerificationCorpus.enrollment(),
+            SpeakerVerificationCorpus.tests()
+        )
+        val result = SpeakerCalibration.calibrate(
+            calibrationTrials = calibrationTrials,
+            evaluationTrials = evaluationTrials,
+            targetFar = 0.01
+        )
+
+        assertEquals(384, evaluationTrials.size)
+        assertTrue("El umbral debe estar en 0..1: ${result.threshold}", result.threshold in 0.0..1.0)
+        assertTrue(
+            "El FAR de calibración debe cumplir el objetivo: ${result.calibrationFar}",
+            result.calibrationFar <= 0.01 + 1e-9
+        )
+        assertEquals(384, result.evaluation.trials)
+    }
+
+    @Test
     fun `el EER del simulador y la tabla por condicion`() {
         assumeTrue(
             "experimento de locutor; ejecuta con FIFO_SPEAKER_EXPERIMENT=1",
@@ -146,6 +178,59 @@ class SpeakerVerificationHarnessTest {
                 policyThreshold,
                 unseen.farAtPolicy * 100
             )
+        )
+
+        // Punto de operación realista: umbral fijado con locutores de
+        // calibración disjuntos a un FAR objetivo del 1 %.
+        val calibrationTrials = SpeakerVerificationEvaluator.scoreTrials(
+            SpeakerVerificationCorpus.calibrationEnrollment(),
+            SpeakerVerificationCorpus.calibrationTests()
+        )
+        val calibration = SpeakerCalibration.calibrate(
+            calibrationTrials = calibrationTrials,
+            evaluationTrials = trials,
+            targetFar = 0.01
+        )
+        println(
+            String.format(
+                Locale.US,
+                "calibración: thr=%.4f FAR objetivo=%.1f%% FAR calibración=%.1f%% " +
+                    "(genuinos=%d impostores=%d)",
+                calibration.threshold,
+                calibration.targetFar * 100,
+                calibration.calibrationFar * 100,
+                calibration.calibrationGenuineTrials,
+                calibration.calibrationImpostorTrials
+            )
+        )
+        println("cond                    trials  EER      FRR@cal   FAR@cal")
+        for (condition in SpeakerVerificationCorpus.CONDITIONS) {
+            val subset = trials.filter { it.conditionId == condition.id }
+            val metrics = SpeakerVerificationEvaluator.metrics(subset, calibration.threshold)
+            println(
+                String.format(
+                    Locale.US,
+                    "%-23s %6d  %6.1f%%  %7.1f%%  %7.1f%%",
+                    condition.id,
+                    metrics.trials,
+                    metrics.eer * 100,
+                    metrics.frrAtPolicy * 100,
+                    metrics.farAtPolicy * 100
+                )
+            )
+        }
+        println(
+            String.format(
+                Locale.US,
+                "global calibrado: EER=%.1f%% FRR=%.1f%% FAR=%.1f%%",
+                calibration.evaluation.eer * 100,
+                calibration.evaluation.frrAtPolicy * 100,
+                calibration.evaluation.farAtPolicy * 100
+            )
+        )
+        assertTrue(
+            "La calibración debe cumplir el FAR objetivo en su propio conjunto: ${calibration.calibrationFar}",
+            calibration.calibrationFar <= calibration.targetFar + 1e-9
         )
 
         val clean = SpeakerVerificationEvaluator.metrics(cleanTrials, policyThreshold)

@@ -44,5 +44,5 @@ Las pruebas de captura, teléfono, memoria, reparación e identidad de voz no
 requieren un dispositivo: usan `CaptureArbiterTest`, `TelephonyPortTest`,
 `CallerContextProviderTest`, `CallerContextCoordinatorTest`, `MemoryCoordinatorTest`,
 `ConversationRepairPolicyTest`, `VoiceSessionTest`, `SpeechSegmenterTest`,
-`SpeakerIdentityPolicyTest`, `SpeakerIdentityProviderTest` y
-`SpeakerIdentityIntegrationTest`.
+`SpeakerIdentityPolicyTest`, `SpeakerIdentityProviderTest`,
+`SpeakerIdentityIntegrationTest` y `EncryptedVoiceProfileStoreTest`.

@@ -87,8 +87,12 @@ Atribución de un turno a la voz del usuario principal (`OWNER`), a otra persona
 _Avoid_: Autenticación por voz, Login biométrico, VoiceID
 
 **Perfil de voz**:
-Centroide de los embeddings de varias frases de enrolamiento de una persona, con su `modelId` y fecha. No guarda audio crudo; es dato biométrico y debe cifrarse en reposo con consentimiento y borrado (ADR-0048).
+Centroide de los embeddings de varias frases de enrolamiento de una persona, con su `modelId` y fecha. No guarda audio crudo; es dato biométrico y se cifra en reposo con consentimiento y borrado (ADR-0048).
 _Avoid_: Voiceprint, Huella de voz, Grabación del usuario
+
+**Almacén cifrado de perfiles**:
+`EncryptedVoiceProfileStore`: blob versionado con todos los perfiles, cifrado con AES-256-GCM y una clave del Android Keystore. Tolera corrupción como "sin perfiles"; `ConsentAwareVoiceProfileStore` bloquea lectura/enrolamiento sin consentimiento pero siempre permite borrar (ADR-0048).
+_Avoid_: Base de datos de voces, Voice DB, Biometric vault
 
 **Embedding de voz**:
 Vector que resume el timbre de una frase para comparar voces por similitud. Es la materia prima de la identidad, no una decisión: la toma `SpeakerIdentityPolicy` (ADR-0048).
@@ -107,8 +111,12 @@ Política pura que convierte evidencia (candidatos, score, duración) en `OWNER`
 _Avoid_: Reglas de voz, Clasificador de locutor
 
 **Arnés de verificación de locutor**:
-Corpus sintético test-only de 8 locutores, 4 condiciones y 2 duraciones que mide EER/FRR/FAR de un extractor de referencia. Se activa con `FIFO_SPEAKER_EXPERIMENT=1`; mide el simulador y no certifica campo (ADR-0048).
+Corpus sintético test-only con locutores de calibración y de evaluación disjuntos que mide EER/FRR/FAR de un extractor de referencia. Se activa con `FIFO_SPEAKER_EXPERIMENT=1`; la exportación a WAV + manifiesto se activa con `FIFO_SPEAKER_EXPORT_DIR`. Mide el simulador y no certifica campo (ADR-0048).
 _Avoid_: Benchmark de producción, Dataset biométrico
+
+**Calibración de locutor**:
+Fijar el umbral de similitud con un conjunto de locutores de calibración a un FAR objetivo, y reportar FRR/FAR con locutores de evaluación distintos. Calibrar y evaluar sobre las mismas voces es una profecía (ADR-0048).
+_Avoid_: Ajuste de umbral sobre el test, Threshold tuning
 
 **Política de locución**:
 Única autoridad léxica de Fifo (`UtterancePolicy`, ADR-0042). Clasifica invocación, consulta, saludo, silencio, sueño, eco, pregunta y control de llamada con las mismas reglas en el camino `SESSION` y en el legacy. Es pura y no redacta respuestas; solo decide qué hizo o pidió el usuario.

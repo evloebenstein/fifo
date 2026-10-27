@@ -52,9 +52,13 @@ reconocer a una persona y se trata como **dato biométrico sensible**:
   sincroniza y cómo se borra. Sin consentimiento no se crea ningún perfil.
 - **Solo embeddings, nunca audio crudo.** `SpeakerEnrollment` guarda el centroide
   de 3–5 muestras y descarta las grabaciones. Un `VoiceProfile` no contiene PCM.
-- **Almacenamiento cifrado en reposo.** `VoiceProfileStore` es una costura; su
-  implementación de producción debe cifrar con Android Keystore + AES-GCM o
-  SQLCipher, y el borrado (`delete`/`clear`) debe eliminar el perfil completo.
+- **Almacenamiento cifrado en reposo.** `EncryptedVoiceProfileStore` guarda un
+  blob versionado cifrado y autenticado; `AndroidKeystoreProfileCipher` usa
+  AES-256-GCM con una clave del Android Keystore que no sale del dispositivo. El
+  archivo se reemplaza de forma atómica y `delete`/`clear` lo eliminan.
+- **Consentimiento como puerta, no como aviso.** `ConsentAwareVoiceProfileStore`
+  no lee perfiles ni permite enrolar sin consentimiento vigente. Retirarlo
+  bloquea la lectura y el enrolamiento, pero **nunca** impide borrar.
 - **Sin sincronización con el backend.** Los embeddings no se suben. El backend
   actual no tiene autenticación real; enviar biometría sería peor que no tener
   la función.

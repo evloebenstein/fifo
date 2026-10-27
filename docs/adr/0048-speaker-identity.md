@@ -170,9 +170,19 @@ espectral; el umbral de producción se fija con la validación del modelo real.
 ### 4. Solo embeddings locales, cifrados y con consentimiento
 
 - Se guarda el **centroide de embeddings**, nunca el audio crudo.
-- El almacén (`VoiceProfileStore`) es una costura inyectable. La implementación
-  de producción debe cifrar en reposo (Android Keystore + AES-GCM o SQLCipher),
-  pedir consentimiento explícito y ofrecer borrado completo.
+- `EncryptedVoiceProfileStore` materializa el almacén: un blob versionado con
+  todos los perfiles, cifrado y autenticado. Un blob corrupto, de otra versión o
+  cifrado con otra clave se trata como "no hay perfiles" y nunca rompe el turno.
+- `AndroidKeystoreProfileCipher` cifra con **AES-256-GCM** y una clave del
+  Android Keystore que no sale del dispositivo. No añade dependencias: usa
+  `KeyGenParameterSpec` y `Cipher` del sistema.
+- `FileProfileBlobStore` escribe a un temporal y reemplaza de forma atómica, así
+  que un cierre a mitad de escritura deja el perfil anterior intacto.
+- `ConsentAwareVoiceProfileStore` implementa la puerta: sin consentimiento no se
+  lee ni se enrola, pero **borrar siempre se permite** para poder revocar.
+- `androidEncryptedVoiceProfileStore(filesDir, hasConsent)` compone las tres
+  piezas. No se cablea todavía porque no hay extractor real ni UI de
+  consentimiento; `Noop` sigue por defecto.
 - **No se sincroniza con el backend.** El backend actual no tiene autenticación
   real; subir embeddings biométricos sería peor que no tener la función.
 - El perfil lleva `modelId`; un cambio de modelo invalida los perfiles viejos en
@@ -184,10 +194,11 @@ espectral; el umbral de producción se fija con la validación del modelo real.
 ### 5. El arnés mide el simulador, no el salón
 
 `SpeakerVerificationHarnessTest` (test-only, gated con
-`FIFO_SPEAKER_EXPERIMENT=1`) usa 8 locutores sintéticos (6 enrolados, 2 no
-enrolados), 4 condiciones y 2 duraciones. Genera 384 trials: 36 genuinos y 348
-impostores. La referencia es un extractor simple (media + desviación de 16 bandas
-log-mel por frase) y coseno; **no es un modelo de producción**.
+`FIFO_SPEAKER_EXPERIMENT=1`) usa 8 locutores sintéticos de evaluación (6
+enrolados, 2 no enrolados), 4 condiciones y 2 duraciones. Genera 384 trials: 48
+genuinos y 336 impostores. La referencia es un extractor simple (media +
+desviación de 16 bandas log-mel por frase) y coseno; **no es un modelo de
+producción**.
 
 Resultados con umbral calibrado al punto de EER limpio (0,985):
 
@@ -196,10 +207,10 @@ Resultados con umbral calibrado al punto de EER limpio (0,985):
 | `clean` | 96 | 8,3 % | 8,3 % | 8,3 % |
 | `pink-10` | 96 | 21,4 % | 100,0 % | 0,0 % |
 | `white-5` | 96 | 32,7 % | 100,0 % | 0,0 % |
-| `living-lombard-pink-20` | 96 | 100,0 % | 100,0 % | 100,0 % |
-| 4 sílabas (~1,17 s) | 192 | 37,8 % | 72,2 % | 1,7 % |
-| 9 sílabas (~2,01 s) | 192 | 35,1 % | 66,7 % | 4,6 % |
-| Global | 384 | 40,0 % | 69,4 % | 3,2 % |
+| `living-lombard-pink-20` | 96 | 27,4 % | 83,3 % | 2,4 % |
+| 4 sílabas (~1,17 s) | 192 | 35,1 % | 79,2 % | 1,8 % |
+| 9 sílabas (~2,01 s) | 192 | 32,7 % | 66,7 % | 3,6 % |
+| Global | 384 | 31,8 % | 72,9 % | 2,7 % |
 
 Lectura honesta:
 
@@ -207,16 +218,52 @@ Lectura honesta:
   funcionan.
 - Con el umbral por defecto de 0,70, el FAR limpio es 100 %: **el umbral no es
   universal**. Hay que calibrarlo con el modelo real.
-- En ruido y, sobre todo, con sala + Lombard, la referencia se cae (FRR 100 % o
-  EER 100 %). Eso no es un defecto del arnés: es la prueba de que un resumen
-  espectral barato no sustituye a un modelo entrenado con aumento de ruido,
-  normalización de scores y datos de campo.
+- En ruido la referencia se cae: FRR 100 % en `pink-10` y `white-5`. Con sala +
+  Lombard el FRR es 83,3 %, peor que en limpio pero sin el artefacto del corpus
+  anterior: `LombardEffect.adapt` renombraba al locutor y el arnés lo trataba como
+  impostor, lo que fabricaba un EER 100 % falso. Corregido, `living-lombard-pink-20`
+  deja un EER de 27,4 %. El ruido sigue siendo el límite real.
 - Los locutores no enrolados se aceptan al 100 % con el umbral de 0,985: el
   corpus sintético no mide generalización real.
 
 Por eso **no se envía ningún detector biométrico todavía**. `Noop` sigue por
 defecto. El arnés sirve para comparar motores y detectar regresiones; sus
 números no se presentan como validación de campo.
+
+#### Calibración con locutores disjuntos
+
+La tabla anterior fija el umbral con el **mismo** conjunto que reporta, así que
+sirve como techo, no como punto de operación. El corpus ahora incluye cuatro
+locutores de calibración (dos enrolados y dos no vistos), separados de los ocho
+de evaluación. `SpeakerCalibration.thresholdAtFar()` elige el umbral mínimo que
+deja como máximo el FAR objetivo sobre los impostores de calibración.
+
+Con FAR objetivo 1 %:
+
+| Métrica | Valor |
+| :--- | ---: |
+| Umbral | 0,9825 |
+| FAR de calibración | 0,0 % (0 de 48; 1/48 = 2,1 %, no cabía) |
+| FAR de evaluación | 4,8 % |
+| FRR de evaluación | 70,8 % |
+| FRR / FAR en `clean` | 8,3 % / 16,7 % |
+
+La lectura es incómoda y por eso importa: a un punto de operación realista
+(FAR ≤ 1 %), la referencia espectral **no sirve**. Con solo 48 impostores de
+calibración la granularidad es de 2,1 %, así que el umbral se vuelve
+conservador; aun así la evaluación incumple el FAR objetivo. Ese es exactamente
+el trabajo que debe hacer un modelo entrenado, no un ajuste de umbral.
+
+#### Exportación y herramienta offline
+
+`SpeakerCorpusExportTest` (gated con `FIFO_SPEAKER_EXPORT_DIR` y sin commitear
+WAV) escribe 120 clips y un `manifest.jsonl` con split (`enroll`, `calibration`,
+`evaluation`), locutor, rol, condición, sílabas y duración. `tools/speaker/`
+contiene la otra mitad: `score_embeddings.py` recibe un `embeddings.jsonl`
+(`id` + vector) producido por el toolkit del modelo, calcula centroides, calibra
+con el split de calibración y reporta EER/FRR/FAR por condición y duración. Solo
+usa la biblioteca estándar de Python: no mete `numpy`, `torch` ni ONNX en la app
+y no adivina el frontend de cada modelo.
 
 ### 6. Elección de motor: diferida, con criterios claros
 
@@ -324,6 +371,8 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 | :--- | :--- |
 | `pipeline/session/SpeakerIdentity.kt` | **New** — relación, identidad, evidencia, perfil, política pura y contexto de prompt. |
 | `pipeline/session/SpeakerIdentityProvider.kt` | **New** — costura, `Noop`, extractor, almacén, proveedor por embeddings y enrolamiento. |
+| `pipeline/session/EncryptedVoiceProfileStore.kt` | **New** — almacén cifrado y versionado, blob atómico y puerta de consentimiento. |
+| `pipeline/session/AndroidKeystoreProfileCipher.kt` | **New** — AES-256-GCM con clave del Android Keystore y composición de producción. |
 | `pipeline/session/VoiceSession.kt` | **Updated** — identifica en paralelo al STT con timeout, expone `speakerIdentity` y la pasa al LLM. |
 | `pipeline/session/SpeechCognitionSeam.kt` | **Updated** — `generateDialogTurn`/`generateRepairTurn` aceptan la identidad; el adaptador en memoria la registra. |
 | `pipeline/session/VoiceSessionPipeline.kt` | **Updated** — construye `NoopSpeakerIdentityProvider` detrás de la costura. |
@@ -332,37 +381,50 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 | `test/.../session/SpeakerIdentityPolicyTest.kt` | **New** — tabla de verdad de la política y del prompt. |
 | `test/.../session/SpeakerIdentityIntegrationTest.kt` | **New** — identidad por turno, `Noop`, timeout y fallo del proveedor. |
 | `test/.../session/SpeakerIdentityProviderTest.kt` | **New** — enrolamiento, centroide, coseno, modelo distinto y borrado. |
-| `test/.../session/speaker/SpeakerVerificationHarness.kt` | **New** — corpus sintético y evaluador EER/FRR/FAR. |
-| `test/.../session/speaker/SpeakerVerificationHarnessTest.kt` | **New** — determinismo, separación limpia y tabla gated. |
+| `test/.../session/EncryptedVoiceProfileStoreTest.kt` | **New** — cifrado, corrupción, persistencia, borrado y consentimiento. |
+| `test/.../session/speaker/SpeakerVerificationHarness.kt` | **New** — corpus sintético, calibración disjunta y evaluador EER/FRR/FAR. |
+| `test/.../session/speaker/SpeakerVerificationHarnessTest.kt` | **New** — determinismo, separación limpia, calibración y tabla gated. |
+| `test/.../session/speaker/SpeakerCorpusExportTest.kt` | **New** — exportación WAV + `manifest.jsonl` para evaluar un modelo real. |
+| `tools/speaker/score_embeddings.py` | **New** — puntuación, calibración y tablas sobre embeddings externos (stdlib). |
+| `tools/speaker/README.md` | **New** — contrato de exportación, embeddings y reglas de validación. |
 
 ---
 
 ## Verification
 
 - `testDebugUnitTest`, `testReleaseUnitTest` y `compileReleaseKotlin` en verde.
-- 390 pruebas en debug y 390 en release, 0 fallos, 4 omitidas (3 del arnés de
-  wake word + el experimento de locutor sin `FIFO_SPEAKER_EXPERIMENT=1`).
+- 401 pruebas en debug y 401 en release, 0 fallos, 5 omitidas (3 del arnés de
+  wake word + el experimento de locutor sin `FIFO_SPEAKER_EXPERIMENT=1` + la
+  exportación sin `FIFO_SPEAKER_EXPORT_DIR`).
 - `SpeakerIdentityPolicyTest` 14/14, `SpeakerIdentityProviderTest` 9/9,
-  `SpeakerIdentityIntegrationTest` 5/5, `SpeakerVerificationHarnessTest` 2/2
-  siempre y el experimento gated cuando se activa.
+  `SpeakerIdentityIntegrationTest` 5/5, `EncryptedVoiceProfileStoreTest` 9/9 y
+  `SpeakerVerificationHarnessTest` 3/3 siempre + el experimento gated.
+- La exportación se ejecutó a un directorio temporal y produjo 120 WAV y 120
+  líneas de manifiesto; `score_embeddings.py` se probó de extremo a extremo con
+  embeddings sintéticos y escribió su informe.
 - Ninguna prueba depende de un modelo descargado ni de un dispositivo.
 
 ---
 
 ## Siguiente paso (fuera de este ADR)
 
-1. Exportar el corpus sintético de locutores a WAV + manifiesto (mismo contrato
-   que ADR-0047) y evaluar offline un ReDimNet-B0/B1 ONNX real.
-2. Separar locutores de calibración y de evaluación; fijar el umbral por modelo
-   con FAR objetivo (≤ 1 %) y reportar FRR por condición y duración.
+**Hecho en esta iteración:** exportación del corpus, separación
+calibración/evaluación, herramienta offline de puntuación y almacén cifrado con
+consentimiento.
+
+1. Extraer embeddings de un **ReDimNet-B0/B1 ONNX real** con WeSpeaker o
+   sherpa-onnx y pasarlos por `tools/speaker/score_embeddings.py`. Es el primer
+   número que puede compararse con la tabla del simulador.
+2. Implementar la **UI de consentimiento, enrolamiento y borrado** en
+   `ProfileScreen` y cablear `androidEncryptedVoiceProfileStore()` en
+   `VoiceSessionPipeline` cuando exista el extractor.
 3. Añadir aumento de ruido, sala y Lombard al entrenamiento/validación del
-   extractor, no solo al test.
-4. Implementar `EncryptedVoiceProfileStore` con Android Keystore + AES-GCM
-   (o SQLCipher) y la pantalla de consentimiento/borrado.
-5. Evaluar una contramedida de spoofing (ASVspoof 5) antes de usar la identidad
+   extractor, no solo al test; normalizar scores por condición si el modelo lo
+   permite.
+4. Evaluar una contramedida de spoofing (ASVspoof 5) antes de usar la identidad
    para cualquier acción sensible.
-6. Grabar un corpus real: 10–15 personas, 3–5 frases de enrolamiento y uso en
+5. Grabar un corpus real: 10–15 personas, 3–5 frases de enrolamiento y uso en
    silencio, TV, calle y a 1–3 m. Sin ese corpus no se envía el detector.
-7. Solo si el modelo supera la barra y el almacén es cifrado, cambiar
-   `NoopSpeakerIdentityProvider` por el proveedor real y actualizar este ADR con
-   los números de campo.
+6. Solo si el modelo supera la barra, el almacén está cifrado y la UI tiene
+   consentimiento, cambiar `NoopSpeakerIdentityProvider` por el proveedor real y
+   actualizar este ADR con los números de campo.

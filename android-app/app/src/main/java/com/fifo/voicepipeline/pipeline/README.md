@@ -43,6 +43,8 @@ se elimina junto con el legacy en la release siguiente.
 | [`session/ConversationRepairPolicy.kt`](session/ConversationRepairPolicy.kt) | Política pura de reparación ±1 turno: corrección explícita, “No” solo tras `needsRepair` y ventana de ~10 s para locutar. |
 | [`session/SpeakerIdentity.kt`](session/SpeakerIdentity.kt) | **Dominio de identidad de locutor (ADR-0048).** `SpeakerRelation` (`OWNER · KNOWN · UNKNOWN · UNCERTAIN · UNAVAILABLE`), `SpeakerIdentity`, evidencia, `VoiceProfile`, `SpeakerPolicyConfig`, la política pura `SpeakerIdentityPolicy` y `SpeakerPromptContext`. Personaliza; no autentica. |
 | [`session/SpeakerIdentityProvider.kt`](session/SpeakerIdentityProvider.kt) | **Costura de identidad (ADR-0048).** `SpeakerIdentityProvider` + `NoopSpeakerIdentityProvider` por defecto, `SpeakerEmbeddingExtractor`, `VoiceProfileStore`, `EmbeddingSpeakerIdentityProvider` y `SpeakerEnrollment`. Recibe el WAV ya cerrado; no abre micrófono ni tiene VAD. |
+| [`session/EncryptedVoiceProfileStore.kt`](session/EncryptedVoiceProfileStore.kt) | **Almacén cifrado de perfiles (ADR-0048).** Blob versionado, escritura atómica, corrupción tolerada como "sin perfiles" y `ConsentAwareVoiceProfileStore` que bloquea lectura/enrolamiento sin consentimiento pero siempre permite borrar. |
+| [`session/AndroidKeystoreProfileCipher.kt`](session/AndroidKeystoreProfileCipher.kt) | **Cifrado de producción (ADR-0048).** AES-256-GCM con clave del Android Keystore, sin dependencias nuevas; `androidEncryptedVoiceProfileStore()` compone archivo + cifrado + consentimiento. |
 
 `AudioInboundFilter` e `InboundFrameResult` fueron eliminados. No existe un corte de
 TTS por RMS.
@@ -225,15 +227,26 @@ SpeechSegmenter ──► WAV ──┬──► STT (Whisper) ──┐
 - `NoopSpeakerIdentityProvider` es el valor por defecto. Se cambia cuando exista
   un extractor real y un `VoiceProfileStore` cifrado; `VoiceSessionPipeline` es
   el único lugar que lo elige.
-- Solo se guardan embeddings (centroides), nunca audio crudo. El almacén debe
-  cifrar en reposo, pedir consentimiento y permitir borrado; los perfiles de
-  otro `modelId` se ignoran.
+- `EncryptedVoiceProfileStore` + `AndroidKeystoreProfileCipher` implementan el
+  almacén: blob versionado con AES-256-GCM, escritura atómica y corrupción
+  tolerada. `ConsentAwareVoiceProfileStore` no lee ni enrola sin consentimiento,
+  pero siempre permite borrar. `androidEncryptedVoiceProfileStore()` compone las
+  piezas; aún no se cablea porque falta la UI y el extractor.
+- Solo se guardan embeddings (centroides), nunca audio crudo. Los perfiles de
+  otro `modelId` se ignoran y no se sincronizan con el backend.
 - El arnés vive en `app/src/test/.../speaker/` y se activa con
   `FIFO_SPEAKER_EXPERIMENT=1`. Mide un extractor de referencia sobre 8 locutores
-  sintéticos, 4 condiciones y 2 duraciones. **No certifica campo**: con umbral
-  calibrado el EER limpio es 8,3 %, pero en ruido y Lombard el FRR llega a
-  100 %. Sirve para regresión y para decidir cuándo hace falta un modelo
-  entrenado, no para afirmar un EER real.
+  sintéticos de evaluación y 4 de calibración, disjuntos. El umbral se fija a un
+  FAR objetivo con los de calibración y se reporta con los de evaluación; nunca
+  se calibra y reporta sobre las mismas voces. **No certifica campo**: en limpio
+  el EER es 8,3 %, pero a FAR objetivo 1 % el FRR global de evaluación es 70,8 %
+  y el EER global 31,8 %. Sirve para regresión y para decidir cuándo hace falta
+  un modelo entrenado, no para afirmar un EER real.
+- `SpeakerCorpusExportTest` (gated con `FIFO_SPEAKER_EXPORT_DIR`) exporta 120
+  clips WAV + `manifest.jsonl`. `tools/speaker/score_embeddings.py` consume un
+  `embeddings.jsonl` externo, calibra con el split de calibración y reporta
+  EER/FRR/FAR por condición y duración. No se commitean WAV, embeddings ni pesos
+  y no se añade ONNX/torch a la app.
 
 ---
 
@@ -281,4 +294,5 @@ restaura en `start()` (ADR-0041).
 16. **La identidad personaliza, no autentica:** `SpeakerIdentity` (ADR-0048) es contexto para el LLM. Nunca autoriza llamadas, pagos ni datos privados; `UtterancePolicy.classifyCallAction()` sigue siendo la única autoridad de telefonía.
 17. **Una sola costura de identidad:** `SpeakerIdentityProvider` recibe el WAV de `SpeechSegmenter`, corre en paralelo al STT con timeout de 400 ms y no abre micrófono ni VAD. `VoiceSessionPipeline` elige el proveedor; el facade legacy no construye identidad. `NoopSpeakerIdentityProvider` es el valor por defecto.
 18. **Una sola política de identidad:** `SpeakerIdentityPolicy.resolve()` convierte evidencia en `OWNER`/`KNOWN`/`UNKNOWN`/`UNCERTAIN`/`UNAVAILABLE`. Los umbrales de `SpeakerPolicyConfig` son por modelo; no los dupliques en la sesión, el proveedor o el LLM. `SpeakerPromptContext` solo produce texto de prompt.
-19. **Biometría local y con consentimiento:** se guardan embeddings, nunca audio; el almacén cifra en reposo, permite borrar y lleva `modelId`. No se sincroniza con el backend. El arnés sintético (gated con `FIFO_SPEAKER_EXPERIMENT=1`) mide el simulador y no certifica campo: no autoriza a enviar un detector biométrico.
+19. **Biometría local y con consentimiento:** se guardan embeddings, nunca audio; `EncryptedVoiceProfileStore` cifra en reposo con Keystore + AES-256-GCM, escribe atómicamente, tolera corrupción y lleva `modelId`. `ConsentAwareVoiceProfileStore` bloquea lectura/enrolamiento sin consentimiento pero siempre permite borrar. No se sincroniza con el backend.
+20. **Calibrar y reportar con voces distintas:** el umbral se fija con los locutores de `calibration` a un FAR objetivo y se reporta con los de `evaluation`. Nunca calibres y evalúes sobre el mismo conjunto. La exportación (`FIFO_SPEAKER_EXPORT_DIR`) y `tools/speaker/` son de desarrollo; el arnés sintético no certifica campo y no autoriza a enviar un detector biométrico.

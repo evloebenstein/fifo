@@ -17,7 +17,7 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 import kotlin.random.Random
 
-private const val SPEAKER_SYNTH_SAMPLE_RATE = 16_000
+internal const val SPEAKER_SYNTH_SAMPLE_RATE = 16_000
 
 /**
  * Corpus sintético de verificación de locutor (ADR-0048).
@@ -74,6 +74,22 @@ internal object SpeakerVerificationCorpus {
     val ENROLLED: List<SimulatedSpeaker> = SPEAKERS.take(6)
     val UNSEEN: List<SimulatedSpeaker> = SPEAKERS.drop(6)
 
+    /**
+     * Locutores de calibración, disjuntos de [SPEAKERS]. Solo sirven para fijar
+     * el umbral a un FAR objetivo; nunca entran en la tabla de evaluación. Sin
+     * esta separación, calibrar y reportar sobre las mismas voces sería una
+     * profecía (ADR-0048).
+     */
+    val CALIBRATION_SPEAKERS: List<SimulatedSpeaker> = listOf(
+        SimulatedSpeaker("cal-a", f0Hz = 112.0, formantScale = 1.16, rate = 0.92),
+        SimulatedSpeaker("cal-b", f0Hz = 156.0, formantScale = 1.02, rate = 1.06),
+        SimulatedSpeaker("cal-c", f0Hz = 186.0, formantScale = 0.93, rate = 0.97),
+        SimulatedSpeaker("cal-d", f0Hz = 216.0, formantScale = 0.96, rate = 1.10)
+    )
+
+    val CALIBRATION_ENROLLED: List<SimulatedSpeaker> = CALIBRATION_SPEAKERS.take(2)
+    val CALIBRATION_UNSEEN: List<SimulatedSpeaker> = CALIBRATION_SPEAKERS.drop(2)
+
     val CONDITIONS: List<SpeakerCondition> = listOf(
         SpeakerCondition("clean", snrDb = null, noise = NoiseKind.WHITE),
         SpeakerCondition("pink-10", snrDb = 10, noise = NoiseKind.PINK),
@@ -92,29 +108,50 @@ internal object SpeakerVerificationCorpus {
 
     private const val ENROLLMENT_SYLLABLES = 9
 
-    fun enrollment(): Map<String, List<SpeakerUtterance>> = ENROLLED.associate { speaker ->
+    fun enrollment(): Map<String, List<SpeakerUtterance>> =
+        enrollmentFor(ENROLLED, "speaker-enroll")
+
+    /** Enrolamiento de los locutores de calibración, disjunto del de evaluación. */
+    fun calibrationEnrollment(): Map<String, List<SpeakerUtterance>> =
+        enrollmentFor(CALIBRATION_ENROLLED, "speaker-cal-enroll")
+
+    fun tests(): List<SpeakerUtterance> =
+        testsFor(SPEAKERS, "speaker-test", "test")
+
+    /** Pruebas de los locutores de calibración. No se reportan como evaluación. */
+    fun calibrationTests(): List<SpeakerUtterance> =
+        testsFor(CALIBRATION_SPEAKERS, "speaker-cal-test", "cal-test")
+
+    private fun enrollmentFor(
+        speakers: List<SimulatedSpeaker>,
+        seedPrefix: String
+    ): Map<String, List<SpeakerUtterance>> = speakers.associate { speaker ->
         speaker.name to (0 until 3).map { index ->
             render(
                 id = "enroll-${speaker.name}-$index",
                 speaker = speaker,
                 condition = SpeakerCondition("clean", null, NoiseKind.WHITE),
                 syllables = ENROLLMENT_SYLLABLES,
-                seed = Seeding.of("speaker-enroll", speaker.name, index.toString())
+                seed = Seeding.of(seedPrefix, speaker.name, index.toString())
             )
         }
     }
 
-    fun tests(): List<SpeakerUtterance> = buildList {
-        for (speaker in SPEAKERS) {
+    private fun testsFor(
+        speakers: List<SimulatedSpeaker>,
+        seedPrefix: String,
+        idPrefix: String
+    ): List<SpeakerUtterance> = buildList {
+        for (speaker in speakers) {
             for (condition in CONDITIONS) {
                 for ((index, syllables) in TEST_SYLLABLES.withIndex()) {
                     add(
                         render(
-                            id = "test-${speaker.name}-${condition.id}-$index",
+                            id = "$idPrefix-${speaker.name}-${condition.id}-$index",
                             speaker = speaker,
                             condition = condition,
                             syllables = syllables,
-                            seed = Seeding.of("speaker-test", speaker.name, condition.id, index.toString())
+                            seed = Seeding.of(seedPrefix, speaker.name, condition.id, index.toString())
                         )
                     )
                 }
@@ -129,7 +166,14 @@ internal object SpeakerVerificationCorpus {
         syllables: Int,
         seed: Long
     ): SpeakerUtterance {
-        val rendered = if (condition.lombard) LombardEffect.adapt(speaker) else speaker
+        // `LombardEffect.adapt` renombra al locutor para el corpus de wake word;
+        // aquí el esfuerzo vocal no cambia quién habla. Conservar el nombre es
+        // lo que hace que las pruebas de esta condición sean genuinas.
+        val rendered = if (condition.lombard) {
+            LombardEffect.adapt(speaker).copy(name = speaker.name)
+        } else {
+            speaker
+        }
         var signal = FormantSynth.renderWord(
             phonemes = SimulatedWords.sentence(Random(seed), syllables),
             speaker = rendered,
@@ -238,7 +282,6 @@ internal data class SpeakerMetrics(
 )
 
 internal object SpeakerVerificationEvaluator {
-
     fun scoreTrials(
         enrollment: Map<String, List<SpeakerUtterance>>,
         tests: List<SpeakerUtterance>
@@ -302,6 +345,63 @@ internal object SpeakerVerificationEvaluator {
             eerThreshold = bestThreshold,
             frrAtPolicy = frrAtPolicy,
             farAtPolicy = farAtPolicy
+        )
+    }
+}
+
+/** Punto de operación elegido con un FAR objetivo sobre locutores de calibración. */
+internal data class SpeakerCalibrationResult(
+    val targetFar: Double,
+    val threshold: Double,
+    val calibrationFar: Double,
+    val calibrationGenuineTrials: Int,
+    val calibrationImpostorTrials: Int,
+    val evaluation: SpeakerMetrics
+)
+
+/**
+ * Calibración honesta del umbral (ADR-0048).
+ *
+ * El umbral se fija con **locutores de calibración disjuntos** de los de
+ * evaluación, al FAR objetivo. Reportar el FRR/FAR sobre las mismas voces que
+ * fijaron el umbral sería una profecía; esta clase separa ambos conjuntos.
+ */
+internal object SpeakerCalibration {
+
+    /**
+     * Umbral mínimo que deja como máximo `targetFar` de impostores aceptados.
+     *
+     * Se permite `floor(targetFar * n)` impostores; el umbral queda justo por
+     * encima del siguiente score. Con pocos trials el FAR efectivo es granular:
+     * con 48 impostores, permitir uno ya sería 2,1 %, y eso se reporta tal cual.
+     */
+    fun thresholdAtFar(impostorScores: List<Double>, targetFar: Double): Double {
+        require(targetFar in 0.0..1.0) { "targetFar fuera de 0..1: $targetFar" }
+        if (impostorScores.isEmpty()) return 1.0
+        val allowed = kotlin.math.floor(targetFar * impostorScores.size).toInt()
+        val sorted = impostorScores.sortedDescending()
+        if (allowed >= sorted.size) return 0.0
+        return (sorted[allowed] + 1e-6).coerceIn(0.0, 1.0)
+    }
+
+    fun calibrate(
+        calibrationTrials: List<SpeakerTrialScore>,
+        evaluationTrials: List<SpeakerTrialScore>,
+        targetFar: Double
+    ): SpeakerCalibrationResult {
+        val calibrationGenuine = calibrationTrials.filter { it.genuine }
+        val calibrationImpostor = calibrationTrials.filterNot { it.genuine }
+        val threshold = thresholdAtFar(calibrationImpostor.map { it.score }, targetFar)
+        val calibrationFar = if (calibrationImpostor.isEmpty()) 1.0 else {
+            calibrationImpostor.count { it.score >= threshold }.toDouble() / calibrationImpostor.size
+        }
+        return SpeakerCalibrationResult(
+            targetFar = targetFar,
+            threshold = threshold,
+            calibrationFar = calibrationFar,
+            calibrationGenuineTrials = calibrationGenuine.size,
+            calibrationImpostorTrials = calibrationImpostor.size,
+            evaluation = SpeakerVerificationEvaluator.metrics(evaluationTrials, threshold)
         )
     }
 }

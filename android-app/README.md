@@ -66,7 +66,7 @@ En `SESSION`, `VoiceSessionPipeline` es la raíz de composición: construye `Voi
 - **Llamadas:** anuncio local inmediato, enriquecimiento backend en paralelo (~800 ms) y comandos completos *“Fifo contesta”* / *“Fifo cuelga”*. Un desconocido sigue siendo desconocido.
 - **Memoria durable:** cada turno se escribe en `conversation_journal` (SQLite v9) **antes de hablar**. La cola pendiente sobrevive reinicios y se reintenta con backoff de 30 s a 15 min.
 - **Reparación:** una corrección explícita usa ±1 turno; se locuta si el turno anterior tiene ~10 s o menos y, si llega tarde, queda en el diario/OLED sin interrumpir.
-- **Identidad de locutor (opcional):** `SpeakerIdentityProvider` atribuye el turno a `OWNER`/`KNOWN`/`UNKNOWN`/`UNCERTAIN`/`UNAVAILABLE` en paralelo al STT, con timeout de 400 ms. `Noop` es el valor por defecto; solo se guardan embeddings locales cifrados y **nunca autoriza llamadas ni datos privados** (ADR-0048).
+- **Identidad de locutor (opcional):** `SpeakerIdentityProvider` atribuye el turno a `OWNER`/`KNOWN`/`UNKNOWN`/`UNCERTAIN`/`UNAVAILABLE` en paralelo al STT, con timeout de 400 ms. `Noop` es el valor por defecto; `EncryptedVoiceProfileStore` cifra los embeddings con Keystore + AES-256-GCM y exige consentimiento, y la identidad **nunca autoriza llamadas ni datos privados** (ADR-0048).
 
 La arquitectura completa está en [`docs/README.md`](../docs/README.md).
 
@@ -149,7 +149,8 @@ adb logcat -s FifoVoiceService:V CloudApiClient:V FifoSkills:V GoogleSignInDialo
 .\gradlew.bat compileReleaseKotlin
 ```
 
-La suite actual cubre 390 pruebas por variante, incluyendo captura (`CaptureArbiterTest`),
+La suite actual cubre 401 pruebas por variante, incluyendo captura (`CaptureArbiterTest`),
 telefonía (`TelephonyPortTest`), contexto de llamante, memoria durable, reparación,
 barge-in por transcripción e identidad de locutor (`SpeakerIdentityPolicyTest`,
-`SpeakerIdentityProviderTest`, `SpeakerIdentityIntegrationTest`).
+`SpeakerIdentityProviderTest`, `SpeakerIdentityIntegrationTest`,
+`EncryptedVoiceProfileStoreTest`).
