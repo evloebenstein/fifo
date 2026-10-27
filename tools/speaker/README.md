@@ -187,6 +187,66 @@ Protocolo mínimo:
 - Anotar móvil, micrófono y condiciones junto al corpus: sin eso el número no es
   reproducible.
 
+## 5. Campo simulado con voces reales
+
+Cuando no hay voluntarios, la alternativa no es generar más voz de formantes: es
+partir de **personas reales** y aumentarles la acústica. `RealSpeechAugmentationExportTest`
+usa los 40 locutores de LibriSpeech dev-clean y les aplica `RoomAcoustics`,
+`SimulatedNoise` y `LombardEffect` —los mismos del arnés—, así que no hay un
+segundo simulador que pueda divergir.
+
+```powershell
+# 1. Pool de voces reales: 7 WAV por locutor (3 de enrolamiento + 4 de uso)
+& "$env:TEMP\fifo-speaker-eval\venv\Scripts\python.exe" tools\speaker\prepare_librispeech_pool.py `
+  --librispeech-root "$env:TEMP\fifo-speaker-eval\librispeech\LibriSpeech\dev-clean" `
+  --out "$env:TEMP\fifo-speaker-eval\real-pool" `
+  --speakers 40 --clips-per-speaker 7
+
+# 2. Aumento en Kotlin con la acústica canónica
+$env:FIFO_REAL_SPEECH_POOL="$env:TEMP\fifo-speaker-eval\real-pool"
+$env:FIFO_REAL_SPEECH_EXPORT_DIR="$env:TEMP\fifo-speaker-eval\real-field-corpus"
+.\gradlew.bat testDebugUnitTest --tests "*RealSpeechAugmentationExportTest"
+
+# 3. Embeddings y scoring con AS-Norm
+& "$env:TEMP\fifo-speaker-eval\venv\Scripts\python.exe" tools\speaker\extract_embeddings_sherpa.py `
+  --manifest "$env:TEMP\fifo-speaker-eval\real-field-corpus\manifest.jsonl" `
+  --model "$env:TEMP\fifo-speaker-eval\models\3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx" `
+  --out "$env:TEMP\fifo-speaker-eval\real-field-corpus\embeddings.jsonl"
+
+python tools\speaker\score_embeddings.py `
+  --manifest "$env:TEMP\fifo-speaker-eval\real-field-corpus\manifest.jsonl" `
+  --embeddings "$env:TEMP\fifo-speaker-eval\real-field-corpus\embeddings.jsonl" `
+  --model-id 3dspeaker-campplus-zh-cn --normalize as-norm --target-far 0.01
+```
+
+Diseño: 12 locutores de calibración y 28 de evaluación, disjuntos; dentro de
+cada split, mitad `enrolled` y mitad `unseen`. 3 frases de enrolamiento y 4 de
+uso por enrolado, aumentadas a seis condiciones (`clean`, `living`, `pink-10`,
+`white-5`, `babble-15`, `living-lombard-pink-20`). 1.020 clips, 9.408 trials,
+recortados a 8 s.
+
+| Modelo | EER crudo | FRR/FAR crudo | EER AS-Norm | FRR/FAR AS-Norm |
+| :--- | ---: | ---: | ---: | ---: |
+| WeSpeaker ResNet34 | 43,4 % | 83,9 % / 0,4 % | 35,7 % | 83,0 % / 0,5 % |
+| WeSpeaker CAM++ | 45,6 % | 91,1 % / 1,4 % | 45,0 % | 87,5 % / 2,6 % |
+| 3D-Speaker CAM++ (zh-cn) | 11,6 % | 47,0 % / 0,6 % | **5,2 %** | **10,1 % / 2,3 %** |
+
+**AS-Norm** normaliza cada score con la media y desviación de una cohorte. La
+cohorte sale **solo de calibración**: 6 perfiles y 144 clips. Evaluación no
+participa en esa media. Es lo único que se entrena aquí; la red de embeddings no
+se toca.
+
+Lectura:
+
+- El ranking cambia con voz real: 3D-Speaker CAM++ queda muy por delante de los
+  WeSpeaker. El corpus de formantes no mostraba eso.
+- Sin AS-Norm, un solo umbral deja FRR 47 % en 3D-Speaker y ~100 % en los demás.
+  Con AS-Norm baja a 10,1 %; el problema era decidir, no solo el embedding.
+- Sigue sin pasar la barra: el FRR al 1 % supera el 10 % en `living`, `white-5`,
+  `babble-15` y Lombard. Y es lectura limpia aumentada, no una calle ni un móvil.
+- Es inglés y la cohorte es pequeña (6 perfiles). Repetirlo con más locutores de
+  calibración y con español sigue pendiente.
+
 ## Reglas
 
 - No se commitean WAV, embeddings, pesos ni informes.
@@ -194,8 +254,13 @@ Protocolo mínimo:
 - El corpus es sintético: un buen número aquí **no** certifica campo y un mal
   número **no** descarta el modelo. El corpus de campo (sección 4) es el único
   que puede autorizar un detector.
-- No elijas motor comparando EER en este corpus; solo sirve para reproducir el
-  contrato y detectar regresiones del pipeline.
+- El campo simulado (sección 5) usa voces humanas reales y sirve para prefiltar
+  motores y detectar regresiones; no es campo y no autoriza a cambiar `Noop`.
+- El corpus de formantes no ordena motores reales; no lo uses para elegir modelo
+  ni para afirmar que un motor "no funciona" con personas. El campo simulado y,
+  en última instancia, las grabaciones reales son los que deciden.
+- AS-Norm se calibra **solo** con el split de calibración. Usar evaluación para
+  la cohorte convertiría la tabla en una profecía.
 - Un modelo solo sustituye a `Noop` si cumple el presupuesto de 400 ms, mide
   FRR/FAR por condición, no sube audio ni embeddings y supera la validación real.
 - Cualquier cambio de corpus, umbral o extractor se documenta en ADR-0048 y se

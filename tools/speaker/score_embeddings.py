@@ -17,6 +17,8 @@ Qué calcula:
 
 - centroides de enrolamiento y similitud coseno;
 - umbral calibrado a un FAR objetivo con los locutores de ``calibration``;
+- AS-Norm opcional: normaliza cada score con una cohorte sacada **solo** de
+  ``calibration`` (perfiles y clips), nunca de ``evaluation``;
 - EER, FRR y FAR en ``evaluation`` (locutores disjuntos);
 - tablas por condición y por duración.
 
@@ -145,6 +147,8 @@ def score_trials(
                 continue
             trials.append(
                 {
+                    "query_id": row["id"],
+                    "profile_id": profile_id,
                     "speaker": row["speaker"],
                     "condition": row.get("condition", "?"),
                     "syllables": row.get("syllables"),
@@ -156,15 +160,76 @@ def score_trials(
     return trials
 
 
+def mean_std(values: list[float]) -> tuple[float, float]:
+    if len(values) < 2:
+        return 0.0, 1.0
+    mean = sum(values) / len(values)
+    variance = sum((value - mean) ** 2 for value in values) / len(values)
+    deviation = math.sqrt(variance)
+    return mean, deviation if deviation > 1e-6 else 1.0
+
+
+def apply_as_norm(
+    trials: list[dict],
+    manifest: dict[str, dict],
+    embeddings: dict[str, list[float]],
+    profiles: dict[str, list[float]],
+    cohort_profiles: dict[str, list[float]],
+    cohort_query_ids: list[str],
+) -> None:
+    """Normaliza cada score con la cohorte de calibración (AS-Norm).
+
+    No toca evaluación para estimar la cohorte: las medias y desviaciones salen
+    solo de perfiles y clips de calibración. El score normalizado es la media de
+    los z-scores del lado de la consulta y del lado del perfil.
+    """
+    query_stats: dict[tuple[str, str], tuple[float, float]] = {}
+    for trial in trials:
+        key = (trial["query_id"], trial["profile_id"])
+        if key in query_stats:
+            continue
+        query = normalise(embeddings.get(trial["query_id"], []))
+        cohort = [
+            cosine(query, reference)
+            for profile_id, reference in cohort_profiles.items()
+            if profile_id != trial["profile_id"]
+        ]
+        query_stats[key] = mean_std(cohort)
+
+    profile_stats: dict[str, tuple[float, float]] = {}
+    for profile_id, reference in profiles.items():
+        scores = []
+        for query_id in cohort_query_ids:
+            if manifest[query_id]["speaker"] == profile_id:
+                continue
+            query = normalise(embeddings.get(query_id, []))
+            if query:
+                scores.append(cosine(query, reference))
+        profile_stats[profile_id] = mean_std(scores)
+
+    for trial in trials:
+        mean_query, std_query = query_stats[(trial["query_id"], trial["profile_id"])]
+        mean_profile, std_profile = profile_stats[trial["profile_id"]]
+        trial["score"] = 0.5 * (
+            (trial["score"] - mean_query) / std_query
+            + (trial["score"] - mean_profile) / std_profile
+        )
+
+
 def eer_threshold(trials: list[dict]) -> tuple[float, float]:
     genuine = [trial["score"] for trial in trials if trial["genuine"]]
     impostor = [trial["score"] for trial in trials if not trial["genuine"]]
     if not genuine or not impostor:
         return 1.0, 1.0
 
-    best_threshold, best_eer, best_gap = 0.0, 1.0, float("inf")
+    low = min(min(genuine), min(impostor))
+    high = max(max(genuine), max(impostor))
+    if high <= low:
+        return low, 0.0
+
+    best_threshold, best_eer, best_gap = low, 1.0, float("inf")
     for step in range(1001):
-        threshold = step / 1000.0
+        threshold = low + (high - low) * step / 1000.0
         frr = sum(score < threshold for score in genuine) / len(genuine)
         far = sum(score >= threshold for score in impostor) / len(impostor)
         gap = abs(frr - far)
@@ -179,8 +244,8 @@ def threshold_at_far(impostor_scores: list[float], target_far: float) -> float:
     allowed = int(math.floor(target_far * len(impostor_scores)))
     ordered = sorted(impostor_scores, reverse=True)
     if allowed >= len(ordered):
-        return 0.0
-    return min(1.0, ordered[allowed] + 1e-6)
+        return min(ordered) - 1e-6
+    return ordered[allowed] + 1e-6
 
 
 def metrics(trials: list[dict], threshold: float) -> dict:
@@ -224,6 +289,12 @@ def main() -> int:
     parser.add_argument("--embeddings", required=True, type=Path, help="embeddings.jsonl (id + vector)")
     parser.add_argument("--target-far", type=float, default=0.01, help="FAR objetivo (por defecto 0.01)")
     parser.add_argument("--model-id", default="unknown", help="nombre/versión del modelo evaluado")
+    parser.add_argument(
+        "--normalize",
+        choices=("none", "as-norm"),
+        default="none",
+        help="normalización de scores; as-norm usa solo la cohorte de calibración",
+    )
     parser.add_argument("--out", type=Path, help="escribe el informe JSON en esta ruta")
     args = parser.parse_args()
 
@@ -245,6 +316,27 @@ def main() -> int:
     if not calibration_trials or not evaluation_trials:
         raise SystemExit("faltan trials; ¿las embeddings cubren los clips exportados?")
 
+    if args.normalize == "as-norm":
+        cohort_query_ids = [
+            row["id"] for row in manifest.values() if row.get("split") == "calibration"
+        ]
+        apply_as_norm(
+            calibration_trials,
+            manifest,
+            embeddings,
+            calibration_profiles,
+            calibration_profiles,
+            cohort_query_ids,
+        )
+        apply_as_norm(
+            evaluation_trials,
+            manifest,
+            embeddings,
+            evaluation_profiles,
+            calibration_profiles,
+            cohort_query_ids,
+        )
+
     calibration_impostor = [trial["score"] for trial in calibration_trials if not trial["genuine"]]
     threshold = threshold_at_far(calibration_impostor, args.target_far)
     calibration = metrics(calibration_trials, threshold)
@@ -258,6 +350,7 @@ def main() -> int:
     print(f"modelo: {args.model_id}")
     print(f"clips: {len(manifest)}  embeddings: {len(embeddings)}")
     print(f"perfiles: calibración={len(calibration_profiles)} evaluación={len(evaluation_profiles)}")
+    print(f"normalización: {args.normalize}")
     print(
         f"umbral@FAR {args.target_far * 100:.1f}%: {threshold:.4f} "
         f"(FAR calibración {calibration['far'] * 100:.1f}%, "
@@ -278,6 +371,7 @@ def main() -> int:
         "manifest": str(args.manifest),
         "embeddings": str(args.embeddings),
         "target_far": args.target_far,
+        "normalization": args.normalize,
         "threshold": threshold,
         "calibration": calibration,
         "evaluation": evaluation,

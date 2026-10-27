@@ -262,6 +262,10 @@ SpeechSegmenter ──► WAV ──┬──► STT (Whisper) ──┐
   `<locutor>/enroll` y `<locutor>/test/<condición>`, splits disjuntos y audio
   mono 16 kHz PCM16. El script valida el reparto y produce el mismo manifiesto;
   falta grabar, no inventar el formato.
+- El campo simulado con voces reales (LibriSpeech + `RealSpeechAugmentationExportTest`)
+  reutiliza la acústica del arnés y dio el primer ranking útil: 3D-Speaker CAM++
+  5,2 % EER con AS-Norm, frente a 36–45 % de los WeSpeaker. Sigue siendo lectura
+  limpia aumentada; no autoriza a cambiar `Noop`.
 
 ---
 

@@ -315,6 +315,66 @@ scoring funciona; el 42–50 % del corpus sintético es un problema del corpus, 
 del código. Un modelo real entrenado con voz humana no reconoce como distintas
 unas voces de formantes que la referencia espectral sí separa.
 
+#### Campo simulado con voces reales
+
+Sin 10–15 voluntarios, la alternativa no es generar más voz sintética: es
+**aumentar voz humana real**. Se usaron los 40 locutores de LibriSpeech
+dev-clean (40 personas reales, no TTS), 7 clips por persona, y se aplicó la
+misma acústica del arnés —`RoomAcoustics`, `SimulatedNoise` y `LombardEffect`—
+desde `RealSpeechAugmentationExportTest`. No hay un segundo simulador que pueda
+divergir del primero.
+
+Reparto: 12 locutores de calibración (6 enrolados, 6 no vistos) y 28 de
+evaluación (14 y 14), disjuntos. Cada enrolado aporta 3 frases de enrolamiento y
+4 de uso; los no vistos, 4 de uso. Esas 4 frases se aumentan con seis
+condiciones: `clean`, `living`, `pink-10`, `white-5`, `babble-15` y
+`living-lombard-pink-20`. Total: **1.020 clips**, recortados a 8 s para que un
+turno no sea una locución de 30 s. El corpus se regenera desde
+`prepare_librispeech_pool.py` y no se commitea.
+
+Con el umbral fijado **solo** con calibración y 9.408 trials de evaluación:
+
+| Modelo | EER crudo | FRR/FAR crudo | EER AS-Norm | FRR/FAR AS-Norm |
+| :--- | ---: | ---: | ---: | ---: |
+| WeSpeaker ResNet34 | 43,4 % | 83,9 % / 0,4 % | 35,7 % | 83,0 % / 0,5 % |
+| WeSpeaker CAM++ | 45,6 % | 91,1 % / 1,4 % | 45,0 % | 87,5 % / 2,6 % |
+| 3D-Speaker CAM++ (zh-cn) | 11,6 % | 47,0 % / 0,6 % | **5,2 %** | **10,1 % / 2,3 %** |
+
+AS-Norm usa como cohorte solo los 6 perfiles y los 144 clips de calibración;
+evaluación no participa en la media ni en la desviación. Es lo único que se
+“entrena” aquí: un backend de puntuación, no la red de embeddings. El resultado
+es consistente con el control limpio: los WeSpeaker no separan bien estas voces,
+mientras 3D-Speaker sí.
+
+Lectura por condición de 3D-Speaker con AS-Norm (EER / FRR / FAR al umbral
+global):
+
+| Condición | EER | FRR | FAR |
+| :--- | ---: | ---: | ---: |
+| `clean` | 3,5 % | 1,8 % | 4,4 % |
+| `living` | 3,9 % | 10,7 % | 1,1 % |
+| `pink-10` | 3,6 % | 1,8 % | 3,7 % |
+| `white-5` | 7,1 % | 16,1 % | 3,2 % |
+| `babble-15` | 5,2 % | 12,5 % | 0,9 % |
+| `living-lombard-pink-20` | 3,5 % | 17,9 % | 0,9 % |
+
+Lo honesto:
+
+- **El ranking cambia con voz real.** 3D-Speaker CAM++ queda muy por delante de
+  los dos WeSpeaker, algo que el corpus de formantes no mostraba. Es la primera
+  señal de que el simulador con voces reales sirve para **prefiltar** motores.
+- **AS-Norm es lo que hace utilizable el umbral.** Sin normalizar, un solo
+  umbral deja FRR 47 % en 3D-Speaker y ~100 % en los demás; con AS-Norm baja a
+  10,1 %. La normalización no cambia el embedding: cambia cómo se decide.
+- **Todavía no pasa la barra.** El FRR al 1 % sigue por encima del 10 % en
+  `living`, `white-5`, `babble-15` y Lombard; y esto es lectura limpia aumentada,
+  no una calle ni un móvil. `Noop` sigue por defecto.
+- **La cohorte es pequeña** (6 perfiles). Más locutores de calibración deberían
+  estabilizar AS-Norm; con 40 personas ya se puede repetir el experimento, pero
+  no sustituye a grabar campo.
+- **Es inglés.** El modelo es zh-cn y las voces son inglesas; el idioma no debería
+  definir al locutor, pero un corpus español real sigue siendo necesario.
+
 #### Corpus de campo: protocolo y manifiesto
 
 El paso que falta no es otro modelo ni otro umbral: son **grabaciones reales**.
@@ -433,8 +493,10 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 - El corpus sintético no predice campo: la referencia espectral obtiene 31,8 %
   EER global y tres modelos reales 42–50 % sobre el mismo corpus. El control con
   LibriSpeech da **0,0 % EER** con el mismo pipeline, así que el problema es el
-  corpus, no el código. Un buen número aquí no autoriza a enviar nada y un mal
-  número tampoco descarta el modelo; solo un corpus real decide.
+  corpus, no el código. El campo simulado con voces reales sí ordena motores
+  (3D-Speaker 5,2 % con AS-Norm frente a 36–45 % de los WeSpeaker), pero sigue
+  siendo lectura limpia aumentada: un buen número aquí **no** autoriza a enviar
+  nada y un mal número tampoco descarta el modelo; solo un corpus real decide.
 - Guardar biometría obliga a mantenimiento: rotación de claves, borrado,
   migración de modelo y auditoría.
 
@@ -460,9 +522,11 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 | `test/.../session/speaker/SpeakerVerificationHarness.kt` | **New** — corpus sintético, calibración disjunta y evaluador EER/FRR/FAR. |
 | `test/.../session/speaker/SpeakerVerificationHarnessTest.kt` | **New** — determinismo, separación limpia, calibración y tabla gated. |
 | `test/.../session/speaker/SpeakerCorpusExportTest.kt` | **New** — exportación WAV + `manifest.jsonl` para evaluar un modelo real. |
-| `tools/speaker/score_embeddings.py` | **New** — puntuación, calibración y tablas sobre embeddings externos (stdlib). |
+| `test/.../session/speaker/RealSpeechAugmentationExportTest.kt` | **New** — campo simulado con voces reales y la misma acústica del arnés. |
+| `tools/speaker/score_embeddings.py` | **New** — puntuación, calibración, AS-Norm y tablas sobre embeddings externos (stdlib). |
 | `tools/speaker/extract_embeddings_sherpa.py` | **New** — extracción de embeddings con sherpa-onnx para el corpus exportado (dev-only). |
 | `tools/speaker/build_librispeech_control.py` | **New** — control con voz real (LibriSpeech dev-clean) y el mismo manifiesto. |
+| `tools/speaker/prepare_librispeech_pool.py` | **New** — pool de voces reales para el campo simulado. |
 | `tools/speaker/build_field_manifest.py` | **New** — layout, plan disjunto y validación del corpus de campo. |
 | `tools/speaker/requirements.txt` | **New** — `sherpa-onnx` y `soundfile` solo para desarrollo; no entran en la app. |
 | `tools/speaker/README.md` | **New** — contrato de exportación, embeddings, modelos medidos y reglas de validación. |
@@ -472,9 +536,10 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 ## Verification
 
 - `testDebugUnitTest`, `testReleaseUnitTest` y `compileReleaseKotlin` en verde.
-- 401 pruebas en debug y 401 en release, 0 fallos, 5 omitidas (3 del arnés de
+- 402 pruebas en debug y 402 en release, 0 fallos, 6 omitidas (3 del arnés de
   wake word + el experimento de locutor sin `FIFO_SPEAKER_EXPERIMENT=1` + la
-  exportación sin `FIFO_SPEAKER_EXPORT_DIR`).
+  exportación sin `FIFO_SPEAKER_EXPORT_DIR` + el campo simulado sin
+  `FIFO_REAL_SPEECH_POOL`/`FIFO_REAL_SPEECH_EXPORT_DIR`).
 - `SpeakerIdentityPolicyTest` 14/14, `SpeakerIdentityProviderTest` 9/9,
   `SpeakerIdentityIntegrationTest` 5/5, `EncryptedVoiceProfileStoreTest` 9/9 y
   `SpeakerVerificationHarnessTest` 3/3 siempre + el experimento gated.
@@ -488,6 +553,11 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 - El control con LibriSpeech dev-clean se ejecutó con el mismo pipeline: 78
   clips de 10 locutores, 144 trials de evaluación, **0,0 % EER y 0,0 % FRR/FAR**
   con ResNet34 y con 3D-Speaker CAM++. No se commiteó audio.
+- El campo simulado se generó con 40 locutores reales y 1.020 clips: 12 de
+  calibración y 28 de evaluación, 9.408 trials, seis condiciones. Con AS-Norm
+  (cohorte solo de calibración), 3D-Speaker CAM++ dio **5,2 % EER, 10,1 % FRR y
+  2,3 % FAR** al 1 %; los WeSpeaker quedaron en 35,7–45,0 %. No se commiteó
+  audio ni pesos.
 - `build_field_manifest.py` se probó de extremo a extremo con el control de
   LibriSpeech reorganizado como corpus de campo: 78 clips, 10 locutores,
   manifiesto válido y el mismo 0,0 % EER. También rechaza un plan incompleto y
@@ -500,28 +570,33 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 ## Siguiente paso (fuera de este ADR)
 
 **Hecho en esta iteración:** extracción con sherpa-onnx, medida de tres modelos
-reales sobre el corpus sintético (resultado negativo, tabla arriba), control con
-voz real de LibriSpeech (0,0 % EER, que descarta un fallo del pipeline y confirma
-que el problema es el corpus) y protocolo/importador del corpus de campo. En la
-iteración anterior: exportación del corpus, separación calibración/evaluación,
-herramienta offline de puntuación y almacén cifrado con consentimiento.
+reales sobre el corpus sintético (resultado negativo), control con voz real de
+LibriSpeech (0,0 % EER), protocolo/importador del corpus de campo y **campo
+simulado con 40 voces reales aumentadas + AS-Norm**, que por primera vez ordena
+motores y deja a 3D-Speaker CAM++ en 5,2 % EER. En la iteración anterior:
+exportación del corpus, separación calibración/evaluación, herramienta offline
+de puntuación y almacén cifrado con consentimiento.
 
 1. **Hecho parcialmente:** extraer embeddings con un modelo real y pasarlos por
-   `tools/speaker/score_embeddings.py`, con control de voz real para separar
-   corpus y código. Se midieron WeSpeaker CAM++, WeSpeaker ResNet34 y 3D-Speaker
-   CAM++ con sherpa-onnx, y el control de LibriSpeech dio 0,0 % EER. Falta
-   repetirlo con un **ReDimNet-B0/B1** y, sobre todo, con grabaciones reales.
+   `tools/speaker/score_embeddings.py`, con control de voz real y campo simulado
+   para separar corpus y código. Se midieron WeSpeaker CAM++, WeSpeaker ResNet34
+   y 3D-Speaker CAM++ con sherpa-onnx. 3D-Speaker CAM++ es el primer candidato
+   serio (5,2 % EER con AS-Norm en el simulador), pero sigue sin superar la barra
+   por condición. Falta repetirlo con un **ReDimNet-B0/B1** y, sobre todo, con
+   grabaciones reales.
 2. Grabar el corpus de campo **antes** de elegir motor: 10–15 personas, 3–5
    frases de enrolamiento y uso en silencio, TV, calle y a 1–3 m. El layout, el
    plan disjunto y la validación ya están en `build_field_manifest.py`; solo
    faltan las grabaciones y el consentimiento. Es el único número que puede
-   autorizar un detector; el sintético ya demostró que no ordena modelos reales.
+   autorizar un detector; el sintético y el campo simulado ya demostraron que no
+   bastan.
 3. Implementar la **UI de consentimiento, enrolamiento y borrado** en
    `ProfileScreen` y cablear `androidEncryptedVoiceProfileStore()` en
    `VoiceSessionPipeline` cuando exista un extractor validado.
-4. Añadir aumento de ruido, sala y Lombard al entrenamiento/validación del
-   extractor, no solo al test; normalizar scores por condición si el modelo lo
-   permite.
+4. El aumento de ruido, sala y Lombard ya está en la **validación** (campo
+   simulado) y AS-Norm normaliza los scores con cohorte de calibración. Falta
+   decidir si el extractor se afina con datos aumentados y si el móvil puede
+   ejecutar AS-Norm dentro del presupuesto de 400 ms.
 5. Evaluar una contramedida de spoofing (ASVspoof 5) antes de usar la identidad
    para cualquier acción sensible.
 6. Solo si el modelo supera la barra, el almacén está cifrado y la UI tiene
