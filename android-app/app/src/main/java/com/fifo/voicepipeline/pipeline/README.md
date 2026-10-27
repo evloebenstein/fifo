@@ -258,6 +258,10 @@ SpeechSegmenter ──► WAV ──┬──► STT (Whisper) ──┐
   con los mismos modelos y el mismo pipeline. Confirma que el código funciona y
   que el problema del 42–50 % es el corpus sintético, no el scoring. Es lectura
   limpia: no mide campo ni el móvil.
+- El corpus de campo tiene layout y plan propio (`tools/speaker/build_field_manifest.py`):
+  `<locutor>/enroll` y `<locutor>/test/<condición>`, splits disjuntos y audio
+  mono 16 kHz PCM16. El script valida el reparto y produce el mismo manifiesto;
+  falta grabar, no inventar el formato.
 
 ---
 

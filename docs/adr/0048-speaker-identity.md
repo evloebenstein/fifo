@@ -315,6 +315,29 @@ scoring funciona; el 42–50 % del corpus sintético es un problema del corpus, 
 del código. Un modelo real entrenado con voz humana no reconoce como distintas
 unas voces de formantes que la referencia espectral sí separa.
 
+#### Corpus de campo: protocolo y manifiesto
+
+El paso que falta no es otro modelo ni otro umbral: son **grabaciones reales**.
+Para que ese trabajo no se pierda en formatos y repartos, `build_field_manifest.py`
+define el contrato de entrada:
+
+```
+<root>/<locutor>/enroll/<clip>.wav
+<root>/<locutor>/test/<condición>/<clip>.wav
+```
+
+Un `plan.json` reparte los locutores entre `calibration` y `evaluation` y les
+asigna `enrolled` o `unseen`. El script valida que ambos splits tengan las dos
+clases, que no haya ids duplicados, que el audio sea mono a 16 kHz PCM16 y que
+cada enrolado tenga al menos 3 frases; avisa si el corpus se aleja de 10–15
+locutores. El manifiesto resultante entra en `extract_embeddings_sherpa.py` y
+`score_embeddings.py` sin cambios.
+
+Protocolo mínimo: consentimiento y borrado, 10–15 personas, 3–5 frases de
+enrolamiento y 6–10 de uso, condiciones separadas (silencio, TV, calle, 1–3 m),
+calibración y evaluación disjuntas, y anotación del móvil y micrófono. Sin esas
+condiciones el número no es comparable con ninguna tabla.
+
 ### 6. Elección de motor: diferida, con criterios claros
 
 No se elige un modelo en esta ADR porque no hay pesos, runtime ni corpus real.
@@ -440,6 +463,7 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 | `tools/speaker/score_embeddings.py` | **New** — puntuación, calibración y tablas sobre embeddings externos (stdlib). |
 | `tools/speaker/extract_embeddings_sherpa.py` | **New** — extracción de embeddings con sherpa-onnx para el corpus exportado (dev-only). |
 | `tools/speaker/build_librispeech_control.py` | **New** — control con voz real (LibriSpeech dev-clean) y el mismo manifiesto. |
+| `tools/speaker/build_field_manifest.py` | **New** — layout, plan disjunto y validación del corpus de campo. |
 | `tools/speaker/requirements.txt` | **New** — `sherpa-onnx` y `soundfile` solo para desarrollo; no entran en la app. |
 | `tools/speaker/README.md` | **New** — contrato de exportación, embeddings, modelos medidos y reglas de validación. |
 
@@ -464,19 +488,23 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 - El control con LibriSpeech dev-clean se ejecutó con el mismo pipeline: 78
   clips de 10 locutores, 144 trials de evaluación, **0,0 % EER y 0,0 % FRR/FAR**
   con ResNet34 y con 3D-Speaker CAM++. No se commiteó audio.
+- `build_field_manifest.py` se probó de extremo a extremo con el control de
+  LibriSpeech reorganizado como corpus de campo: 78 clips, 10 locutores,
+  manifiesto válido y el mismo 0,0 % EER. También rechaza un plan incompleto y
+  un WAV a 8 kHz. No se grabó ni se commiteó audio real.
 - Ninguna prueba depende de un modelo descargado ni de un dispositivo; la
-  extracción y el control son herramientas de desarrollo, no tests.
+  extracción, el control y el importador son herramientas de desarrollo, no tests.
 
 ---
 
 ## Siguiente paso (fuera de este ADR)
 
 **Hecho en esta iteración:** extracción con sherpa-onnx, medida de tres modelos
-reales sobre el corpus sintético (resultado negativo, tabla arriba) y control con
+reales sobre el corpus sintético (resultado negativo, tabla arriba), control con
 voz real de LibriSpeech (0,0 % EER, que descarta un fallo del pipeline y confirma
-que el problema es el corpus). En la iteración anterior: exportación del corpus,
-separación calibración/evaluación, herramienta offline de puntuación y almacén
-cifrado con consentimiento.
+que el problema es el corpus) y protocolo/importador del corpus de campo. En la
+iteración anterior: exportación del corpus, separación calibración/evaluación,
+herramienta offline de puntuación y almacén cifrado con consentimiento.
 
 1. **Hecho parcialmente:** extraer embeddings con un modelo real y pasarlos por
    `tools/speaker/score_embeddings.py`, con control de voz real para separar
@@ -484,9 +512,10 @@ cifrado con consentimiento.
    CAM++ con sherpa-onnx, y el control de LibriSpeech dio 0,0 % EER. Falta
    repetirlo con un **ReDimNet-B0/B1** y, sobre todo, con grabaciones reales.
 2. Grabar el corpus de campo **antes** de elegir motor: 10–15 personas, 3–5
-   frases de enrolamiento y uso en silencio, TV, calle y a 1–3 m. Es el único
-   número que puede autorizar un detector; el sintético ya demostró que no
-   ordena modelos reales.
+   frases de enrolamiento y uso en silencio, TV, calle y a 1–3 m. El layout, el
+   plan disjunto y la validación ya están en `build_field_manifest.py`; solo
+   faltan las grabaciones y el consentimiento. Es el único número que puede
+   autorizar un detector; el sintético ya demostró que no ordena modelos reales.
 3. Implementar la **UI de consentimiento, enrolamiento y borrado** en
    `ProfileScreen` y cablear `androidEncryptedVoiceProfileStore()` en
    `VoiceSessionPipeline` cuando exista un extractor validado.

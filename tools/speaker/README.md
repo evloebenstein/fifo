@@ -1,8 +1,9 @@
 # Speaker identity offline (ADR-0048)
 
 Herramientas de **desarrollo** para evaluar un modelo real de verificación de
-locutor contra el corpus sintético de Fifo. No forman parte de la app, no se
-ejecutan en la suite normal y no se commitea ningún WAV, peso ni embedding.
+locutor contra el corpus sintético de Fifo, un control con voz real y un corpus
+de campo. No forman parte de la app, no se ejecutan en la suite normal y no se
+commitea ningún WAV, peso ni embedding.
 
 La app sigue con `NoopSpeakerIdentityProvider`: estas herramientas existen para
 decidir si algún día un modelo merece sustituirlo, no para afirmar que ya lo
@@ -127,13 +128,72 @@ funciona; el problema del 42–50 % es que el corpus sintético no representa vo
 humanas. Es la razón por la que el siguiente paso es grabar campo y no seguir
 ajustando umbrales.
 
+## 4. Corpus de campo (el paso bloqueante)
+
+Ni el simulador ni LibriSpeech pueden autorizar un detector: el primero no
+ordena motores y el segundo es lectura limpia. El único número que cuenta sale
+de 10–15 personas reales grabadas con el mismo móvil y en las condiciones de uso.
+`build_field_manifest.py` convierte esas grabaciones en el mismo manifiesto, con
+validación de formato y de reparto.
+
+Layout (una carpeta por locutor, sin nombres que adivinar):
+
+```
+<root>/<locutor>/enroll/<clip>.wav
+<root>/<locutor>/test/<condición>/<clip>.wav
+```
+
+`enroll` lleva 3–5 frases en limpio. `test` lleva las frases de uso, una carpeta
+por condición (`clean`, `tv`, `street`, `far`…). Todo WAV mono a 16 kHz PCM16:
+
+```powershell
+ffmpeg -i entrada.m4a -ac 1 -ar 16000 -c:a pcm_s16le salida.wav
+```
+
+El plan reparte locutores disjuntos entre calibración y evaluación:
+
+```json
+{
+  "speakers": [
+    {"id": "ana", "split": "calibration", "role": "enrolled"},
+    {"id": "bea", "split": "calibration", "role": "unseen"},
+    {"id": "carla", "split": "evaluation", "role": "enrolled"},
+    {"id": "diego", "split": "evaluation", "role": "unseen"}
+  ]
+}
+```
+
+```powershell
+python tools/speaker/build_field_manifest.py `
+  --root "$env:TEMP\fifo-speaker-field" `
+  --plan "$env:TEMP\fifo-speaker-field\plan.json" `
+  --out "$env:TEMP\fifo-speaker-field\manifest.jsonl"
+```
+
+El ejemplo es el mínimo que valida el reparto; para que el número signifique
+algo, escala a 10–15 personas. El script rechaza un plan sin `enrolled` y
+`unseen` en cada split, un locutor duplicado, un clip que no sea
+mono/16 kHz/PCM16, WAV sueltos fuera de una condición o un enrolado con menos de
+3 frases. Avisa si el corpus se sale de 10–15 locutores, pero no inventa datos.
+Después se ejecutan los pasos 2 y 3 con ese manifiesto.
+
+Protocolo mínimo:
+
+- **Consentimiento explícito** y borrado a petición; el audio no se sube ni se
+  commitea, y solo se guardan centroides cifrados.
+- 10–15 personas, 3–5 frases de enrolamiento y 6–10 de uso por persona.
+- Condiciones separadas: silencio, TV, calle y distancia de 1–3 m.
+- Calibración y evaluación **nunca** comparten locutores; 2+2 y 4+2 como mínimo.
+- Anotar móvil, micrófono y condiciones junto al corpus: sin eso el número no es
+  reproducible.
+
 ## Reglas
 
 - No se commitean WAV, embeddings, pesos ni informes.
 - No se añade ONNX/TensorFlow/torch a la app para ejecutar esto.
 - El corpus es sintético: un buen número aquí **no** certifica campo y un mal
-  número **no** descarta el modelo. Hace falta un corpus real de 10–15 personas
-  en silencio, TV, calle y 1–3 m.
+  número **no** descarta el modelo. El corpus de campo (sección 4) es el único
+  que puede autorizar un detector.
 - No elijas motor comparando EER en este corpus; solo sirve para reproducir el
   contrato y detectar regresiones del pipeline.
 - Un modelo solo sustituye a `Noop` si cumple el presupuesto de 400 ms, mide

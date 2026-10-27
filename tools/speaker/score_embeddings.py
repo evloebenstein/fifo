@@ -5,7 +5,8 @@ Herramienta de **desarrollo**: no forma parte de la app, no descarga modelos y n
 extrae features. Recibe dos contratos y hace la parte que sí es independiente del
 motor:
 
-1. ``manifest.jsonl`` escrito por ``SpeakerCorpusExportTest``.
+1. ``manifest.jsonl`` escrito por ``SpeakerCorpusExportTest`` (sintético) o por
+   ``build_field_manifest.py`` (grabaciones reales).
 2. ``embeddings.jsonl`` con una línea por clip: ``{"id": "...", "embedding": [...]}``.
 
 La extracción de embeddings la hace el toolkit del modelo (WeSpeaker,
@@ -19,7 +20,8 @@ Qué calcula:
 - EER, FRR y FAR en ``evaluation`` (locutores disjuntos);
 - tablas por condición y por duración.
 
-Los números del corpus sintético **no certifican campo**. Ver ADR-0048.
+Los números del corpus sintético **no certifican campo**; los de un corpus de
+campo solo valen para esas personas, ese móvil y esas condiciones. Ver ADR-0048.
 """
 
 from __future__ import annotations
@@ -250,7 +252,8 @@ def main() -> int:
     oracle_threshold, oracle_eer = eer_threshold(evaluation_trials)
 
     by_condition = group_metrics(evaluation_trials, threshold, "condition")
-    by_syllables = group_metrics(evaluation_trials, threshold, "syllables")
+    has_syllables = any(trial.get("syllables") is not None for trial in evaluation_trials)
+    by_syllables = group_metrics(evaluation_trials, threshold, "syllables") if has_syllables else {}
 
     print(f"modelo: {args.model_id}")
     print(f"clips: {len(manifest)}  embeddings: {len(embeddings)}")
@@ -267,7 +270,8 @@ def main() -> int:
     print(f"referencia EER: {oracle_eer * 100:.1f}% (thr={oracle_threshold:.3f})")
 
     table("Por condición (umbral calibrado)", by_condition)
-    table("Por sílabas / duración (umbral calibrado)", by_syllables)
+    if by_syllables:
+        table("Por sílabas / duración (umbral calibrado)", by_syllables)
 
     report = {
         "model_id": args.model_id,
@@ -291,8 +295,9 @@ def main() -> int:
         print(f"\ninforme escrito en {args.out}")
 
     print(
-        "\nRecuerda: el corpus es sintético. Un buen número aquí no autoriza a "
-        "enviar un detector biométrico; hace falta validación con grabaciones reales."
+        "\nRecuerda: este informe mide el corpus evaluado, no el móvil. Un buen "
+        "número en el corpus sintético no autoriza a enviar un detector biométrico; "
+        "un corpus de campo solo vale para esas personas y condiciones."
     )
     return 0
 
