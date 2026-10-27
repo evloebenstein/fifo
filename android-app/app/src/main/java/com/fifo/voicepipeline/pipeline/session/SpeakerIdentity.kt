@@ -81,12 +81,20 @@ data class SpeakerEvidence(
     val candidates: List<SpeakerCandidate>,
     val durationMillis: Long,
     val observedAtMillis: Long,
-    val modelId: String
+    val modelId: String,
+    /** Riesgo de spoofing 0..1, o `null` si no hay contramedida medida. */
+    val spoofRisk: Double? = null,
+    /** Modelo que produjo [spoofRisk]; `null` cuando no hay medición. */
+    val spoofModelId: String? = null
 ) {
     init {
         require(durationMillis >= 0) { "durationMillis negativo: $durationMillis" }
         require(candidates.zipWithNext().all { (first, second) -> first.score >= second.score }) {
             "los candidatos deben venir ordenados de mayor a menor"
+        }
+        require(spoofRisk == null || spoofRisk in 0.0..1.0) { "spoofRisk fuera de 0..1: $spoofRisk" }
+        require((spoofRisk == null) == (spoofModelId == null)) {
+            "spoofRisk y spoofModelId deben venir juntos"
         }
     }
 }
@@ -144,12 +152,15 @@ data class VoiceProfile(
 data class SpeakerPolicyConfig(
     val minSpeechMillis: Long = 1_200L,
     val minAcceptScore: Double = 0.70,
-    val minScoreMargin: Double = 0.06
+    val minScoreMargin: Double = 0.06,
+    /** Riesgo de spoofing a partir del cual la identidad deja de personalizar. */
+    val maxSpoofRisk: Double = 0.50
 ) {
     init {
         require(minSpeechMillis >= 0) { "minSpeechMillis negativo" }
         require(minAcceptScore in 0.0..1.0) { "minAcceptScore fuera de 0..1" }
         require(minScoreMargin in 0.0..1.0) { "minScoreMargin fuera de 0..1" }
+        require(maxSpoofRisk in 0.0..1.0) { "maxSpoofRisk fuera de 0..1" }
     }
 }
 
@@ -161,11 +172,13 @@ data class SpeakerPolicyConfig(
  * 1. Sin evidencia o sin perfiles → `UNAVAILABLE`.
  * 2. Audio más corto que [SpeakerPolicyConfig.minSpeechMillis] → `UNCERTAIN`
  *    (una palabra suelta no basta para atribuir un turno).
- * 3. Mejor similitud por debajo de [SpeakerPolicyConfig.minAcceptScore] →
+ * 3. Riesgo de spoofing igual o mayor que [SpeakerPolicyConfig.maxSpoofRisk] →
+ *    `UNCERTAIN` (voz sintética/reproducida, aunque el score sea alto).
+ * 4. Mejor similitud por debajo de [SpeakerPolicyConfig.minAcceptScore] →
  *    `UNKNOWN`.
- * 4. Diferencia con el segundo perfil menor que
+ * 5. Diferencia con el segundo perfil menor que
  *    [SpeakerPolicyConfig.minScoreMargin] → `UNCERTAIN` (dos voces parecidas).
- * 5. Coincide con el usuario principal → `OWNER`; cualquier otro perfil
+ * 6. Coincide con el usuario principal → `OWNER`; cualquier otro perfil
  *    enrolado → `KNOWN`.
  *
  * La política clasifica; no habla, no guarda perfiles y no autoriza acciones.
@@ -182,6 +195,15 @@ object SpeakerIdentityPolicy {
         val modelId = evidence.modelId
 
         if (evidence.durationMillis < config.minSpeechMillis) {
+            return SpeakerIdentity(
+                relation = SpeakerRelation.UNCERTAIN,
+                confidence = evidence.candidates.firstOrNull()?.score ?: 0.0,
+                modelId = modelId
+            )
+        }
+
+        val spoofRisk = evidence.spoofRisk
+        if (spoofRisk != null && spoofRisk >= config.maxSpoofRisk) {
             return SpeakerIdentity(
                 relation = SpeakerRelation.UNCERTAIN,
                 confidence = evidence.candidates.firstOrNull()?.score ?: 0.0,

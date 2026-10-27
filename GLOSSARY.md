@@ -107,8 +107,16 @@ Costura que atribuye el WAV de un turno a un perfil. Corre en paralelo al STT co
 _Avoid_: VoiceAuthManager, SpeakerEngine, BiometricService
 
 **SpeakerIdentityPolicy**:
-Política pura que convierte evidencia (candidatos, score, duración) en `OWNER`/`KNOWN`/`UNKNOWN`/`UNCERTAIN`/`UNAVAILABLE`. Los umbrales son configuración por modelo, no constantes universales (ADR-0048).
+Política pura que convierte evidencia (candidatos, score, duración, `spoofRisk`) en `OWNER`/`KNOWN`/`UNKNOWN`/`UNCERTAIN`/`UNAVAILABLE`. Los umbrales son configuración por modelo, no constantes universales (ADR-0048).
 _Avoid_: Reglas de voz, Clasificador de locutor
+
+**Riesgo de spoofing**:
+Probabilidad 0..1 de que el audio del turno sea sintético o reproducido, producida por un `SpoofingDetector` junto al embedding. Un riesgo ≥ `maxSpoofRisk` (0,50) degrada el turno a `UNCERTAIN`; no autoriza ni rechaza acciones. `NoopSpoofingDetector` devuelve `null` porque no hay modelo validado (ADR-0048).
+_Avoid_: Anti-spoofing, Detector de deepfake, Liveness
+
+**Consentimiento de voz**:
+Permiso explícito del usuario para guardar perfiles de voz, persistido en `fifo_prefs` y consultado por `VoiceIdentitySettings`. Sin él no se lee ni se enrola, pero el borrado siempre se permite (ADR-0048).
+_Avoid_: Aceptación tácita, Permiso de micrófono, Opt-in biométrico
 
 **Arnés de verificación de locutor**:
 Corpus sintético test-only con locutores de calibración y de evaluación disjuntos que mide EER/FRR/FAR de un extractor de referencia. Se activa con `FIFO_SPEAKER_EXPERIMENT=1`; la exportación a WAV + manifiesto se activa con `FIFO_SPEAKER_EXPORT_DIR`. Mide el simulador y no certifica campo (ADR-0048).

@@ -25,6 +25,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.fifo.voicepipeline.pipeline.session.VoiceIdentitySettings
+import com.fifo.voicepipeline.pipeline.session.VoiceProfile
 import com.fifo.voicepipeline.ui.components.FifoFace
 import com.fifo.voicepipeline.ui.theme.FifoColors
 import com.fifo.voicepipeline.ui.model.UserSocialPost
@@ -153,6 +155,26 @@ fun ProfileScreen(
     var testResultSuccess by remember { mutableStateOf(false) }
     var keySavedSuccess by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+
+    // ── Reconocimiento de voz (ADR-0048) ─────────────────────────
+    val identityContext = androidx.compose.ui.platform.LocalContext.current
+    var voiceConsent by remember { mutableStateOf(VoiceIdentitySettings.hasConsent(identityContext)) }
+    var voiceProfiles by remember { mutableStateOf<List<VoiceProfile>>(emptyList()) }
+    var isVoiceBusy by remember { mutableStateOf(false) }
+    var voiceDeleteDone by remember { mutableStateOf(false) }
+    var showVoiceDeleteDialog by remember { mutableStateOf(false) }
+    val isVoiceModelReady = VoiceIdentitySettings.isEnrollmentAvailable
+
+    LaunchedEffect(voiceConsent) {
+        isVoiceBusy = true
+        voiceProfiles = if (voiceConsent) {
+            runCatching { VoiceIdentitySettings.store(identityContext).loadAll() }
+                .getOrDefault(emptyList())
+        } else {
+            emptyList()
+        }
+        isVoiceBusy = false
+    }
 
     Column(
         modifier = modifier
@@ -478,6 +500,209 @@ fun ProfileScreen(
                             onCheckedChange = { nightQuietHours = it }
                         )
                     }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // 3.4 Reconocimiento de voz (ADR-0048)
+            Text(
+                text = "Reconocimiento de voz",
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                color = FifoColors.LightTextPrimary
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Surface(
+                color = Color.White,
+                shape = RoundedCornerShape(20.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, FifoColors.LightCardBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.RecordVoiceOver,
+                            contentDescription = null,
+                            tint = FifoColors.BlueAccentDark,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Permitir que Fifo reconozca mi voz",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = FifoColors.LightTextPrimary
+                            )
+                            Text(
+                                text = "Así puede tratarte por tu nombre y distinguir tu voz de la de un invitado.",
+                                fontSize = 12.sp,
+                                color = FifoColors.LightTextSecondary,
+                                lineHeight = 16.sp
+                            )
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Switch(
+                            checked = voiceConsent,
+                            onCheckedChange = { granted ->
+                                VoiceIdentitySettings.setConsent(identityContext, granted)
+                                voiceConsent = granted
+                                voiceDeleteDone = false
+                            }
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Text(
+                        text = "Se guarda una huella matemática cifrada, nunca una grabación. " +
+                            "Tu voz no autoriza llamadas, pagos ni datos privados: eso sigue pidiendo tu confirmación.",
+                        fontSize = 11.sp,
+                        color = FifoColors.LightTextSecondary,
+                        lineHeight = 15.sp
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+                    HorizontalDivider(color = Color(0xFFF1F5F9))
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    if (!isVoiceModelReady) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.HourglassEmpty,
+                                contentDescription = null,
+                                tint = Color(0xFFB45309),
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Motor de voz pendiente",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFB45309)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Todavía no hay un modelo validado para este teléfono, así que no se " +
+                                "enrola ninguna voz ni se guarda audio. Cuando esté listo, aparecerá aquí.",
+                            fontSize = 12.sp,
+                            color = FifoColors.LightTextSecondary,
+                            lineHeight = 16.sp
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        OutlinedButton(
+                            onClick = {},
+                            enabled = false,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Enrolar mi voz (próximamente)", fontSize = 13.sp)
+                        }
+                    }
+
+                    if (voiceConsent && voiceProfiles.isNotEmpty()) {
+                        if (!isVoiceModelReady) Spacer(modifier = Modifier.height(12.dp))
+                        Text(
+                            text = if (voiceProfiles.size == 1) "1 voz guardada" else "${voiceProfiles.size} voces guardadas",
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = FifoColors.LightTextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        voiceProfiles.forEach { profile ->
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = FifoColors.LightTextSecondary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = profile.displayName,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        color = FifoColors.LightTextPrimary
+                                    )
+                                    Text(
+                                        text = "${profile.sampleCount} muestras · huella cifrada",
+                                        fontSize = 11.sp,
+                                        color = FifoColors.LightTextSecondary
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            runCatching {
+                                                val store = VoiceIdentitySettings.store(identityContext)
+                                                store.delete(profile.id)
+                                                store.loadAll()
+                                            }.onSuccess { remaining ->
+                                                voiceProfiles = remaining
+                                                voiceDeleteDone = true
+                                            }
+                                        }
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Borrar la voz de ${profile.displayName}",
+                                        tint = Color(0xFFEF4444),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    if (voiceConsent && voiceProfiles.isEmpty() && isVoiceModelReady) {
+                        Text(
+                            text = "Aún no hay voces guardadas.",
+                            fontSize = 12.sp,
+                            color = FifoColors.LightTextSecondary
+                        )
+                    }
+
+                    if (voiceDeleteDone) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Listo: se borraron los datos de voz.",
+                            fontSize = 12.sp,
+                            color = Color(0xFF15803D)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = { showVoiceDeleteDialog = true },
+                        // Borrar siempre se permite: sin consentimiento los perfiles
+                        // no se leen, pero la revocación debe poder eliminarlos.
+                        enabled = !isVoiceBusy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.DeleteForever,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Borrar todos mis datos de voz", fontSize = 13.sp)
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Borrar siempre está disponible, incluso si retiras el permiso.",
+                        fontSize = 11.sp,
+                        color = FifoColors.LightTextSecondary
+                    )
                 }
             }
 
@@ -2126,6 +2351,50 @@ fun ProfileScreen(
                 }
             }
         }
+    }
+
+    // ── DIÁLOGO PARA CONFIRMAR EL BORRADO DE DATOS DE VOZ ─────
+    if (showVoiceDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showVoiceDeleteDialog = false },
+            title = {
+                Text(
+                    text = "Borrar datos de voz",
+                    fontWeight = FontWeight.Bold,
+                    color = FifoColors.NavyPrimary
+                )
+            },
+            text = {
+                Text(
+                    text = "Se borrarán todas las huellas de voz guardadas en este teléfono. " +
+                        "No se puede deshacer y Fifo dejará de reconocer esas voces.",
+                    color = FifoColors.LightTextSecondary
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showVoiceDeleteDialog = false
+                        coroutineScope.launch {
+                            runCatching {
+                                VoiceIdentitySettings.store(identityContext).clear()
+                            }.onSuccess {
+                                voiceProfiles = emptyList()
+                                voiceDeleteDone = true
+                            }
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+                ) {
+                    Text("Borrar", color = Color.White, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                OutlinedButton(onClick = { showVoiceDeleteDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 
     // ── DIÁLOGO PARA CONFIRMAR ELIMINACIÓN DE PUBLICACIÓN ─────

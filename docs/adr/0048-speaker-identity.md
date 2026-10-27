@@ -149,6 +149,12 @@ Reglas de la costura:
 pasa la identidad a `SpeechCognitionAdapter.generateDialogTurn()`. El prompt la
 recibe como dato (`SpeakerPromptContext`), nunca como frase enlatada.
 
+`EmbeddingSpeakerIdentityProvider` corre la extracción del embedding y el
+detector de spoofing **en paralelo** dentro del mismo presupuesto: ninguno espera
+al otro. Si el detector tarda más de 300 ms, falla o no hay modelo, la evidencia
+queda sin `spoofRisk` y la política no cambia. La composición elige el proveedor
+en `VoiceIdentitySettings.provider()` (hoy `Noop`), no en el facade legacy.
+
 ### 3. Política pura, umbrales por modelo
 
 `SpeakerIdentityPolicy.resolve()` aplica, en orden:
@@ -157,6 +163,7 @@ recibe como dato (`SpeakerPromptContext`), nunca como frase enlatada.
 | :--- | :--- |
 | Sin evidencia o sin perfiles | `UNAVAILABLE` |
 | Audio < 1,2 s | `UNCERTAIN` |
+| `spoofRisk` ≥ `maxSpoofRisk` (0,50) | `UNCERTAIN` |
 | Mejor similitud < 0,70 | `UNKNOWN` |
 | Diferencia con el segundo perfil < 0,06 | `UNCERTAIN` |
 | Coincide con el usuario principal | `OWNER` |
@@ -181,8 +188,12 @@ espectral; el umbral de producción se fija con la validación del modelo real.
 - `ConsentAwareVoiceProfileStore` implementa la puerta: sin consentimiento no se
   lee ni se enrola, pero **borrar siempre se permite** para poder revocar.
 - `androidEncryptedVoiceProfileStore(filesDir, hasConsent)` compone las tres
-  piezas. No se cablea todavía porque no hay extractor real ni UI de
-  consentimiento; `Noop` sigue por defecto.
+  piezas. `VoiceIdentitySettings` mantiene **un solo almacén por proceso** y el
+  consentimiento en `fifo_prefs`, de modo que la UI y el futuro proveedor leen y
+  escriben el mismo archivo. La UI ya usa este almacén para estado y borrado.
+- La UI no ofrece enrolamiento mientras `VoiceIdentitySettings.modelId()` sea
+  `null`: el botón aparece deshabilitado como "próximamente" en vez de fingir
+  una captura que no puede convertir en embedding.
 - **No se sincroniza con el backend.** El backend actual no tiene autenticación
   real; subir embeddings biométricos sería peor que no tener la función.
 - El perfil lleva `modelId`; un cambio de modelo invalida los perfiles viejos en
@@ -410,7 +421,45 @@ enrolamiento y 6–10 de uso, condiciones separadas (silencio, TV, calle, 1–3 
 calibración y evaluación disjuntas, y anotación del móvil y micrófono. Sin esas
 condiciones el número no es comparable con ninguna tabla.
 
-### 6. Elección de motor: diferida, con criterios claros
+### 6. Spoofing: costura y `Noop`, no una protección inventada
+
+Una voz sintética o reproducida no debe atribuir el turno al dueño. La costura
+`pipeline/session/SpoofingDetector.kt` define:
+
+```kotlin
+interface SpoofingDetector {
+    val modelId: String
+    suspend fun assess(wavData: ByteArray): SpoofingAssessment?
+}
+```
+
+- `NoopSpoofingDetector` devuelve `null`: **no hay riesgo medido** y la política
+  no cambia. Es el valor por defecto.
+- La evidencia viaja con su `spoofModelId`; un cambio de modelo no se disfraza de
+  medición vieja.
+- El detector corre en paralelo al extractor y con timeout propio (300 ms). Un
+  fallo o una demora degradan a "riesgo desconocido", nunca bloquean el turno.
+- Un riesgo ≥ 0,50 fuerza `UNCERTAIN`, aunque el coseno sea 1,0. La identidad
+  deja de personalizar, pero el turno se atiende: no es un rechazo de seguridad
+  ni autoriza nada.
+
+Por qué no se envía un detector real todavía:
+
+- ASVspoof 5 (2024/2025) está pensado para ataques crowdsourced y deepfakes, pero
+  el corpus es enorme (shards de ~7 GB), requiere aceptar condiciones de acceso y
+  no hay pesos de contramedida validados en el repo.
+- ASVspoof 2019 LA está disponible en Hugging Face, pero el audio tampoco está
+  descargado ni se commitea, y un detector entrenado en inglés de laboratorio no
+  se puede presentar como protección de campo.
+- El umbral 0,50 es **configuración provisional**, no una calibración. Se
+  recalibra con EER/FAR de un modelo y corpus reales, igual que el umbral de
+  identidad.
+
+La UI tampoco promete spoofing: dice que la voz no autoriza llamadas, pagos ni
+datos privados. La costura existe para que, cuando haya modelo, la decisión no se
+repita en `VoiceSession` ni en el LLM.
+
+### 7. Elección de motor: diferida, con criterios claros
 
 No se elige un modelo en esta ADR porque no hay pesos, runtime ni corpus real.
 Criterios para el siguiente paso:
@@ -448,8 +497,9 @@ CaptureArbiter ──► SpeechSegmenter (VAD + pre-roll) ──► WAV
                         ▼                                                  ▼
                  STT (Whisper)                              SpeakerIdentityProvider
                         │                                                  │
-                        ▼                                     (timeout 400 ms, paralelo)
-                 VoiceSession                                       │
+                        ▼                                     (embedding ∥ spoofing,
+                 VoiceSession                                     timeout 400 ms)
+                        │                                                  │
                         │                                     SpeakerIdentityPolicy
                         │                                                  │
                         └──────────────► LLM ◄──────────── SpeakerIdentity
@@ -458,22 +508,32 @@ CaptureArbiter ──► SpeechSegmenter (VAD + pre-roll) ──► WAV
                                 (OWNER/KNOWN/UNKNOWN/UNCERTAIN)
 ```
 
-El camino legacy no construye nada de esto. `VoiceSessionPipeline` es el único
-lugar que elige el proveedor; hoy elige `Noop`.
+El camino legacy no construye nada de esto. `VoiceSessionPipeline` construye la
+costura; la elección del proveedor vive en `VoiceIdentitySettings.provider()` y
+hoy devuelve `Noop`.
 
-### Flujo de enrolamiento (diseño, aún sin UI)
+### Flujo de consentimiento y enrolamiento
 
-1. `ProfileScreen` → "Enseñar mi voz".
-2. Pantalla de consentimiento: qué se guarda (embedding, no audio), para qué
-   (personalizar y atribuir turnos), que no se sincroniza y cómo borrarlo.
-3. 3–5 frases guiadas, 5–10 s, misma condición/dispositivo.
-4. `SpeakerEnrollment` extrae embeddings, exige ≥ 3 muestras y guarda el
-   centroide en `VoiceProfileStore`.
-5. Estado "voz aprendida" con opción de volver a enseñar o borrar.
-6. Si el usuario rechaza, no se crea perfil y todo sigue como hoy.
+La UI de `ProfileScreen` ya existe; el enrolamiento sigue bloqueado hasta que
+haya un extractor validado:
 
-No se implementa la UI en esta ADR porque no hay extractor real; una pantalla
-que promete "te reconozco" sin modelo sería una mentira de producto.
+1. Sección "Reconocimiento de voz" en Configuración fácil.
+2. Interruptor de consentimiento, persistido en `fifo_prefs`. Explica que se
+   guarda una huella cifrada, no una grabación, y que la voz no autoriza
+   llamadas, pagos ni datos privados.
+3. Estado honesto del motor: "Motor de voz pendiente" cuando `modelId()` es
+   `null`. El botón de enrolamiento aparece deshabilitado ("próximamente").
+4. Lista de voces guardadas con nombre, número de muestras y borrado por perfil.
+5. "Borrar todos mis datos de voz" pide confirmación y **sigue disponible con el
+   consentimiento apagado**: la revocación debe poder eliminar el dato.
+6. Cuando exista extractor: 3–5 frases guiadas, 5–10 s, misma
+   condición/dispositivo; `SpeakerEnrollment` exige ≥ 3 muestras y guarda el
+   centroide.
+7. Si el usuario rechaza, no se lee ni se escribe ningún perfil y todo sigue
+   como hoy.
+
+La pantalla no finge reconocimiento: mientras no haya modelo, no captura audio ni
+crea perfiles.
 
 ---
 
@@ -511,6 +571,10 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
   nada y un mal número tampoco descarta el modelo; solo un corpus real decide.
 - Guardar biometría obliga a mantenimiento: rotación de claves, borrado,
   migración de modelo y auditoría.
+- El spoofing queda como costura, no como protección: `NoopSpoofingDetector`
+  devuelve riesgo desconocido y no hay modelo validado. La UI no debe prometer
+  detección de voces sintéticas, y la identidad sigue sin autorizar nada
+  sensible.
 
 ---
 
@@ -518,18 +582,21 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 
 | File | Change |
 | :--- | :--- |
-| `pipeline/session/SpeakerIdentity.kt` | **New** — relación, identidad, evidencia, perfil, política pura y contexto de prompt. |
-| `pipeline/session/SpeakerIdentityProvider.kt` | **New** — costura, `Noop`, extractor, almacén, proveedor por embeddings y enrolamiento. |
+| `pipeline/session/SpeakerIdentity.kt` | **Updated** — `spoofRisk`/`spoofModelId` en la evidencia, `maxSpoofRisk` en la política y regla que degrada a `UNCERTAIN`. |
+| `pipeline/session/SpeakerIdentityProvider.kt` | **Updated** — extractor y detector de spoofing en paralelo, con timeout propio. |
+| `pipeline/session/SpoofingDetector.kt` | **New** — costura `SpoofingDetector`, `SpoofingAssessment` y `NoopSpoofingDetector`. |
 | `pipeline/session/EncryptedVoiceProfileStore.kt` | **New** — almacén cifrado y versionado, blob atómico y puerta de consentimiento. |
 | `pipeline/session/AndroidKeystoreProfileCipher.kt` | **New** — AES-256-GCM con clave del Android Keystore y composición de producción. |
+| `pipeline/session/VoiceIdentitySettings.kt` | **New** — consentimiento en `fifo_prefs`, almacén cifrado único por proceso y elección del proveedor. |
+| `ui/screens/ProfileScreen.kt` | **Updated** — tarjeta de reconocimiento de voz: consentimiento, estado del motor, perfiles, borrado y enrolamiento deshabilitado. |
 | `pipeline/session/VoiceSession.kt` | **Updated** — identifica en paralelo al STT con timeout, expone `speakerIdentity` y la pasa al LLM. |
 | `pipeline/session/SpeechCognitionSeam.kt` | **Updated** — `generateDialogTurn`/`generateRepairTurn` aceptan la identidad; el adaptador en memoria la registra. |
-| `pipeline/session/VoiceSessionPipeline.kt` | **Updated** — construye `NoopSpeakerIdentityProvider` detrás de la costura. |
+| `pipeline/session/VoiceSessionPipeline.kt` | **Updated** — construye el proveedor a través de `VoiceIdentitySettings.provider()` (hoy `Noop`). |
 | `network/CloudApiClient.kt` | **Updated** — propaga la identidad al motor de diálogo. |
 | `network/GroqDialogClient.kt` | **Updated** — inyecta `SpeakerPromptContext` en el system prompt. |
-| `test/.../session/SpeakerIdentityPolicyTest.kt` | **New** — tabla de verdad de la política y del prompt. |
+| `test/.../session/SpeakerIdentityPolicyTest.kt` | **Updated** — tabla de verdad de la política, spoofing y prompt. |
 | `test/.../session/SpeakerIdentityIntegrationTest.kt` | **New** — identidad por turno, `Noop`, timeout y fallo del proveedor. |
-| `test/.../session/SpeakerIdentityProviderTest.kt` | **New** — enrolamiento, centroide, coseno, modelo distinto y borrado. |
+| `test/.../session/SpeakerIdentityProviderTest.kt` | **Updated** — enrolamiento, centroide, coseno, modelo distinto, borrado y degradación por spoofing. |
 | `test/.../session/EncryptedVoiceProfileStoreTest.kt` | **New** — cifrado, corrupción, persistencia, borrado y consentimiento. |
 | `test/.../session/speaker/SpeakerVerificationHarness.kt` | **New** — corpus sintético, calibración disjunta y evaluador EER/FRR/FAR. |
 | `test/.../session/speaker/SpeakerVerificationHarnessTest.kt` | **New** — determinismo, separación limpia, calibración y tabla gated. |
@@ -548,13 +615,17 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 ## Verification
 
 - `testDebugUnitTest`, `testReleaseUnitTest` y `compileReleaseKotlin` en verde.
-- 402 pruebas en debug y 402 en release, 0 fallos, 6 omitidas (3 del arnés de
+- 414 pruebas en debug y 414 en release, 0 fallos, 6 omitidas (3 del arnés de
   wake word + el experimento de locutor sin `FIFO_SPEAKER_EXPERIMENT=1` + la
   exportación sin `FIFO_SPEAKER_EXPORT_DIR` + el campo simulado sin
   `FIFO_REAL_SPEECH_POOL`/`FIFO_REAL_SPEECH_EXPORT_DIR`).
-- `SpeakerIdentityPolicyTest` 14/14, `SpeakerIdentityProviderTest` 9/9,
+- `SpeakerIdentityPolicyTest` 18/18, `SpeakerIdentityProviderTest` 16/16,
   `SpeakerIdentityIntegrationTest` 5/5, `EncryptedVoiceProfileStoreTest` 9/9 y
   `SpeakerVerificationHarnessTest` 3/3 siempre + el experimento gated.
+- Las pruebas nuevas cubren: riesgo alto → `UNCERTAIN`; riesgo bajo o ausente →
+  sin cambio; umbral configurable; evidencia inválida si `spoofRisk` y
+  `spoofModelId` no vienen juntos; detector que falla o tarda → el turno sigue;
+  `NoopSpoofingDetector` → `null`; sin perfiles no se consulta el detector.
 - La exportación se ejecutó a un directorio temporal y produjo 120 WAV y 120
   líneas de manifiesto; `score_embeddings.py` se probó de extremo a extremo con
   embeddings sintéticos y escribió su informe.
@@ -579,19 +650,25 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
   un WAV a 8 kHz. No se grabó ni se commiteó audio real.
 - Ninguna prueba depende de un modelo descargado ni de un dispositivo; la
   extracción, el control y el importador son herramientas de desarrollo, no tests.
+- La UI se verificó en `emulator-5554` (x86_64, Android 16) con el APK debug:
+  Perfil → Configurar app → Reconocimiento de voz. El interruptor persistió
+  `voice_identity_consent=true` en `fifo_prefs`; el estado mostró "Motor de voz
+  pendiente" y el enrolamiento deshabilitado; el borrado abrió confirmación y
+  dejó el aviso "Listo: se borraron los datos de voz". Sin `AndroidRuntime`
+  errors. El emulador es x86_64: no mide latencia de embeddings en ARM.
 
 ---
 
 ## Siguiente paso (fuera de este ADR)
 
-**Hecho en esta iteración:** extracción con sherpa-onnx, medida de tres modelos
-reales sobre el corpus sintético (resultado negativo), control con voz real de
-LibriSpeech (0,0 % EER), protocolo/importador del corpus de campo y **campo
-simulado con 40 voces reales aumentadas + AS-Norm**, que por primera vez ordena
-motores. Siete modelos sobre el campo simulado dejan como candidato a CAM++ zh_en
-advanced (1,2 % EER crudo), con `white-5` aún en 10,7 % FRR. En la iteración
-anterior: exportación del corpus, separación calibración/evaluación, herramienta
-offline de puntuación y almacén cifrado con consentimiento.
+**Hecho en esta iteración:** UI de consentimiento, estado y borrado en
+`ProfileScreen` sobre el almacén cifrado real; costura de spoofing con `Noop` y
+degradación a `UNCERTAIN`; composición del consentimiento y del almacén en
+`VoiceIdentitySettings`; detector ejecutado en paralelo al extractor. El
+enrolamiento sigue deshabilitado porque no hay modelo. En la iteración anterior:
+campo simulado con 40 voces reales, AS-Norm y ranking de siete modelos (CAM++ zh_en
+advanced, 1,2 % EER crudo). Antes: exportación del corpus, calibración disjunta,
+herramienta offline de puntuación y almacén cifrado.
 
 1. **Hecho parcialmente:** extraer embeddings con un modelo real y pasarlos por
    `tools/speaker/score_embeddings.py`, con control de voz real y campo simulado
@@ -606,16 +683,21 @@ offline de puntuación y almacén cifrado con consentimiento.
    faltan las grabaciones y el consentimiento. Es el único número que puede
    autorizar un detector; el sintético y el campo simulado ya demostraron que no
    bastan.
-3. Implementar la **UI de consentimiento, enrolamiento y borrado** en
-   `ProfileScreen` y cablear `androidEncryptedVoiceProfileStore()` en
-   `VoiceSessionPipeline` cuando exista un extractor validado.
+3. **Hecho parcialmente:** la UI de consentimiento, estado y borrado existe y se
+   verificó en el emulador. Falta el flujo de captura de 3–5 frases y cablear
+   `androidEncryptedVoiceProfileStore()` al proveedor real cuando exista
+   extractor. La composición ya es única (`VoiceIdentitySettings`).
 4. El aumento de ruido, sala y Lombard ya está en la **validación** (campo
    simulado). AS-Norm es opcional y el mejor candidato rinde mejor sin él, así
    que el presupuesto de 400 ms solo tiene que cubrir la extracción del embedding.
    Falta medirlo en un móvil real y decidir si el extractor se afina con datos
    aumentados.
-5. Evaluar una contramedida de spoofing (ASVspoof 5) antes de usar la identidad
-   para cualquier acción sensible.
-6. Solo si el modelo supera la barra, el almacén está cifrado y la UI tiene
-   consentimiento, cambiar `NoopSpeakerIdentityProvider` por el proveedor real y
-   actualizar este ADR con los números de campo.
+5. **Hecho parcialmente:** la costura `SpoofingDetector`, el riesgo en la
+   evidencia y la degradación a `UNCERTAIN` existen y están probados. Falta un
+   detector real: ASVspoof 5 exige aceptar acceso y mover shards de ~7 GB;
+   ASVspoof 2019 LA está en Hugging Face pero no se ha descargado ni validado.
+   Sin ese modelo, `NoopSpoofingDetector` es la verdad.
+6. Solo si el modelo supera la barra, el almacén está cifrado, la UI tiene
+   consentimiento y hay contramedida medida, cambiar `NoopSpeakerIdentityProvider`
+   y `NoopSpoofingDetector` por los reales y actualizar este ADR con los números
+   de campo.

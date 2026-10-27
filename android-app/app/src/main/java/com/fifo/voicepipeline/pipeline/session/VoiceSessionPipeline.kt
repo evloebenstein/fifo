@@ -76,13 +76,14 @@ internal class VoiceSessionPipeline(
     /**
      * Identidad de locutor (ADR-0048).
      *
-     * Hoy es [NoopSpeakerIdentityProvider]: no hay extractor de embeddings ni
-     * perfiles enrolados, así que todos los turnos quedan `UNAVAILABLE` y el
-     * comportamiento actual no cambia. Cuando exista un modelo medido y un
-     * almacén cifrado, se construye aquí el proveedor real; `VoiceSession` solo
-     * ve la costura.
+     * Hoy `VoiceIdentitySettings.provider()` devuelve
+     * [NoopSpeakerIdentityProvider]: no hay extractor de embeddings medido, así
+     * que todos los turnos quedan `UNAVAILABLE` y el comportamiento actual no
+     * cambia. La elección vive en `VoiceIdentitySettings` para que el almacén
+     * cifrado que usa la UI sea el mismo que consumirá el proveedor real;
+     * `VoiceSession` solo ve la costura.
      */
-    private val speakerIdentityProvider: SpeakerIdentityProvider = NoopSpeakerIdentityProvider
+    private val speakerIdentityProvider: SpeakerIdentityProvider = VoiceIdentitySettings.provider()
 
     val session = VoiceSession(
         scope = scope,

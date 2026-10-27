@@ -1,9 +1,11 @@
 package com.fifo.voicepipeline.pipeline.session
 
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -30,13 +32,31 @@ class SpeakerIdentityProviderTest {
 
     private fun provider(
         config: SpeakerPolicyConfig = SpeakerPolicyConfig(),
-        ownerProfileId: String? = "owner"
+        ownerProfileId: String? = "owner",
+        spoofingDetector: SpoofingDetector = NoopSpoofingDetector
     ) = EmbeddingSpeakerIdentityProvider(
         extractor = extractor,
         store = store,
+        spoofingDetector = spoofingDetector,
         ownerProfileIdProvider = { ownerProfileId },
         config = config
     )
+
+    private suspend fun enrollOwner() {
+        SpeakerEnrollment(extractor, store, minSamples = 3).enroll(
+            profileId = "owner",
+            displayName = "Ana",
+            samples = listOf(audio(1), audio(1), audio(1)),
+            nowMillis = 1_000L
+        )
+    }
+
+    private class FixedSpoofingDetector(
+        private val assessment: SpoofingAssessment?
+    ) : SpoofingDetector {
+        override val modelId: String = assessment?.modelId ?: "spoof-v1"
+        override suspend fun assess(wavData: ByteArray): SpoofingAssessment? = assessment
+    }
 
     @Test
     fun `el enrolamiento guarda el centroide y no las muestras`() = runTest {
@@ -104,17 +124,90 @@ class SpeakerIdentityProviderTest {
 
     @Test
     fun `un audio corto queda incierto aunque la voz coincida`() = runTest {
-        SpeakerEnrollment(extractor, store, minSamples = 3).enroll(
-            profileId = "owner",
-            displayName = "Ana",
-            samples = listOf(audio(1), audio(1), audio(1)),
-            nowMillis = 1_000L
-        )
+        enrollOwner()
 
         // 1 s: por debajo del mínimo de 1,2 s de la política.
         val identity = provider().identify(audio(1, size = 32_044), nowMillis = 2_000L)
 
         assertEquals(SpeakerRelation.UNCERTAIN, identity.relation)
+    }
+
+    @Test
+    fun `un riesgo de spoofing alto degrada el turno aunque la voz coincida`() = runTest {
+        enrollOwner()
+
+        val identity = provider(
+            spoofingDetector = FixedSpoofingDetector(SpoofingAssessment(0.92, "spoof-v1"))
+        ).identify(audio(1), nowMillis = 2_000L)
+
+        assertEquals(SpeakerRelation.UNCERTAIN, identity.relation)
+        assertNull(identity.profileId)
+    }
+
+    @Test
+    fun `sin modelo de spoofing la voz del dueno sigue siendo OWNER`() = runTest {
+        enrollOwner()
+
+        val identity = provider().identify(audio(1), nowMillis = 2_000L)
+
+        assertEquals(SpeakerRelation.OWNER, identity.relation)
+        assertEquals("Ana", identity.displayName)
+    }
+
+    @Test
+    fun `un detector de spoofing que falla no bloquea el turno`() = runTest {
+        enrollOwner()
+        val failing = object : SpoofingDetector {
+            override val modelId: String = "spoof-v1"
+            override suspend fun assess(wavData: ByteArray): SpoofingAssessment? =
+                throw IllegalStateException("modelo de spoofing no cargado")
+        }
+
+        val identity = provider(spoofingDetector = failing)
+            .identify(audio(1), nowMillis = 2_000L)
+
+        assertEquals(SpeakerRelation.OWNER, identity.relation)
+    }
+
+    @Test
+    fun `un detector de spoofing lento no alarga el turno`() = runTest {
+        enrollOwner()
+        val slow = object : SpoofingDetector {
+            override val modelId: String = "spoof-v1"
+            override suspend fun assess(wavData: ByteArray): SpoofingAssessment {
+                delay(5_000)
+                return SpoofingAssessment(0.99, "spoof-v1")
+            }
+        }
+        val provider = EmbeddingSpeakerIdentityProvider(
+            extractor = extractor,
+            store = store,
+            spoofingDetector = slow,
+            ownerProfileIdProvider = { "owner" },
+            spoofTimeoutMillis = 100L
+        )
+
+        val identity = provider.identify(audio(1), nowMillis = 2_000L)
+
+        assertEquals(SpeakerRelation.OWNER, identity.relation)
+    }
+
+    @Test
+    fun `sin perfiles no se consulta el detector de spoofing`() = runTest {
+        var calls = 0
+        val counting = object : SpoofingDetector {
+            override val modelId: String = "spoof-v1"
+            override suspend fun assess(wavData: ByteArray): SpoofingAssessment {
+                calls++
+                return SpoofingAssessment(0.99, "spoof-v1")
+            }
+        }
+
+        val identity = provider(spoofingDetector = counting)
+            .identify(audio(1), nowMillis = 2_000L)
+
+        assertEquals(SpeakerRelation.UNAVAILABLE, identity.relation)
+        assertEquals(0, calls)
     }
 
     @Test
@@ -186,6 +279,21 @@ class SpeakerIdentityProviderTest {
             SpeakerRelation.UNAVAILABLE,
             provider().identify(audio(1), nowMillis = 2_000L).relation
         )
+    }
+
+    @Test
+    fun `el detector noop no inventa un riesgo de spoofing`() = runTest {
+        assertNull(NoopSpoofingDetector.assess(audio(1)))
+    }
+
+    @Test
+    fun `la evidencia de spoofing valida rango y modelo`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            SpoofingAssessment(risk = 1.2, modelId = "spoof-v1")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            SpoofingAssessment(risk = 0.2, modelId = " ")
+        }
     }
 
     private class ScriptedExtractor(

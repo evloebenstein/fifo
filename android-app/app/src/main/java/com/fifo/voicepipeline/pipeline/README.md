@@ -42,7 +42,9 @@ se elimina junto con el legacy en la release siguiente.
 | [`session/MemoryCoordinator.kt`](session/MemoryCoordinator.kt) | Implementación de `SessionMemory`: diario antes de hablar, cola durable `PENDING`, reintentos con backoff (30 s → 15 min) y restauración de contexto. |
 | [`session/ConversationRepairPolicy.kt`](session/ConversationRepairPolicy.kt) | Política pura de reparación ±1 turno: corrección explícita, “No” solo tras `needsRepair` y ventana de ~10 s para locutar. |
 | [`session/SpeakerIdentity.kt`](session/SpeakerIdentity.kt) | **Dominio de identidad de locutor (ADR-0048).** `SpeakerRelation` (`OWNER · KNOWN · UNKNOWN · UNCERTAIN · UNAVAILABLE`), `SpeakerIdentity`, evidencia, `VoiceProfile`, `SpeakerPolicyConfig`, la política pura `SpeakerIdentityPolicy` y `SpeakerPromptContext`. Personaliza; no autentica. |
-| [`session/SpeakerIdentityProvider.kt`](session/SpeakerIdentityProvider.kt) | **Costura de identidad (ADR-0048).** `SpeakerIdentityProvider` + `NoopSpeakerIdentityProvider` por defecto, `SpeakerEmbeddingExtractor`, `VoiceProfileStore`, `EmbeddingSpeakerIdentityProvider` y `SpeakerEnrollment`. Recibe el WAV ya cerrado; no abre micrófono ni tiene VAD. |
+| [`session/SpeakerIdentityProvider.kt`](session/SpeakerIdentityProvider.kt) | **Costura de identidad (ADR-0048).** `SpeakerIdentityProvider` + `NoopSpeakerIdentityProvider` por defecto, `SpeakerEmbeddingExtractor`, `VoiceProfileStore`, `EmbeddingSpeakerIdentityProvider` y `SpeakerEnrollment`. Recibe el WAV ya cerrado; no abre micrófono ni tiene VAD; extrae embedding y spoofing en paralelo. |
+| [`session/SpoofingDetector.kt`](session/SpoofingDetector.kt) | **Costura de spoofing (ADR-0048).** `SpoofingDetector`, `SpoofingAssessment` y `NoopSpoofingDetector` por defecto (riesgo desconocido). La política degrada a `UNCERTAIN` con riesgo alto; no autoriza ni rechaza acciones. |
+| [`session/VoiceIdentitySettings.kt`](session/VoiceIdentitySettings.kt) | **Composición y consentimiento (ADR-0048).** Consentimiento en `fifo_prefs`, almacén cifrado único por proceso y elección del proveedor (`Noop` mientras no haya modelo). |
 | [`session/EncryptedVoiceProfileStore.kt`](session/EncryptedVoiceProfileStore.kt) | **Almacén cifrado de perfiles (ADR-0048).** Blob versionado, escritura atómica, corrupción tolerada como "sin perfiles" y `ConsentAwareVoiceProfileStore` que bloquea lectura/enrolamiento sin consentimiento pero siempre permite borrar. |
 | [`session/AndroidKeystoreProfileCipher.kt`](session/AndroidKeystoreProfileCipher.kt) | **Cifrado de producción (ADR-0048).** AES-256-GCM con clave del Android Keystore, sin dependencias nuevas; `androidEncryptedVoiceProfileStore()` compone archivo + cifrado + consentimiento. |
 
@@ -219,19 +221,24 @@ SpeechSegmenter ──► WAV ──┬──► STT (Whisper) ──┐
 - `EmbeddingSpeakerIdentityProvider` carga los perfiles del modelo activo,
   extrae el embedding y compara por coseno. La decisión final es de
   `SpeakerIdentityPolicy`; el proveedor solo produce evidencia ordenada.
+- `SpoofingDetector` corre **en paralelo** al extractor, con timeout propio de
+  300 ms. `NoopSpoofingDetector` devuelve `null` (riesgo desconocido) y es el
+  valor por defecto; un riesgo ≥ `maxSpoofRisk` (0,50) degrada el turno a
+  `UNCERTAIN`. No hay modelo de spoofing validado todavía.
 - `SpeakerPromptContext` inyecta la etiqueta en el system prompt. El LLM decide
   cómo tratar el turno; no hay locuciones de identidad ni una segunda autoridad
   léxica.
 - La identidad **no autentica**: llamadas, pagos y datos privados siguen
   exigiendo confirmación explícita y la política de telefonía no cambia.
 - `NoopSpeakerIdentityProvider` es el valor por defecto. Se cambia cuando exista
-  un extractor real y un `VoiceProfileStore` cifrado; `VoiceSessionPipeline` es
-  el único lugar que lo elige.
+  un extractor real y un `VoiceProfileStore` cifrado; la elección vive en
+  `VoiceIdentitySettings.provider()` y `VoiceSessionPipeline` la consume.
 - `EncryptedVoiceProfileStore` + `AndroidKeystoreProfileCipher` implementan el
   almacén: blob versionado con AES-256-GCM, escritura atómica y corrupción
   tolerada. `ConsentAwareVoiceProfileStore` no lee ni enrola sin consentimiento,
   pero siempre permite borrar. `androidEncryptedVoiceProfileStore()` compone las
-  piezas; aún no se cablea porque falta la UI y el extractor.
+  piezas; `VoiceIdentitySettings` guarda el consentimiento y el almacén único que
+  usa la UI.
 - Solo se guardan embeddings (centroides), nunca audio crudo. Los perfiles de
   otro `modelId` se ignoran y no se sincronizan con el backend.
 - El arnés vive en `app/src/test/.../speaker/` y se activa con
@@ -312,7 +319,9 @@ restaura en `start()` (ADR-0041).
 14. **El corpus sintético mide, no entrena:** los clasificadores y las plantillas aumentadas de ADR-0046 viven en `test`, se activan con `FIFO_WAKEWORD_EXPERIMENT=1` y no sustituyen a `NoopWakeWordDetector` hasta superar la barra de ADR-0044 con validación de campo.
 15. **La exportación y el entrenador son de desarrollo:** `WakeWordCorpusExportTest` (gated por `FIFO_WAKEWORD_EXPORT_DIR`) es el único contrato WAV/manifiesto; `tools/wakeword/` no entra en el APK y su `.pt` no se envía. El resultado de ADR-0047 (33,3 % de FRR y 13,2 FA/h) no autoriza a cambiar el detector de producción.
 16. **La identidad personaliza, no autentica:** `SpeakerIdentity` (ADR-0048) es contexto para el LLM. Nunca autoriza llamadas, pagos ni datos privados; `UtterancePolicy.classifyCallAction()` sigue siendo la única autoridad de telefonía.
-17. **Una sola costura de identidad:** `SpeakerIdentityProvider` recibe el WAV de `SpeechSegmenter`, corre en paralelo al STT con timeout de 400 ms y no abre micrófono ni VAD. `VoiceSessionPipeline` elige el proveedor; el facade legacy no construye identidad. `NoopSpeakerIdentityProvider` es el valor por defecto.
+17. **Una sola costura de identidad:** `SpeakerIdentityProvider` recibe el WAV de `SpeechSegmenter`, corre en paralelo al STT con timeout de 400 ms y no abre micrófono ni VAD. `VoiceSessionPipeline` construye la costura; `VoiceIdentitySettings.provider()` elige el proveedor y el facade legacy no construye identidad. `NoopSpeakerIdentityProvider` es el valor por defecto.
 18. **Una sola política de identidad:** `SpeakerIdentityPolicy.resolve()` convierte evidencia en `OWNER`/`KNOWN`/`UNKNOWN`/`UNCERTAIN`/`UNAVAILABLE`. Los umbrales de `SpeakerPolicyConfig` son por modelo; no los dupliques en la sesión, el proveedor o el LLM. `SpeakerPromptContext` solo produce texto de prompt.
 19. **Biometría local y con consentimiento:** se guardan embeddings, nunca audio; `EncryptedVoiceProfileStore` cifra en reposo con Keystore + AES-256-GCM, escribe atómicamente, tolera corrupción y lleva `modelId`. `ConsentAwareVoiceProfileStore` bloquea lectura/enrolamiento sin consentimiento pero siempre permite borrar. No se sincroniza con el backend.
 20. **Calibrar y reportar con voces distintas:** el umbral se fija con los locutores de `calibration` a un FAR objetivo y se reporta con los de `evaluation`. Nunca calibres y evalúes sobre el mismo conjunto. La exportación (`FIFO_SPEAKER_EXPORT_DIR`) y `tools/speaker/` son de desarrollo; el arnés sintético no certifica campo y no autoriza a enviar un detector biométrico.
+21. **El spoofing es una costura, no una promesa:** `SpoofingDetector` corre en paralelo al extractor; `NoopSpoofingDetector` devuelve `null` y es el valor por defecto. Un riesgo alto solo degrada a `UNCERTAIN`; nunca autoriza ni rechaza acciones. Sin un modelo validado con ASVspoof, la UI no anuncia protección contra voces sintéticas.
+22. **La UI de voz no finge enrolamiento:** `VoiceIdentitySettings.modelId()` es `null` hasta que exista extractor medido; la tarjeta muestra "Motor de voz pendiente", deshabilita el enrolamiento y siempre permite borrar, incluso con el consentimiento apagado. La composición del consentimiento y del almacén vive en `VoiceIdentitySettings`, no en `ProfileScreen` ni en el facade.

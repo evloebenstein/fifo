@@ -30,12 +30,16 @@ class SpeakerIdentityPolicyTest {
     private fun evidence(
         vararg candidates: SpeakerCandidate,
         durationMillis: Long = 2_000L,
-        modelId: String = "test-model"
+        modelId: String = "test-model",
+        spoofRisk: Double? = null,
+        spoofModelId: String? = null
     ) = SpeakerEvidence(
         candidates = candidates.toList(),
         durationMillis = durationMillis,
         observedAtMillis = 5_000L,
-        modelId = modelId
+        modelId = modelId,
+        spoofRisk = spoofRisk,
+        spoofModelId = spoofModelId
     )
 
     private fun resolve(
@@ -162,6 +166,89 @@ class SpeakerIdentityPolicyTest {
         }
         assertThrows(IllegalArgumentException::class.java) {
             SpeakerCandidate(owner.id, 1.2)
+        }
+    }
+
+    @Test
+    fun `un riesgo de spoofing alto impide atribuir el turno`() {
+        val identity = resolve(
+            evidence(
+                SpeakerCandidate(owner.id, 0.99),
+                spoofRisk = 0.91,
+                spoofModelId = "spoof-v1"
+            )
+        )
+
+        assertEquals(SpeakerRelation.UNCERTAIN, identity.relation)
+        assertNull(identity.profileId)
+        assertTrue(!identity.isPersonal)
+    }
+
+    @Test
+    fun `un riesgo de spoofing bajo no cambia la atribucion`() {
+        val identity = resolve(
+            evidence(
+                SpeakerCandidate(owner.id, 0.93),
+                SpeakerCandidate(friend.id, 0.51),
+                spoofRisk = 0.05,
+                spoofModelId = "spoof-v1"
+            )
+        )
+
+        assertEquals(SpeakerRelation.OWNER, identity.relation)
+        assertEquals(owner.id, identity.profileId)
+    }
+
+    @Test
+    fun `sin medicion de spoofing la politica no inventa riesgo`() {
+        val identity = resolve(
+            evidence(SpeakerCandidate(owner.id, 0.93))
+        )
+
+        assertEquals(SpeakerRelation.OWNER, identity.relation)
+    }
+
+    @Test
+    fun `el umbral de spoofing es configurable y excluyente`() {
+        val permissive = SpeakerPolicyConfig(maxSpoofRisk = 0.95)
+
+        assertEquals(
+            SpeakerRelation.OWNER,
+            resolve(
+                evidence(
+                    SpeakerCandidate(owner.id, 0.93),
+                    spoofRisk = 0.50,
+                    spoofModelId = "spoof-v1"
+                ),
+                config = permissive
+            ).relation
+        )
+        assertEquals(
+            SpeakerRelation.UNCERTAIN,
+            resolve(
+                evidence(
+                    SpeakerCandidate(owner.id, 0.93),
+                    spoofRisk = 0.50,
+                    spoofModelId = "spoof-v1"
+                )
+            ).relation
+        )
+    }
+
+    @Test
+    fun `la evidencia exige riesgo y modelo juntos`() {
+        assertThrows(IllegalArgumentException::class.java) {
+            evidence(SpeakerCandidate(owner.id, 0.9), spoofRisk = 0.4)
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            evidence(SpeakerCandidate(owner.id, 0.9), spoofModelId = "spoof-v1")
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            evidence(
+                SpeakerCandidate(owner.id, 0.9),
+                spoofRisk = 1.4,
+                spoofModelId = "spoof-v1"
+            )
         }
     }
 

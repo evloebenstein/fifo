@@ -1,5 +1,9 @@
 package com.fifo.voicepipeline.pipeline.session
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.sqrt
 
 /**
@@ -82,45 +86,62 @@ interface VoiceProfileStore {
  * contra cada perfil. La decisión final es de [SpeakerIdentityPolicy]; este
  * proveedor solo produce evidencia ordenada.
  *
- * No se envía todavía: le falta un [SpeakerEmbeddingExtractor] real y un
- * [VoiceProfileStore] cifrado. Se incluye para fijar el contrato y poder medir
- * el flujo completo con un extractor falso.
+ * El detector de spoofing corre **en paralelo** con el extractor (ADR-0048):
+ * ninguno espera al otro y el turno sigue teniendo un solo presupuesto de
+ * tiempo. Si el detector tarda, falla o no hay modelo, la evidencia queda sin
+ * `spoofRisk` y la política no cambia; el spoofing nunca bloquea la
+ * conversación.
+ *
+ * No se envía todavía: le falta un [SpeakerEmbeddingExtractor] real. El
+ * almacén cifrado ya existe y la UI lo usa; el proveedor se incluye para fijar
+ * el contrato y poder medir el flujo completo con un extractor falso.
  */
 class EmbeddingSpeakerIdentityProvider(
     private val extractor: SpeakerEmbeddingExtractor,
     private val store: VoiceProfileStore,
+    private val spoofingDetector: SpoofingDetector = NoopSpoofingDetector,
     private val ownerProfileIdProvider: () -> String? = { null },
     private val config: SpeakerPolicyConfig = SpeakerPolicyConfig(),
-    private val maxCandidates: Int = 3
+    private val maxCandidates: Int = 3,
+    private val spoofTimeoutMillis: Long = DEFAULT_SPOOF_TIMEOUT_MILLIS
 ) : SpeakerIdentityProvider {
 
     init {
         require(maxCandidates > 0) { "maxCandidates debe ser positivo" }
+        require(spoofTimeoutMillis > 0) { "spoofTimeoutMillis debe ser positivo" }
     }
 
     override val modelId: String
         get() = extractor.modelId
 
     override suspend fun identify(wavData: ByteArray, nowMillis: Long): SpeakerIdentity {
+        val modelId = extractor.modelId
         val profiles = try {
-            store.loadAll().filter { it.modelId == extractor.modelId }
-        } catch (e: kotlinx.coroutines.CancellationException) {
+            store.loadAll().filter { it.modelId == modelId }
+        } catch (e: CancellationException) {
             throw e
         } catch (_: Exception) {
-            return SpeakerIdentity.unavailable(extractor.modelId)
+            return SpeakerIdentity.unavailable(modelId)
         }
-        if (profiles.isEmpty()) return SpeakerIdentity.unavailable(extractor.modelId)
+        if (profiles.isEmpty()) return SpeakerIdentity.unavailable(modelId)
 
-        val embedding = try {
-            extractor.embed(wavData)
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            null
-        } ?: return SpeakerIdentity.unavailable(extractor.modelId)
+        // El detector de spoofing corre junto al extractor, no después: el turno
+        // tiene un presupuesto único y la evidencia de ataque no puede alargarlo.
+        val measured = coroutineScope {
+            val embeddingJob = async { safeEmbed(wavData) }
+            val spoofJob = async { safeAssess(wavData) }
+            val embedding = embeddingJob.await()
+            if (embedding == null) {
+                spoofJob.cancel()
+                null
+            } else {
+                embedding to spoofJob.await()
+            }
+        } ?: return SpeakerIdentity.unavailable(modelId)
 
+        val (embedding, spoofing) = measured
         val query = l2Normalise(embedding)
-        if (query.isEmpty()) return SpeakerIdentity.unavailable(extractor.modelId)
+        if (query.isEmpty()) return SpeakerIdentity.unavailable(modelId)
 
         val candidates = profiles.mapNotNull { profile ->
             val reference = l2Normalise(profile.embedding)
@@ -137,7 +158,9 @@ class EmbeddingSpeakerIdentityProvider(
             candidates = candidates,
             durationMillis = wavDurationMillis(wavData),
             observedAtMillis = nowMillis,
-            modelId = extractor.modelId
+            modelId = modelId,
+            spoofRisk = spoofing?.risk,
+            spoofModelId = spoofing?.modelId
         )
         return SpeakerIdentityPolicy.resolve(
             evidence = evidence,
@@ -145,6 +168,35 @@ class EmbeddingSpeakerIdentityProvider(
             profiles = profiles,
             config = config
         )
+    }
+
+    /** Un extractor que falla o no llega al mínimo se trata como "sin motor". */
+    private suspend fun safeEmbed(wavData: ByteArray): FloatArray? = try {
+        extractor.embed(wavData)
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
+     * El spoofing es evidencia opcional: se acota con su propio timeout y
+     * cualquier fallo se degrada a "riesgo desconocido".
+     */
+    private suspend fun safeAssess(wavData: ByteArray): SpoofingAssessment? =
+        withTimeoutOrNull(spoofTimeoutMillis) {
+            try {
+                spoofingDetector.assess(wavData)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                null
+            }
+        }
+
+    private companion object {
+        /** Deja margen al presupuesto total del turno (400 ms en `VoiceSession`). */
+        const val DEFAULT_SPOOF_TIMEOUT_MILLIS = 300L
     }
 }
 
