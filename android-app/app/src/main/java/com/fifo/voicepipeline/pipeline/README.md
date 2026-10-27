@@ -41,6 +41,8 @@ se elimina junto con el legacy en la release siguiente.
 | [`session/SpeechOutboundEngine.kt`](session/SpeechOutboundEngine.kt) | Sanitización y despacho de la respuesta al adaptador de salida. |
 | [`session/MemoryCoordinator.kt`](session/MemoryCoordinator.kt) | Implementación de `SessionMemory`: diario antes de hablar, cola durable `PENDING`, reintentos con backoff (30 s → 15 min) y restauración de contexto. |
 | [`session/ConversationRepairPolicy.kt`](session/ConversationRepairPolicy.kt) | Política pura de reparación ±1 turno: corrección explícita, “No” solo tras `needsRepair` y ventana de ~10 s para locutar. |
+| [`session/SpeakerIdentity.kt`](session/SpeakerIdentity.kt) | **Dominio de identidad de locutor (ADR-0048).** `SpeakerRelation` (`OWNER · KNOWN · UNKNOWN · UNCERTAIN · UNAVAILABLE`), `SpeakerIdentity`, evidencia, `VoiceProfile`, `SpeakerPolicyConfig`, la política pura `SpeakerIdentityPolicy` y `SpeakerPromptContext`. Personaliza; no autentica. |
+| [`session/SpeakerIdentityProvider.kt`](session/SpeakerIdentityProvider.kt) | **Costura de identidad (ADR-0048).** `SpeakerIdentityProvider` + `NoopSpeakerIdentityProvider` por defecto, `SpeakerEmbeddingExtractor`, `VoiceProfileStore`, `EmbeddingSpeakerIdentityProvider` y `SpeakerEnrollment`. Recibe el WAV ya cerrado; no abre micrófono ni tiene VAD. |
 
 `AudioInboundFilter` e `InboundFrameResult` fueron eliminados. No existe un corte de
 TTS por RMS.
@@ -196,6 +198,45 @@ TTS y decenas de horas de negativo, no otro barrido de umbral.
 
 ---
 
+## Identidad de locutor (ADR-0048)
+
+`VoiceSession` atribuye cada turno a una voz sin abrir una segunda captura:
+
+```
+SpeechSegmenter ──► WAV ──┬──► STT (Whisper) ──┐
+                          │                     ├──► VoiceSession ──► LLM
+                          └──► SpeakerIdentityProvider (400 ms) ──► SpeakerIdentityPolicy
+                                        │
+                                        ▼
+                              OWNER · KNOWN · UNKNOWN · UNCERTAIN · UNAVAILABLE
+```
+
+- La identificación corre **en paralelo al STT y con timeout de 400 ms**. Si
+  tarda, falla o no hay perfiles, el turno sigue como `UNAVAILABLE`; nunca
+  bloquea la conversación.
+- `EmbeddingSpeakerIdentityProvider` carga los perfiles del modelo activo,
+  extrae el embedding y compara por coseno. La decisión final es de
+  `SpeakerIdentityPolicy`; el proveedor solo produce evidencia ordenada.
+- `SpeakerPromptContext` inyecta la etiqueta en el system prompt. El LLM decide
+  cómo tratar el turno; no hay locuciones de identidad ni una segunda autoridad
+  léxica.
+- La identidad **no autentica**: llamadas, pagos y datos privados siguen
+  exigiendo confirmación explícita y la política de telefonía no cambia.
+- `NoopSpeakerIdentityProvider` es el valor por defecto. Se cambia cuando exista
+  un extractor real y un `VoiceProfileStore` cifrado; `VoiceSessionPipeline` es
+  el único lugar que lo elige.
+- Solo se guardan embeddings (centroides), nunca audio crudo. El almacén debe
+  cifrar en reposo, pedir consentimiento y permitir borrado; los perfiles de
+  otro `modelId` se ignoran.
+- El arnés vive en `app/src/test/.../speaker/` y se activa con
+  `FIFO_SPEAKER_EXPERIMENT=1`. Mide un extractor de referencia sobre 8 locutores
+  sintéticos, 4 condiciones y 2 duraciones. **No certifica campo**: con umbral
+  calibrado el EER limpio es 8,3 %, pero en ruido y Lombard el FRR llega a
+  100 %. Sirve para regresión y para decidir cuándo hace falta un modelo
+  entrenado, no para afirmar un EER real.
+
+---
+
 ## Guía autónoma de navegación (ADR-0040 y ADR-0041)
 
 `FifoNavigationManager` pertenece al registro de skills y publica
@@ -237,3 +278,7 @@ restaura en `start()` (ADR-0041).
 13. **El arnés no se envía y su corpus base no se toca:** `WakeWordCorpus` y `SpectralTemplateWakeWordDetector` viven en `test`. El corpus base de ADR-0044 se congela; las condiciones de sala, Lombard y VTLP van al corpus de campo de ADR-0045 y se comparan por separado.
 14. **El corpus sintético mide, no entrena:** los clasificadores y las plantillas aumentadas de ADR-0046 viven en `test`, se activan con `FIFO_WAKEWORD_EXPERIMENT=1` y no sustituyen a `NoopWakeWordDetector` hasta superar la barra de ADR-0044 con validación de campo.
 15. **La exportación y el entrenador son de desarrollo:** `WakeWordCorpusExportTest` (gated por `FIFO_WAKEWORD_EXPORT_DIR`) es el único contrato WAV/manifiesto; `tools/wakeword/` no entra en el APK y su `.pt` no se envía. El resultado de ADR-0047 (33,3 % de FRR y 13,2 FA/h) no autoriza a cambiar el detector de producción.
+16. **La identidad personaliza, no autentica:** `SpeakerIdentity` (ADR-0048) es contexto para el LLM. Nunca autoriza llamadas, pagos ni datos privados; `UtterancePolicy.classifyCallAction()` sigue siendo la única autoridad de telefonía.
+17. **Una sola costura de identidad:** `SpeakerIdentityProvider` recibe el WAV de `SpeechSegmenter`, corre en paralelo al STT con timeout de 400 ms y no abre micrófono ni VAD. `VoiceSessionPipeline` elige el proveedor; el facade legacy no construye identidad. `NoopSpeakerIdentityProvider` es el valor por defecto.
+18. **Una sola política de identidad:** `SpeakerIdentityPolicy.resolve()` convierte evidencia en `OWNER`/`KNOWN`/`UNKNOWN`/`UNCERTAIN`/`UNAVAILABLE`. Los umbrales de `SpeakerPolicyConfig` son por modelo; no los dupliques en la sesión, el proveedor o el LLM. `SpeakerPromptContext` solo produce texto de prompt.
+19. **Biometría local y con consentimiento:** se guardan embeddings, nunca audio; el almacén cifra en reposo, permite borrar y lleva `modelId`. No se sincroniza con el backend. El arnés sintético (gated con `FIFO_SPEAKER_EXPERIMENT=1`) mide el simulador y no certifica campo: no autoriza a enviar un detector biométrico.

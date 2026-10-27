@@ -95,7 +95,8 @@ interface SpeechCognitionAdapter {
 
     suspend fun generateDialogTurn(
         userQuery: String,
-        skillRegistry: FifoSkillRegistry? = null
+        skillRegistry: FifoSkillRegistry? = null,
+        speaker: SpeakerIdentity? = null
     ): String
 
     suspend fun generateNaturalResumption(interruptedSentence: String): String
@@ -108,7 +109,8 @@ interface SpeechCognitionAdapter {
     suspend fun generateRepairTurn(
         correctionText: String,
         previousUserText: String,
-        previousAssistantText: String
+        previousAssistantText: String,
+        speaker: SpeakerIdentity? = null
     ): String {
         val prompt = buildString {
             append("El usuario está corrigiendo un turno anterior de la conversación.\n")
@@ -118,7 +120,7 @@ interface SpeechCognitionAdapter {
             append("Reconoce el error con calidez y responde a la corrección en una sola frase natural, ")
             append("sin justificarte de más y sin inventar datos nuevos.")
         }
-        return generateDialogTurn(prompt, null)
+        return generateDialogTurn(prompt, null, speaker)
     }
 }
 
@@ -139,9 +141,10 @@ class GroqSpeechCognitionAdapter(
 
     override suspend fun generateDialogTurn(
         userQuery: String,
-        skillRegistry: FifoSkillRegistry?
+        skillRegistry: FifoSkillRegistry?,
+        speaker: SpeakerIdentity?
     ): String {
-        return delegate.generateDialogTurn(userQuery, skillRegistry)
+        return delegate.generateDialogTurn(userQuery, skillRegistry, speaker)
     }
 
     override suspend fun generateNaturalResumption(interruptedSentence: String): String {
@@ -151,9 +154,10 @@ class GroqSpeechCognitionAdapter(
     override suspend fun generateRepairTurn(
         correctionText: String,
         previousUserText: String,
-        previousAssistantText: String
+        previousAssistantText: String,
+        speaker: SpeakerIdentity?
     ): String {
-        return delegate.generateRepairTurn(correctionText, previousUserText, previousAssistantText)
+        return delegate.generateRepairTurn(correctionText, previousUserText, previousAssistantText, speaker)
     }
 }
 
@@ -176,6 +180,7 @@ class InMemorySpeechCognitionAdapter : SpeechCognitionAdapter {
 
     val transcribedAudios = mutableListOf<ByteArray>()
     val receivedQueries = mutableListOf<String>()
+    val receivedSpeakers = mutableListOf<SpeakerIdentity?>()
     val resumptionRequests = mutableListOf<String>()
     val repairRequests = mutableListOf<Triple<String, String, String>>()
 
@@ -190,9 +195,11 @@ class InMemorySpeechCognitionAdapter : SpeechCognitionAdapter {
 
     override suspend fun generateDialogTurn(
         userQuery: String,
-        skillRegistry: FifoSkillRegistry?
+        skillRegistry: FifoSkillRegistry?,
+        speaker: SpeakerIdentity?
     ): String {
         receivedQueries.add(userQuery)
+        receivedSpeakers.add(speaker)
 
         // Si se configuró una herramienta a simular, la ejecutamos en el registry
         val toolName = simulatedToolToInvoke
@@ -219,7 +226,8 @@ class InMemorySpeechCognitionAdapter : SpeechCognitionAdapter {
     override suspend fun generateRepairTurn(
         correctionText: String,
         previousUserText: String,
-        previousAssistantText: String
+        previousAssistantText: String,
+        speaker: SpeakerIdentity?
     ): String {
         repairRequests.add(Triple(correctionText, previousUserText, previousAssistantText))
         return repairResponseToReturn

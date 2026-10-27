@@ -2,6 +2,7 @@ package com.fifo.voicepipeline.network
 
 import com.fifo.voicepipeline.data.memory.SessionMemoryConsolidation
 import com.fifo.voicepipeline.pipeline.session.ConversationContextProvider
+import com.fifo.voicepipeline.pipeline.session.SpeakerIdentity
 import com.fifo.voicepipeline.pipeline.session.SpeechCognitionAdapter
 import com.fifo.voicepipeline.skills.FifoSkillRegistry
 
@@ -86,13 +87,15 @@ class CloudApiClient(
 
     override suspend fun generateDialogTurn(
         userQuery: String,
-        skillRegistry: FifoSkillRegistry?
-    ): String = dialog.chat(userQuery, skillRegistry)
+        skillRegistry: FifoSkillRegistry?,
+        speaker: SpeakerIdentity?
+    ): String = dialog.chat(userQuery, skillRegistry, speaker)
 
     suspend fun chat(
         userText: String,
-        skillRegistry: FifoSkillRegistry? = null
-    ): String = dialog.chat(userText, skillRegistry)
+        skillRegistry: FifoSkillRegistry? = null,
+        speaker: SpeakerIdentity? = null
+    ): String = dialog.chat(userText, skillRegistry, speaker)
 
     fun hasRecentConversation(): Boolean = dialog.hasRecentConversation()
 

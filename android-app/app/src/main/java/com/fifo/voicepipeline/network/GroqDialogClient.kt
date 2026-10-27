@@ -3,6 +3,8 @@ package com.fifo.voicepipeline.network
 import android.util.Log
 import com.fifo.voicepipeline.data.FifoDataRepository
 import com.fifo.voicepipeline.pipeline.session.ConversationContextProvider
+import com.fifo.voicepipeline.pipeline.session.SpeakerIdentity
+import com.fifo.voicepipeline.pipeline.session.SpeakerPromptContext
 import com.fifo.voicepipeline.skills.FifoSkillRegistry
 import com.fifo.voicepipeline.skills.SkillResult
 import com.google.gson.Gson
@@ -74,7 +76,8 @@ REGLAS:
 
     suspend fun chat(
         userText: String,
-        skillRegistry: FifoSkillRegistry? = null
+        skillRegistry: FifoSkillRegistry? = null,
+        speaker: SpeakerIdentity? = null
     ): String {
         conversationHistory.add(mapOf("role" to "user", "content" to userText))
         while (conversationHistory.size > 8) {
@@ -82,7 +85,7 @@ REGLAS:
         }
 
         val response = if (apiKeyProvider().isNotBlank()) {
-            chatWithGroq(userText, skillRegistry)
+            chatWithGroq(userText, skillRegistry, speaker)
         } else {
             "Disculpe, la API de Groq no se encuentra configurada en este momento. Por favor ingrese su clave de Groq para poder conversar."
         }
@@ -172,11 +175,12 @@ REGLAS:
     private suspend fun chatWithGroq(
         userText: String,
         skillRegistry: FifoSkillRegistry?,
+        speaker: SpeakerIdentity? = null,
         modelToUse: String = PRIMARY_MODEL,
         retryCount: Int = 0
     ): String {
         val apiKey = apiKeyProvider()
-        val enrichedSystemPrompt = getEnrichedSystemPrompt()
+        val enrichedSystemPrompt = getEnrichedSystemPrompt(speaker)
 
         val messagesList = mutableListOf<Map<String, String>>()
         messagesList.add(mapOf("role" to "system", "content" to enrichedSystemPrompt))
@@ -218,7 +222,13 @@ REGLAS:
                 if (response.code == 429 && retryCount < 2) {
                     Log.w(TAG, "Groq 429: límite de tasa alcanzado. Esperando 2000ms y reintentando...")
                     delay(2000)
-                    return chatWithGroq(userText, skillRegistry, modelToUse = modelToUse, retryCount = retryCount + 1)
+                    return chatWithGroq(
+                        userText,
+                        skillRegistry,
+                        speaker,
+                        modelToUse = modelToUse,
+                        retryCount = retryCount + 1
+                    )
                 }
 
                 if (response.code == 429) {
@@ -697,11 +707,15 @@ Genera ÚNICAMENTE 1 oración concisa para hablar en voz alta por voz, sin intro
             if (userTurnsInHistory > 1 || pastConvsCount > 0) " (Conversación en curso: responde directo y cercano sin repetir saludos formales)." else ""
     }
 
-    private fun getEnrichedSystemPrompt(): String {
+    private fun getEnrichedSystemPrompt(speaker: SpeakerIdentity? = null): String {
         val injectedContext = conversationContext()?.buildContextWindow()
+        val speakerContext = SpeakerPromptContext.build(speaker)
         if (!injectedContext.isNullOrBlank()) {
             return buildString {
                 append(SYSTEM_PROMPT).append("\n\n")
+                if (!speakerContext.isNullOrBlank()) {
+                    append(speakerContext).append("\n\n")
+                }
                 append(injectedContext)
             }.trim()
         }
@@ -725,6 +739,9 @@ Genera ÚNICAMENTE 1 oración concisa para hablar en voz alta por voz, sin intro
 
         return buildString {
             append(SYSTEM_PROMPT).append("\n\n")
+            if (!speakerContext.isNullOrBlank()) {
+                append(speakerContext).append("\n")
+            }
             append(temporalContext).append("\n")
             if (locationContext.isNotBlank()) {
                 append(locationContext).append("\n")

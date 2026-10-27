@@ -40,7 +40,9 @@ STT de nube, conserva el camino `LEGACY`. Ver
 .\gradlew.bat compileReleaseKotlin
 ```
 
-Las pruebas de captura, teléfono, memoria y reparación no requieren un dispositivo:
-usan `CaptureArbiterTest`, `TelephonyPortTest`, `CallerContextProviderTest`,
-`CallerContextCoordinatorTest`, `MemoryCoordinatorTest`,
-`ConversationRepairPolicyTest`, `VoiceSessionTest` y `SpeechSegmenterTest`.
+Las pruebas de captura, teléfono, memoria, reparación e identidad de voz no
+requieren un dispositivo: usan `CaptureArbiterTest`, `TelephonyPortTest`,
+`CallerContextProviderTest`, `CallerContextCoordinatorTest`, `MemoryCoordinatorTest`,
+`ConversationRepairPolicyTest`, `VoiceSessionTest`, `SpeechSegmenterTest`,
+`SpeakerIdentityPolicyTest`, `SpeakerIdentityProviderTest` y
+`SpeakerIdentityIntegrationTest`.

@@ -72,6 +72,19 @@ Estas reglas son invariantes de Fifo. Si un cambio las rompe, el cambio está ma
 - **La barra de producción es ≤1 FA/h y no se negocia.** `NoopWakeWordDetector` sigue siendo el valor por defecto. Cambiarlo exige un modelo que supere la barra de ADR-0044 (FRR por SNR, negativos difíciles, FA/h y latencia) y validación con grabaciones reales; un buen número en el corpus sintético no basta.
 - **Pruebas de verdad:** `UtterancePolicyTest` (tabla de fusión), `WakeWordCascadeTest` (integración con detector falso; sin modelo descargado) y `WakeWordHarnessTest` (corpus base y de campo, RIR/FFT, Lombard y VTLP).
 
+## Identidad de locutor
+
+- **Personaliza, no autentica.** `SpeakerIdentity` (`pipeline/session/SpeakerIdentity.kt`, ADR-0048) etiqueta el turno como `OWNER`, `KNOWN`, `UNKNOWN`, `UNCERTAIN` o `UNAVAILABLE`. Nunca autoriza llamadas, pagos, cambios de configuración ni datos privados: la telefonía sigue exigiendo "Fifo contesta"/"Fifo cuelga" y `UtterancePolicy.classifyCallAction()` sigue siendo la única autoridad.
+- **`Noop` por defecto.** `NoopSpeakerIdentityProvider` es el valor por defecto hasta que exista un modelo de embeddings medido con corpus real y un almacén cifrado. `VoiceSessionPipeline` es el único lugar que elige el proveedor; el facade legacy no construye identidad.
+- **Corre en paralelo al STT, con timeout de 400 ms.** `VoiceSession` lanza la identificación junto a la transcripción; si tarda, falla o no hay perfiles, el turno sigue como `UNAVAILABLE`. Nunca bloquea ni alarga la conversación.
+- **Una costura, no un segundo micrófono ni un segundo VAD.** `SpeakerIdentityProvider` recibe el WAV que ya cerró `SpeechSegmenter`; `CaptureArbiter` sigue siendo el dueño único de la captura y `SpeechSegmenter` del VAD/pre-roll.
+- **Una sola política.** `SpeakerIdentityPolicy.resolve()` es la única que convierte evidencia (candidatos, score, duración) en una relación. No repitas umbrales ni reglas en `VoiceSession`, en el proveedor ni en el LLM. Los valores de `SpeakerPolicyConfig` son configuración por modelo y se recalibran con el arnés.
+- **La política clasifica, no redacta.** `SpeakerPromptContext` produce texto de system prompt (`OWNER`/`KNOWN`/`UNKNOWN`/`UNCERTAIN`); el LLM sigue redactando la respuesta. No agregues locuciones de identidad ni frases enlatadas.
+- **Solo embeddings locales y cifrados.** Se guarda el centroide, nunca el audio crudo. `VoiceProfileStore` debe cifrar en reposo, pedir consentimiento explícito, permitir borrado y llevar `modelId`; los perfiles de otro modelo se ignoran. **No se sincronizan con el backend.**
+- **El arnés mide el simulador, no el campo.** `SpeakerVerificationCorpus` + `SpeakerVerificationHarnessTest` (ADR-0048, gated con `FIFO_SPEAKER_EXPERIMENT=1`) usan 8 locutores, 4 condiciones y 2 duraciones con un extractor de referencia. Sus números sirven para regresión y comparación; no certifican EER real ni autorizan a enviar un detector biométrico.
+- **La barra para enviar es de campo.** Un proveedor real debe medir EER/FRR/FAR por condición y duración, cumplir el presupuesto de 400 ms, no subir audio ni embeddings y superar el arnés con grabaciones reales. Un buen número en voz sintética no basta.
+- **Pruebas de verdad:** `SpeakerIdentityPolicyTest` (tabla de verdad y prompt), `SpeakerIdentityProviderTest` (enrolamiento, coseno, modelo distinto y borrado), `SpeakerIdentityIntegrationTest` (turno, `Noop`, timeout y fallo) y `SpeakerVerificationHarnessTest` (corpus sintético y métricas).
+
 ## Telefonía
 
 - **La telefonía vive fuera de `VoiceSession`.** La sesión solo recibe `callState` y entrega la acción por `onCallAction`; no contesta, no cuelga y no toca `AudioManager`.

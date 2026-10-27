@@ -6,10 +6,12 @@ import com.fifo.voicepipeline.skills.FifoSkillRegistry
 import com.fifo.voicepipeline.telephony.CallSnapshot
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Intenciones de ciclo de vida e interacción para VoiceSession.
@@ -52,6 +54,7 @@ class VoiceSession(
     initialMicMuted: Boolean = false,
     private val memory: SessionMemory? = null,
     private val wakeWordDetector: WakeWordDetector = NoopWakeWordDetector,
+    private val speakerIdentityProvider: SpeakerIdentityProvider = NoopSpeakerIdentityProvider,
     private val nowProvider: () -> Long = System::currentTimeMillis
 ) {
     // ── Estados observables para la UI / Servicios ──────────────
@@ -72,6 +75,16 @@ class VoiceSession(
 
     private val _isMicMuted = MutableStateFlow(initialMicMuted)
     val isMicMuted: StateFlow<Boolean> = _isMicMuted.asStateFlow()
+
+    /**
+     * Última atribución de locutor del turno (ADR-0048). Es solo contexto: no
+     * autoriza llamadas, pagos ni datos privados. `UNAVAILABLE` es el valor
+     * normal mientras no haya modelo y perfiles enrolados.
+     */
+    private val _speakerIdentity = MutableStateFlow(
+        SpeakerIdentity.unavailable(speakerIdentityProvider.modelId)
+    )
+    val speakerIdentity: StateFlow<SpeakerIdentity> = _speakerIdentity.asStateFlow()
 
     /** Evita transcribir dos segmentos en paralelo y abrir dos turnos duplicados. */
     @Volatile
@@ -217,6 +230,25 @@ class VoiceSession(
     }
 
     /**
+     * Atribuye el WAV a un perfil con timeout y sin propagar fallos (ADR-0048).
+     *
+     * Un proveedor lento, sin modelo o con un perfil corrupto no puede romper el
+     * turno: en todos esos casos la identidad es `UNAVAILABLE` y el LLM responde
+     * con el contexto que sí tiene.
+     */
+    private suspend fun identifySpeaker(wavData: ByteArray): SpeakerIdentity {
+        return try {
+            withTimeoutOrNull(SPEAKER_IDENTIFICATION_TIMEOUT_MS) {
+                speakerIdentityProvider.identify(wavData, nowProvider())
+            } ?: SpeakerIdentity.unavailable(speakerIdentityProvider.modelId)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            SpeakerIdentity.unavailable(speakerIdentityProvider.modelId)
+        }
+    }
+
+    /**
      * Procesa audio completo de usuario (ej. delimitado por VAD).
      */
     fun processUserAudio(wavData: ByteArray) {
@@ -231,11 +263,18 @@ class VoiceSession(
                 val allowShortResponses = turnOrchestrator.shouldAllowShortResponses()
                 _statusMessage.value = "Transcribiendo..."
 
+                // La identidad corre en paralelo al STT y con timeout: nunca
+                // alarga ni bloquea el turno (ADR-0048).
+                val speakerJob = scope.async { identifySpeaker(wavData) }
+
                 val text = speechCognition.transcribe(
                     wavData,
                     allowShortResponses = allowShortResponses
                 ).trim()
                 _transcription.value = text
+
+                val speaker = speakerJob.await()
+                _speakerIdentity.value = speaker
 
                 if (text.isBlank()) {
                     // Si hubo un barge-in y el usuario se quedó en silencio, reanudar mediante LLM
@@ -259,7 +298,7 @@ class VoiceSession(
                     return@launch
                 }
 
-                processUserUtterance(text)
+                processUserUtterance(text, speaker)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -279,10 +318,14 @@ class VoiceSession(
      * - Si el usuario solo dice "Fifo", el LLM genera un saludo espontáneo y cálido adaptado al usuario.
      * - Toda consulta o charla es resuelta dinámicamente por el LLM con memoria episódica y afecto.
      */
-    fun processUserUtterance(rawText: String) {
+    fun processUserUtterance(
+        rawText: String,
+        speaker: SpeakerIdentity = SpeakerIdentity.unavailable()
+    ) {
         scope.launch {
             val text = rawText.trim()
             if (text.isBlank()) return@launch
+            _speakerIdentity.value = speaker
 
             val now = nowProvider()
             val hasAcousticCandidate = consumeAcousticCandidate(now)
@@ -374,7 +417,7 @@ class VoiceSession(
             // Se corrige el turno anterior y se registra la corrección como un
             // turno nuevo para que la memoria conserve ambos lados del cambio.
             if (isCorrection && previousTurn != null) {
-                handleCorrection(previousTurn, text, cleanedQuery, now, isSpeakingNow)
+                handleCorrection(previousTurn, text, cleanedQuery, now, isSpeakingNow, speaker)
                 return@launch
             }
 
@@ -402,7 +445,7 @@ class VoiceSession(
                 cleanedQuery
             }
 
-            val response = speechCognition.generateDialogTurn(queryForLlm, skillRegistry)
+            val response = speechCognition.generateDialogTurn(queryForLlm, skillRegistry, speaker)
 
             // El turno se escribe en disco antes de que empiece la locución. Si
             // la respuesta es un error operativo, queda marcada para reparación.
@@ -436,7 +479,8 @@ class VoiceSession(
         rawText: String,
         cleanedQuery: String,
         now: Long,
-        isSpeakingNow: Boolean
+        isSpeakingNow: Boolean,
+        speaker: SpeakerIdentity
     ) {
         val shouldSpeak = ConversationRepairPolicy.canSpeakCorrection(previousTurn, now)
         turnOrchestrator.clearBargeInResolution()
@@ -454,7 +498,8 @@ class VoiceSession(
             speechCognition.generateRepairTurn(
                 correctionText = cleanedQuery.ifBlank { rawText },
                 previousUserText = previousTurn.userText,
-                previousAssistantText = previousTurn.repairText ?: previousTurn.assistantText
+                previousAssistantText = previousTurn.repairText ?: previousTurn.assistantText,
+                speaker = speaker
             )
         } catch (e: CancellationException) {
             throw e
@@ -622,5 +667,14 @@ class VoiceSession(
          * palabra. Al dormir, silenciar o reiniciar se descarta igualmente.
          */
         const val ACOUSTIC_CANDIDATE_WINDOW_MS = 8_000L
+
+        /**
+         * Presupuesto de la identidad de locutor (ADR-0048).
+         *
+         * Corre en paralelo al STT, que suele tardar más; el límite solo evita
+         * que un modelo lento retrase el turno. Al agotarse, el turno sigue como
+         * `UNAVAILABLE` en vez de fallar.
+         */
+        const val SPEAKER_IDENTIFICATION_TIMEOUT_MS = 400L
     }
 }

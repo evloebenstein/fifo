@@ -40,3 +40,32 @@ Para acelerar la evaluación y resolución, por favor incluye:
 - Acusaremos recibo de tu reporte en un plazo máximo de **48 horas**.
 - Proporcionaremos una estimación de tiempo para el parche y mantendremos la comunicación confidencial hasta que la corrección sea liberada públicamente.
 - Daremos el debido crédito al investigador en las notas de la versión (si así lo desea).
+
+## Datos Biométricos de Voz (ADR-0048)
+
+La identidad de locutor de Fifo atribuye un turno a una voz para **personalizar
+el trato**, nunca para autenticar. Aun así, un embedding de voz permite
+reconocer a una persona y se trata como **dato biométrico sensible**:
+
+- **Consentimiento explícito y específico.** El enrolamiento solo se ofrece tras
+  explicar qué se guarda (un embedding, no audio), para qué se usa, que no se
+  sincroniza y cómo se borra. Sin consentimiento no se crea ningún perfil.
+- **Solo embeddings, nunca audio crudo.** `SpeakerEnrollment` guarda el centroide
+  de 3–5 muestras y descarta las grabaciones. Un `VoiceProfile` no contiene PCM.
+- **Almacenamiento cifrado en reposo.** `VoiceProfileStore` es una costura; su
+  implementación de producción debe cifrar con Android Keystore + AES-GCM o
+  SQLCipher, y el borrado (`delete`/`clear`) debe eliminar el perfil completo.
+- **Sin sincronización con el backend.** Los embeddings no se suben. El backend
+  actual no tiene autenticación real; enviar biometría sería peor que no tener
+  la función.
+- **Versionado por modelo.** Cada perfil lleva `modelId`; al cambiar de extractor
+  los perfiles viejos se ignoran en vez de comparar vectores incompatibles.
+- **La voz no es una llave.** Ninguna llamada, pago, cambio de configuración ni
+  dato privado se autoriza solo porque la voz coincida. Esa garantía es una
+  invariante de [`AGENTS.md`](AGENTS.md), no una opción de configuración.
+- **Nada de biometría sin modelo validado.** `NoopSpeakerIdentityProvider` es el
+  valor por defecto. Un proveedor real exige validación con grabaciones, medición
+  de EER/FRR/FAR por condición, presupuesto de latencia y un almacén cifrado.
+
+Si encuentras una fuga de perfiles de voz, una sincronización no autorizada de
+embeddings o un almacén sin cifrar, repórtalo por el canal privado de arriba.

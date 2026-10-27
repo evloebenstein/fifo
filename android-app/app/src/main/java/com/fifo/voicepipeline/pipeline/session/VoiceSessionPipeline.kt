@@ -73,6 +73,17 @@ internal class VoiceSessionPipeline(
      */
     private val wakeWordDetector: WakeWordDetector = NoopWakeWordDetector
 
+    /**
+     * Identidad de locutor (ADR-0048).
+     *
+     * Hoy es [NoopSpeakerIdentityProvider]: no hay extractor de embeddings ni
+     * perfiles enrolados, así que todos los turnos quedan `UNAVAILABLE` y el
+     * comportamiento actual no cambia. Cuando exista un modelo medido y un
+     * almacén cifrado, se construye aquí el proveedor real; `VoiceSession` solo
+     * ve la costura.
+     */
+    private val speakerIdentityProvider: SpeakerIdentityProvider = NoopSpeakerIdentityProvider
+
     val session = VoiceSession(
         scope = scope,
         outboundAdapter = outbound,
@@ -82,7 +93,8 @@ internal class VoiceSessionPipeline(
         onCallAction = { action -> handleCallAction(action) },
         initialMicMuted = initialMicMuted,
         memory = memory,
-        wakeWordDetector = wakeWordDetector
+        wakeWordDetector = wakeWordDetector,
+        speakerIdentityProvider = speakerIdentityProvider
     )
 
     val state: StateFlow<com.fifo.voicepipeline.pipeline.PipelineState> = session.state
