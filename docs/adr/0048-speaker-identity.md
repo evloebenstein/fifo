@@ -369,9 +369,14 @@ Lo honesto:
 - **Todavía no pasa la barra.** El FRR al 1 % sigue por encima del 10 % en
   `living`, `white-5`, `babble-15` y Lombard; y esto es lectura limpia aumentada,
   no una calle ni un móvil. `Noop` sigue por defecto.
-- **La cohorte es pequeña** (6 perfiles). Más locutores de calibración deberían
-  estabilizar AS-Norm; con 40 personas ya se puede repetir el experimento, pero
-  no sustituye a grabar campo.
+- **La cohorte no es el cuello de botella.** Se repitió con 20 locutores de
+  calibración (10 perfiles) y 20 de evaluación (10 perfiles), 4.800 trials:
+  5,0 % EER y 11,7 % / 0,8 % FRR/FAR con AS-Norm. No es una mejora decisiva
+  frente al 5,2 % de la cohorte de 6 perfiles. Por condición baja en `clean`
+  (2,0 %), `living` (2,5 %), `pink-10` (2,0 %), `white-5` (4,7 %) y `babble-15`
+  (2,8 %), pero Lombard sube a 7,2 % EER y 37,5 % FRR con solo 40 trials
+  genuinos por condición. La varianza por locutor y el dominio pesan más que el
+  tamaño de la cohorte; con 6 perfiles AS-Norm ya capturaba el desplazamiento.
 - **Es inglés.** El modelo es zh-cn y las voces son inglesas; el idioma no debería
   definir al locutor, pero un corpus español real sigue siendo necesario.
 

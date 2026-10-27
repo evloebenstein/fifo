@@ -31,6 +31,8 @@ import kotlin.random.Random
  * aportan 3 frases de enrolamiento y 4 de uso; los unseen solo 4 de uso. Las 4
  * frases de uso se aumentan con seis condiciones (limpio, sala, rosa, blanco,
  * balbuceo y Lombard), así que no hacen falta 24 grabaciones por persona.
+ * `FIFO_REAL_SPEECH_CALIBRATION` permite cambiar el tamaño de la cohorte de
+ * calibración para medir si AS-Norm se estabiliza con más perfiles.
  *
  * Está apagado por defecto. Se activa con:
  *
@@ -83,7 +85,10 @@ class RealSpeechAugmentationExportTest {
             "hacen falta al menos 8 locutores con 7 WAV cada uno; hay ${speakers.size}"
         }
 
-        val calibrationCount = (speakers.size / 3).coerceIn(4, 12)
+        val requestedCalibration = System.getenv("FIFO_REAL_SPEECH_CALIBRATION")?.toIntOrNull()
+        val calibrationCount = requestedCalibration
+            ?.coerceIn(4, speakers.size - 4)
+            ?: (speakers.size / 3).coerceIn(4, 12)
         val calibration = speakers.take(calibrationCount)
         val evaluation = speakers.drop(calibrationCount)
         require(evaluation.size >= 4) {

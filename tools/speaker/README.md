@@ -205,6 +205,8 @@ segundo simulador que pueda divergir.
 # 2. Aumento en Kotlin con la acústica canónica
 $env:FIFO_REAL_SPEECH_POOL="$env:TEMP\fifo-speaker-eval\real-pool"
 $env:FIFO_REAL_SPEECH_EXPORT_DIR="$env:TEMP\fifo-speaker-eval\real-field-corpus"
+# Opcional: tamaño de la cohorte de calibración (por defecto un tercio, máx. 12)
+$env:FIFO_REAL_SPEECH_CALIBRATION="20"
 .\gradlew.bat testDebugUnitTest --tests "*RealSpeechAugmentationExportTest"
 
 # 3. Embeddings y scoring con AS-Norm
@@ -235,6 +237,13 @@ recortados a 8 s.
 cohorte sale **solo de calibración**: 6 perfiles y 144 clips. Evaluación no
 participa en esa media. Es lo único que se entrena aquí; la red de embeddings no
 se toca.
+
+Ablación de cohorte: con 20 locutores de calibración (10 perfiles) y 20 de
+evaluación, AS-Norm da 5,0 % EER y 11,7 % / 0,8 % FRR/FAR (4.800 trials), sin
+mejora decisiva frente al 5,2 % de la cohorte de 6 perfiles. Baja en `clean`,
+`living`, `pink-10`, `white-5` y `babble-15`, pero Lombard sube a 7,2 % EER con
+solo 40 trials genuinos por condición. Más cohorte no arregla el dominio; la
+varianza por locutor pesa.
 
 Lectura:
 
