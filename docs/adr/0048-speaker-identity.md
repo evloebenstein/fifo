@@ -334,51 +334,58 @@ turno no sea una locución de 30 s. El corpus se regenera desde
 
 Con el umbral fijado **solo** con calibración y 9.408 trials de evaluación:
 
-| Modelo | EER crudo | FRR/FAR crudo | EER AS-Norm | FRR/FAR AS-Norm |
-| :--- | ---: | ---: | ---: | ---: |
-| WeSpeaker ResNet34 | 43,4 % | 83,9 % / 0,4 % | 35,7 % | 83,0 % / 0,5 % |
-| WeSpeaker CAM++ | 45,6 % | 91,1 % / 1,4 % | 45,0 % | 87,5 % / 2,6 % |
-| 3D-Speaker CAM++ (zh-cn) | 11,6 % | 47,0 % / 0,6 % | **5,2 %** | **10,1 % / 2,3 %** |
+| Modelo | Dim. | EER crudo | FRR/FAR crudo | EER AS-Norm | FRR/FAR AS-Norm |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| **3D-Speaker CAM++ zh_en advanced** | 192 | **1,2 %** | **2,4 % / 0,7 %** | 1,9 % | 3,6 % / 0,6 % |
+| NeMo TitaNet large | 192 | 2,4 % | 8,9 % / 0,7 % | 2,4 % | 16,4 % / 0,4 % |
+| 3D-Speaker ERes2Net base 200k | 512 | 4,8 % | 23,8 % / 0,3 % | 3,6 % | 3,3 % / 4,0 % |
+| 3D-Speaker ERes2NetV2 | 192 | 5,4 % | 23,8 % / 0,5 % | 2,7 % | 2,7 % / 2,9 % |
+| 3D-Speaker CAM++ zh-cn | 192 | 11,6 % | 47,0 % / 0,6 % | 5,2 % | 10,1 % / 2,3 % |
+| WeSpeaker ResNet34 | 256 | 43,4 % | 83,9 % / 0,4 % | 35,7 % | 83,0 % / 0,5 % |
+| WeSpeaker CAM++ | 512 | 45,6 % | 91,1 % / 1,4 % | 45,0 % | 87,5 % / 2,6 % |
 
-AS-Norm usa como cohorte solo los 6 perfiles y los 144 clips de calibración;
+AS-Norm usa como cohorte solo los 6 perfiles y los 288 clips de calibración;
 evaluación no participa en la media ni en la desviación. Es lo único que se
-“entrena” aquí: un backend de puntuación, no la red de embeddings. El resultado
-es consistente con el control limpio: los WeSpeaker no separan bien estas voces,
-mientras 3D-Speaker sí.
+“entrena” aquí: un backend de puntuación, no la red de embeddings. Pero **no es
+una receta universal**: con el CAM++ zh_en advanced el EER crudo (1,2 %) es mejor
+que el normalizado (1,9 %), y con ERes2NetV2 AS-Norm baja el EER de 5,4 % a 2,7 %
+a costa de subir el FAR de evaluación a 2,9 %. La normalización se valida por
+modelo, no se asume.
 
-Lectura por condición de 3D-Speaker con AS-Norm (EER / FRR / FAR al umbral
-global):
+El mejor candidato es CAM++ **zh_en advanced**: 1,2 % EER, 2,4 % FRR y 0,7 % FAR
+al 1 %, con 192 dimensiones. Lectura por condición con su umbral crudo (EER / FRR
+/ FAR):
 
 | Condición | EER | FRR | FAR |
 | :--- | ---: | ---: | ---: |
-| `clean` | 3,5 % | 1,8 % | 4,4 % |
-| `living` | 3,9 % | 10,7 % | 1,1 % |
-| `pink-10` | 3,6 % | 1,8 % | 3,7 % |
-| `white-5` | 7,1 % | 16,1 % | 3,2 % |
-| `babble-15` | 5,2 % | 12,5 % | 0,9 % |
-| `living-lombard-pink-20` | 3,5 % | 17,9 % | 0,9 % |
+| `clean` | 0,0 % | 0,0 % | 0,9 % |
+| `living` | 0,0 % | 0,0 % | 0,5 % |
+| `pink-10` | 0,4 % | 0,0 % | 0,8 % |
+| `white-5` | 3,5 % | 10,7 % | 1,3 % |
+| `babble-15` | 0,4 % | 1,8 % | 0,8 % |
+| `living-lombard-pink-20` | 0,1 % | 1,8 % | 0,2 % |
 
 Lo honesto:
 
-- **El ranking cambia con voz real.** 3D-Speaker CAM++ queda muy por delante de
-  los dos WeSpeaker, algo que el corpus de formantes no mostraba. Es la primera
-  señal de que el simulador con voces reales sirve para **prefiltar** motores.
-- **AS-Norm es lo que hace utilizable el umbral.** Sin normalizar, un solo
-  umbral deja FRR 47 % en 3D-Speaker y ~100 % en los demás; con AS-Norm baja a
-  10,1 %. La normalización no cambia el embedding: cambia cómo se decide.
-- **Todavía no pasa la barra.** El FRR al 1 % sigue por encima del 10 % en
-  `living`, `white-5`, `babble-15` y Lombard; y esto es lectura limpia aumentada,
-  no una calle ni un móvil. `Noop` sigue por defecto.
+- **El ranking cambia con voz real.** La variante zh_en advanced queda muy por
+  delante del CAM++ zh-cn (11,6 % crudo) y de los WeSpeaker (43–46 %), algo que
+  el corpus de formantes no mostraba. Es la señal de que el simulador con voces
+  reales sirve para **prefiltar** motores, no para certificarlos.
+- **AS-Norm ayuda a unos modelos y estorba a otros.** En CAM++ zh-cn baja el EER
+  de 11,6 % a 5,2 % y el FRR de 47,0 % a 10,1 %; en ERes2NetV2, de 5,4 % a 2,7 %.
+  En el avanzado, en cambio, el score crudo ya está bien calibrado y AS-Norm lo
+  empeora. Normalizar es una decisión medida, no un dogma.
+- **Todavía no pasa la barra.** `white-5` sigue con FRR 10,7 % (3,5 % EER), justo
+  por encima del 10 %, y todo esto es lectura limpia aumentada, no una calle ni
+  un móvil. `Noop` sigue por defecto.
 - **La cohorte no es el cuello de botella.** Se repitió con 20 locutores de
-  calibración (10 perfiles) y 20 de evaluación (10 perfiles), 4.800 trials:
-  5,0 % EER y 11,7 % / 0,8 % FRR/FAR con AS-Norm. No es una mejora decisiva
-  frente al 5,2 % de la cohorte de 6 perfiles. Por condición baja en `clean`
-  (2,0 %), `living` (2,5 %), `pink-10` (2,0 %), `white-5` (4,7 %) y `babble-15`
-  (2,8 %), pero Lombard sube a 7,2 % EER y 37,5 % FRR con solo 40 trials
-  genuinos por condición. La varianza por locutor y el dominio pesan más que el
-  tamaño de la cohorte; con 6 perfiles AS-Norm ya capturaba el desplazamiento.
-- **Es inglés.** El modelo es zh-cn y las voces son inglesas; el idioma no debería
-  definir al locutor, pero un corpus español real sigue siendo necesario.
+  calibración (10 perfiles) y 20 de evaluación (10 perfiles), 4.800 trials. Con
+  CAM++ zh-cn, AS-Norm dio 5,0 % EER frente a 5,2 % de la cohorte de 6 perfiles;
+  con el avanzado, 1,3 % crudo frente a 1,2 % en el reparto 12/28. La varianza
+  por locutor y el dominio pesan más que el tamaño de la cohorte.
+- **Es inglés.** Los modelos son zh-cn/zh_en y las voces son inglesas; el idioma
+  no debería definir al locutor, pero un corpus español real sigue siendo
+  necesario.
 
 #### Corpus de campo: protocolo y manifiesto
 
@@ -499,7 +506,7 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
   EER global y tres modelos reales 42–50 % sobre el mismo corpus. El control con
   LibriSpeech da **0,0 % EER** con el mismo pipeline, así que el problema es el
   corpus, no el código. El campo simulado con voces reales sí ordena motores
-  (3D-Speaker 5,2 % con AS-Norm frente a 36–45 % de los WeSpeaker), pero sigue
+  (CAM++ zh_en advanced 1,2 % frente a 36–45 % de los WeSpeaker), pero sigue
   siendo lectura limpia aumentada: un buen número aquí **no** autoriza a enviar
   nada y un mal número tampoco descarta el modelo; solo un corpus real decide.
 - Guardar biometría obliga a mantenimiento: rotación de claves, borrado,
@@ -559,10 +566,13 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
   clips de 10 locutores, 144 trials de evaluación, **0,0 % EER y 0,0 % FRR/FAR**
   con ResNet34 y con 3D-Speaker CAM++. No se commiteó audio.
 - El campo simulado se generó con 40 locutores reales y 1.020 clips: 12 de
-  calibración y 28 de evaluación, 9.408 trials, seis condiciones. Con AS-Norm
-  (cohorte solo de calibración), 3D-Speaker CAM++ dio **5,2 % EER, 10,1 % FRR y
-  2,3 % FAR** al 1 %; los WeSpeaker quedaron en 35,7–45,0 %. No se commiteó
-  audio ni pesos.
+  calibración y 28 de evaluación, 9.408 trials, seis condiciones. Sobre él se
+  midieron siete modelos. El mejor fue **CAM++ zh_en advanced: 1,2 % EER, 2,4 %
+  FRR y 0,7 % FAR** al 1 % sin normalizar; NeMo TitaNet large dio 2,4 % EER pero
+  8,9 % FRR, y los WeSpeaker quedaron en 43–46 %. No se commiteó audio ni pesos.
+- La ablación de cohorte (20 locutores de calibración, 20 de evaluación) confirmó
+  el resultado del avanzado: 1,3 % EER crudo frente a 1,2 % en el reparto 12/28,
+  y AS-Norm sigue sin mejorarlo (1,6 %).
 - `build_field_manifest.py` se probó de extremo a extremo con el control de
   LibriSpeech reorganizado como corpus de campo: 78 clips, 10 locutores,
   manifiesto válido y el mismo 0,0 % EER. También rechaza un plan incompleto y
@@ -578,17 +588,18 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 reales sobre el corpus sintético (resultado negativo), control con voz real de
 LibriSpeech (0,0 % EER), protocolo/importador del corpus de campo y **campo
 simulado con 40 voces reales aumentadas + AS-Norm**, que por primera vez ordena
-motores y deja a 3D-Speaker CAM++ en 5,2 % EER. En la iteración anterior:
-exportación del corpus, separación calibración/evaluación, herramienta offline
-de puntuación y almacén cifrado con consentimiento.
+motores. Siete modelos sobre el campo simulado dejan como candidato a CAM++ zh_en
+advanced (1,2 % EER crudo), con `white-5` aún en 10,7 % FRR. En la iteración
+anterior: exportación del corpus, separación calibración/evaluación, herramienta
+offline de puntuación y almacén cifrado con consentimiento.
 
 1. **Hecho parcialmente:** extraer embeddings con un modelo real y pasarlos por
    `tools/speaker/score_embeddings.py`, con control de voz real y campo simulado
-   para separar corpus y código. Se midieron WeSpeaker CAM++, WeSpeaker ResNet34
-   y 3D-Speaker CAM++ con sherpa-onnx. 3D-Speaker CAM++ es el primer candidato
-   serio (5,2 % EER con AS-Norm en el simulador), pero sigue sin superar la barra
-   por condición. Falta repetirlo con un **ReDimNet-B0/B1** y, sobre todo, con
-   grabaciones reales.
+   para separar corpus y código. Se midieron siete modelos con sherpa-onnx;
+   CAM++ zh_en advanced es el primer candidato serio (1,2 % EER crudo en el
+   simulador), pero `white-5` sigue por encima de la barra y falta repetirlo con
+   un **ReDimNet-B0/B1** (no disponible en este release de sherpa-onnx) y, sobre
+   todo, con grabaciones reales.
 2. Grabar el corpus de campo **antes** de elegir motor: 10–15 personas, 3–5
    frases de enrolamiento y uso en silencio, TV, calle y a 1–3 m. El layout, el
    plan disjunto y la validación ya están en `build_field_manifest.py`; solo
@@ -599,9 +610,10 @@ de puntuación y almacén cifrado con consentimiento.
    `ProfileScreen` y cablear `androidEncryptedVoiceProfileStore()` en
    `VoiceSessionPipeline` cuando exista un extractor validado.
 4. El aumento de ruido, sala y Lombard ya está en la **validación** (campo
-   simulado) y AS-Norm normaliza los scores con cohorte de calibración. Falta
-   decidir si el extractor se afina con datos aumentados y si el móvil puede
-   ejecutar AS-Norm dentro del presupuesto de 400 ms.
+   simulado). AS-Norm es opcional y el mejor candidato rinde mejor sin él, así
+   que el presupuesto de 400 ms solo tiene que cubrir la extracción del embedding.
+   Falta medirlo en un móvil real y decidir si el extractor se afina con datos
+   aumentados.
 5. Evaluar una contramedida de spoofing (ASVspoof 5) antes de usar la identidad
    para cualquier acción sensible.
 6. Solo si el modelo supera la barra, el almacén está cifrado y la UI tiene

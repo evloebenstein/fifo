@@ -209,16 +209,17 @@ $env:FIFO_REAL_SPEECH_EXPORT_DIR="$env:TEMP\fifo-speaker-eval\real-field-corpus"
 $env:FIFO_REAL_SPEECH_CALIBRATION="20"
 .\gradlew.bat testDebugUnitTest --tests "*RealSpeechAugmentationExportTest"
 
-# 3. Embeddings y scoring con AS-Norm
+# 3. Embeddings y scoring. El mejor candidato hasta ahora es el avanzado,
+#    que funciona mejor sin AS-Norm; prueba ambos y decide con el informe.
 & "$env:TEMP\fifo-speaker-eval\venv\Scripts\python.exe" tools\speaker\extract_embeddings_sherpa.py `
   --manifest "$env:TEMP\fifo-speaker-eval\real-field-corpus\manifest.jsonl" `
-  --model "$env:TEMP\fifo-speaker-eval\models\3dspeaker_speech_campplus_sv_zh-cn_16k-common.onnx" `
+  --model "$env:TEMP\fifo-speaker-eval\models\3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx" `
   --out "$env:TEMP\fifo-speaker-eval\real-field-corpus\embeddings.jsonl"
 
 python tools\speaker\score_embeddings.py `
   --manifest "$env:TEMP\fifo-speaker-eval\real-field-corpus\manifest.jsonl" `
   --embeddings "$env:TEMP\fifo-speaker-eval\real-field-corpus\embeddings.jsonl" `
-  --model-id 3dspeaker-campplus-zh-cn --normalize as-norm --target-far 0.01
+  --model-id 3dspeaker-campplus-zh-en-advanced --target-far 0.01
 ```
 
 Diseño: 12 locutores de calibración y 28 de evaluación, disjuntos; dentro de
@@ -227,34 +228,38 @@ uso por enrolado, aumentadas a seis condiciones (`clean`, `living`, `pink-10`,
 `white-5`, `babble-15`, `living-lombard-pink-20`). 1.020 clips, 9.408 trials,
 recortados a 8 s.
 
-| Modelo | EER crudo | FRR/FAR crudo | EER AS-Norm | FRR/FAR AS-Norm |
-| :--- | ---: | ---: | ---: | ---: |
-| WeSpeaker ResNet34 | 43,4 % | 83,9 % / 0,4 % | 35,7 % | 83,0 % / 0,5 % |
-| WeSpeaker CAM++ | 45,6 % | 91,1 % / 1,4 % | 45,0 % | 87,5 % / 2,6 % |
-| 3D-Speaker CAM++ (zh-cn) | 11,6 % | 47,0 % / 0,6 % | **5,2 %** | **10,1 % / 2,3 %** |
+| Modelo | Dim. | EER crudo | FRR/FAR crudo | EER AS-Norm | FRR/FAR AS-Norm |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| **CAM++ zh_en advanced** | 192 | **1,2 %** | **2,4 % / 0,7 %** | 1,9 % | 3,6 % / 0,6 % |
+| NeMo TitaNet large | 192 | 2,4 % | 8,9 % / 0,7 % | 2,4 % | 16,4 % / 0,4 % |
+| ERes2Net base 200k | 512 | 4,8 % | 23,8 % / 0,3 % | 3,6 % | 3,3 % / 4,0 % |
+| ERes2NetV2 | 192 | 5,4 % | 23,8 % / 0,5 % | 2,7 % | 2,7 % / 2,9 % |
+| CAM++ zh-cn | 192 | 11,6 % | 47,0 % / 0,6 % | 5,2 % | 10,1 % / 2,3 % |
+| WeSpeaker ResNet34 | 256 | 43,4 % | 83,9 % / 0,4 % | 35,7 % | 83,0 % / 0,5 % |
+| WeSpeaker CAM++ | 512 | 45,6 % | 91,1 % / 1,4 % | 45,0 % | 87,5 % / 2,6 % |
 
 **AS-Norm** normaliza cada score con la media y desviación de una cohorte. La
-cohorte sale **solo de calibración**: 6 perfiles y 144 clips. Evaluación no
+cohorte sale **solo de calibración**: 6 perfiles y 288 clips. Evaluación no
 participa en esa media. Es lo único que se entrena aquí; la red de embeddings no
-se toca.
+se toca. No es una receta universal: el avanzado ya está bien calibrado en crudo
+y AS-Norm lo empeora; ERes2NetV2 mejora de 5,4 % a 2,7 % pero sube el FAR de
+evaluación a 2,9 %. Mide las dos variantes antes de elegir.
 
 Ablación de cohorte: con 20 locutores de calibración (10 perfiles) y 20 de
-evaluación, AS-Norm da 5,0 % EER y 11,7 % / 0,8 % FRR/FAR (4.800 trials), sin
-mejora decisiva frente al 5,2 % de la cohorte de 6 perfiles. Baja en `clean`,
-`living`, `pink-10`, `white-5` y `babble-15`, pero Lombard sube a 7,2 % EER con
-solo 40 trials genuinos por condición. Más cohorte no arregla el dominio; la
+evaluación, CAM++ zh-cn da 5,0 % EER con AS-Norm frente a 5,2 %, y el avanzado
+1,3 % crudo frente a 1,2 % (4.800 trials). Más cohorte no arregla el dominio; la
 varianza por locutor pesa.
 
 Lectura:
 
-- El ranking cambia con voz real: 3D-Speaker CAM++ queda muy por delante de los
-  WeSpeaker. El corpus de formantes no mostraba eso.
-- Sin AS-Norm, un solo umbral deja FRR 47 % en 3D-Speaker y ~100 % en los demás.
-  Con AS-Norm baja a 10,1 %; el problema era decidir, no solo el embedding.
-- Sigue sin pasar la barra: el FRR al 1 % supera el 10 % en `living`, `white-5`,
-  `babble-15` y Lombard. Y es lectura limpia aumentada, no una calle ni un móvil.
-- Es inglés y la cohorte es pequeña (6 perfiles). Repetirlo con más locutores de
-  calibración y con español sigue pendiente.
+- El ranking cambia con voz real: CAM++ zh_en advanced (1,2 %) queda muy por
+  delante de los WeSpeaker (43–46 %). El corpus de formantes no mostraba eso.
+- `white-5` es el único punto débil del candidato: 3,5 % EER y 10,7 % FRR con el
+  umbral global; `clean`, `living`, `pink-10`, `babble-15` y Lombard están en
+  0–1,8 % FRR.
+- Sigue sin pasar la barra: es lectura limpia aumentada, no una calle ni un
+  móvil, y el FRR de `white-5` roza el 10 %. No autoriza a cambiar `Noop`.
+- Es inglés. Repetirlo con español y con grabaciones reales sigue pendiente.
 
 ## Reglas
 
