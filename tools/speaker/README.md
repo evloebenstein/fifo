@@ -93,6 +93,40 @@ ordena motores reales.** Además, con 12 genuinos por condición, un solo error
 mueve el EER ~8 puntos. La tabla completa y el umbral por modelo están en
 ADR-0048.
 
+### Control con voz real (LibriSpeech)
+
+Para saber si el 42–50 % es culpa del corpus o del código, repite el mismo
+proceso con voz humana real. `build_librispeech_control.py` convierte 10
+locutores disjuntos de **LibriSpeech dev-clean** (18 clips de enrolamiento, 24 de
+calibración y 36 de evaluación) al mismo manifiesto de 16 kHz PCM16:
+
+```powershell
+# Descarga y extracción de LibriSpeech (solo desarrollo; no se commitea)
+curl.exe -L -o "$env:TEMP\fifo-speaker-eval\librispeech-dev-clean.tar.gz" `
+  "https://www.openslr.org/resources/12/dev-clean.tar.gz"
+tar -xzf "$env:TEMP\fifo-speaker-eval\librispeech-dev-clean.tar.gz" `
+  -C "$env:TEMP\fifo-speaker-eval\librispeech"
+
+& "$env:TEMP\fifo-speaker-eval\venv\Scripts\python.exe" tools\speaker\build_librispeech_control.py `
+  --librispeech-root "$env:TEMP\fifo-speaker-eval\librispeech\LibriSpeech\dev-clean" `
+  --out "$env:TEMP\fifo-speaker-eval\librispeech-control"
+```
+
+Después se extraen embeddings y se puntúa igual que el corpus sintético. Con 144
+trials de evaluación y el umbral fijado con los 2 locutores de calibración:
+
+| Modelo | EER global | FRR/FAR @FAR 1 % |
+| :--- | ---: | ---: |
+| WeSpeaker ResNet34 | **0,0 %** | 0,0 % / 0,0 % |
+| 3D-Speaker CAM++ (zh-cn) | **0,0 %** | 0,0 % / 0,0 % |
+
+El control es deliberadamente fácil: lectura limpia, misma grabación y mismas
+condiciones. **No certifica campo ni mide el móvil.** Su valor es separar las dos
+preguntas: el pipeline (manifiesto, embeddings, centroides, calibración, scoring)
+funciona; el problema del 42–50 % es que el corpus sintético no representa voces
+humanas. Es la razón por la que el siguiente paso es grabar campo y no seguir
+ajustando umbrales.
+
 ## Reglas
 
 - No se commitean WAV, embeddings, pesos ni informes.

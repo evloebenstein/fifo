@@ -253,6 +253,11 @@ SpeechSegmenter ──► WAV ──┬──► STT (Whisper) ──┐
   sala + Lombard) los hunde. **El corpus no ordena motores reales**: sus números
   no eligen ni descartan un modelo, solo validan el contrato y detectan
   regresiones.
+- El control con voz real (LibriSpeech dev-clean, 78 clips de 10 locutores,
+  `tools/speaker/build_librispeech_control.py`) da **0,0 % EER y 0,0 % FRR/FAR**
+  con los mismos modelos y el mismo pipeline. Confirma que el código funciona y
+  que el problema del 42–50 % es el corpus sintético, no el scoring. Es lectura
+  limpia: no mide campo ni el móvil.
 
 ---
 

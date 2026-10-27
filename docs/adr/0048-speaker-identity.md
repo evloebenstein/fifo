@@ -295,6 +295,26 @@ Lectura honesta:
 - El coste de extracción fue ~54 ms/clip en CPU de escritorio (120 clips en
   6,5 s con un hilo); no mide el móvil ni incluye el resto del turno.
 
+#### Control con voz real (LibriSpeech)
+
+Para descartar que el pipeline estuviera roto, se repitió el mismo proceso con
+voz humana real: **LibriSpeech dev-clean**, 10 locutores disjuntos, 78 clips
+(18 de enrolamiento, 24 de calibración y 36 de evaluación), convertidos a WAV
+16 kHz PCM16 con el mismo manifiesto y el mismo `score_embeddings.py`
+(`build_librispeech_control.py`).
+
+| Modelo | Trials | EER global | FRR/FAR @FAR 1 % |
+| :--- | ---: | ---: | ---: |
+| WeSpeaker ResNet34 | 144 | **0,0 %** | 0,0 % / 0,0 % |
+| 3D-Speaker CAM++ (zh-cn) | 144 | **0,0 %** | 0,0 % / 0,0 % |
+
+El control es deliberadamente fácil —lectura limpia, mismas condiciones de
+grabación— y **no certifica campo ni mide el móvil**. Pero separa las dos
+preguntas: el pipeline de manifiesto, embeddings, centroides, calibración y
+scoring funciona; el 42–50 % del corpus sintético es un problema del corpus, no
+del código. Un modelo real entrenado con voz humana no reconoce como distintas
+unas voces de formantes que la referencia espectral sí separa.
+
 ### 6. Elección de motor: diferida, con criterios claros
 
 No se elige un modelo en esta ADR porque no hay pesos, runtime ni corpus real.
@@ -388,9 +408,10 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 - La identidad puede fallar en ruido o con voces parecidas; por eso nunca
   autoriza nada sensible.
 - El corpus sintético no predice campo: la referencia espectral obtiene 31,8 %
-  EER global y tres modelos reales 42–50 % sobre el mismo corpus. Un buen número
-  aquí no autoriza a enviar nada y un mal número tampoco descarta el modelo; solo
-  un corpus real decide.
+  EER global y tres modelos reales 42–50 % sobre el mismo corpus. El control con
+  LibriSpeech da **0,0 % EER** con el mismo pipeline, así que el problema es el
+  corpus, no el código. Un buen número aquí no autoriza a enviar nada y un mal
+  número tampoco descarta el modelo; solo un corpus real decide.
 - Guardar biometría obliga a mantenimiento: rotación de claves, borrado,
   migración de modelo y auditoría.
 
@@ -418,7 +439,8 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 | `test/.../session/speaker/SpeakerCorpusExportTest.kt` | **New** — exportación WAV + `manifest.jsonl` para evaluar un modelo real. |
 | `tools/speaker/score_embeddings.py` | **New** — puntuación, calibración y tablas sobre embeddings externos (stdlib). |
 | `tools/speaker/extract_embeddings_sherpa.py` | **New** — extracción de embeddings con sherpa-onnx para el corpus exportado (dev-only). |
-| `tools/speaker/requirements.txt` | **New** — `sherpa-onnx` solo para desarrollo; no entra en la app. |
+| `tools/speaker/build_librispeech_control.py` | **New** — control con voz real (LibriSpeech dev-clean) y el mismo manifiesto. |
+| `tools/speaker/requirements.txt` | **New** — `sherpa-onnx` y `soundfile` solo para desarrollo; no entran en la app. |
 | `tools/speaker/README.md` | **New** — contrato de exportación, embeddings, modelos medidos y reglas de validación. |
 
 ---
@@ -439,22 +461,28 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
   para tres modelos (WeSpeaker CAM++, WeSpeaker ResNet34 y 3D-Speaker CAM++),
   512/256/192 dimensiones, 120 clips cada uno, sin pesos en el repo. La tabla
   anterior sale de esos informes; el corpus y los modelos viven en `%TEMP%`.
+- El control con LibriSpeech dev-clean se ejecutó con el mismo pipeline: 78
+  clips de 10 locutores, 144 trials de evaluación, **0,0 % EER y 0,0 % FRR/FAR**
+  con ResNet34 y con 3D-Speaker CAM++. No se commiteó audio.
 - Ninguna prueba depende de un modelo descargado ni de un dispositivo; la
-  extracción es una herramienta de desarrollo, no un test.
+  extracción y el control son herramientas de desarrollo, no tests.
 
 ---
 
 ## Siguiente paso (fuera de este ADR)
 
-**Hecho en esta iteración:** extracción con sherpa-onnx y medida de tres modelos
-reales sobre el corpus sintético (resultado negativo, tabla arriba). En la
-iteración anterior: exportación del corpus, separación calibración/evaluación,
-herramienta offline de puntuación y almacén cifrado con consentimiento.
+**Hecho en esta iteración:** extracción con sherpa-onnx, medida de tres modelos
+reales sobre el corpus sintético (resultado negativo, tabla arriba) y control con
+voz real de LibriSpeech (0,0 % EER, que descarta un fallo del pipeline y confirma
+que el problema es el corpus). En la iteración anterior: exportación del corpus,
+separación calibración/evaluación, herramienta offline de puntuación y almacén
+cifrado con consentimiento.
 
 1. **Hecho parcialmente:** extraer embeddings con un modelo real y pasarlos por
-   `tools/speaker/score_embeddings.py`. Se midieron WeSpeaker CAM++,
-   WeSpeaker ResNet34 y 3D-Speaker CAM++ con sherpa-onnx. Falta repetirlo con un
-   **ReDimNet-B0/B1** y, sobre todo, con grabaciones reales.
+   `tools/speaker/score_embeddings.py`, con control de voz real para separar
+   corpus y código. Se midieron WeSpeaker CAM++, WeSpeaker ResNet34 y 3D-Speaker
+   CAM++ con sherpa-onnx, y el control de LibriSpeech dio 0,0 % EER. Falta
+   repetirlo con un **ReDimNet-B0/B1** y, sobre todo, con grabaciones reales.
 2. Grabar el corpus de campo **antes** de elegir motor: 10–15 personas, 3–5
    frases de enrolamiento y uso en silencio, TV, calle y a 1–3 m. Es el único
    número que puede autorizar un detector; el sintético ya demostró que no

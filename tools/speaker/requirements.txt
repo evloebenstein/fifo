@@ -1,3 +1,4 @@
 # Dependencias solo de desarrollo para tools/speaker (ADR-0048).
 # No se instalan en la app ni se empaquetan en el APK.
 sherpa-onnx>=2.0
+soundfile>=0.14
