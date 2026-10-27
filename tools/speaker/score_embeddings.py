@@ -186,12 +186,15 @@ def metrics(trials: list[dict], threshold: float) -> dict:
     impostor = [trial["score"] for trial in trials if not trial["genuine"]]
     frr = sum(score < threshold for score in genuine) / len(genuine) if genuine else 1.0
     far = sum(score >= threshold for score in impostor) / len(impostor) if impostor else 1.0
+    oracle_threshold, oracle_eer = eer_threshold(trials)
     return {
         "trials": len(trials),
         "genuine_trials": len(genuine),
         "impostor_trials": len(impostor),
         "frr": frr,
         "far": far,
+        "eer": oracle_eer,
+        "eer_threshold": oracle_threshold,
     }
 
 
@@ -204,10 +207,11 @@ def group_metrics(trials: list[dict], threshold: float, key: str) -> dict[str, d
 
 def table(title: str, rows: dict[str, dict]) -> None:
     print(f"\n{title}")
-    print(f"{'grupo':<24} {'trials':>7} {'FRR':>8} {'FAR':>8}")
+    print(f"{'grupo':<24} {'trials':>7} {'EER':>8} {'FRR':>8} {'FAR':>8}")
     for name, values in rows.items():
         print(
             f"{name:<24} {values['trials']:>7} "
+            f"{values['eer'] * 100:>7.1f}% "
             f"{values['frr'] * 100:>7.1f}% {values['far'] * 100:>7.1f}%"
         )
 

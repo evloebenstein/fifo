@@ -265,6 +265,36 @@ con el split de calibración y reporta EER/FRR/FAR por condición y duración. S
 usa la biblioteca estándar de Python: no mete `numpy`, `torch` ni ONNX en la app
 y no adivina el frontend de cada modelo.
 
+`extract_embeddings_sherpa.py` cierra el contrato por el lado del modelo: lee el
+manifiesto, extrae un vector por clip con sherpa-onnx (que hace su propio
+frontend) y escribe `embeddings.jsonl`. Se probaron tres modelos públicos sobre
+los 120 clips sintéticos, con el umbral fijado **solo** con `calibration`:
+
+| Modelo | Dim | EER `clean` | EER `pink-10` | EER `white-5` | EER Lombard | EER global | FRR/FAR @FAR 1 % |
+| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| WeSpeaker ResNet34 (en, VoxCeleb) | 256 | 9,5 % | 50,0 % | 48,8 % | 50,6 % | 49,9 % | 81,2 % / 2,4 % |
+| 3D-Speaker CAM++ (zh-cn common) | 192 | 16,7 % | 32,1 % | 41,7 % | 41,7 % | 41,7 % | 77,1 % / 4,8 % |
+| WeSpeaker CAM++ (en, VoxCeleb) | 512 | 41,7 % | 57,7 % | 44,0 % | 50,0 % | 50,1 % | 95,8 % / 0,6 % |
+
+Lectura honesta:
+
+- En limpio, un modelo real separa las voces sintéticas (ResNet34 9,5 %), pero en
+  ruido y Lombard se cae a ~50 %, peor que la referencia espectral (31,8 %
+  global). Eso no demuestra que el modelo sea peor: el ruido sintético
+  (blanco/rosa a 5–10 dB, sala + Lombard) es un dominio hostil y fuera de la
+  distribución de entrenamiento, y la referencia comparte familia de features
+  con el corpus. **El corpus sintético no ordena motores reales.**
+- La muestra es pequeña: 12 genuinos por condición y 16 en calibración. Un solo
+  error mueve el EER ~8 puntos; la tabla sirve para tendencias, no para decidir
+  entre modelos que difieren en un dígito.
+- Un umbral global calibrado con todas las condiciones deja un FAR limpio alto
+  (19 % en 3D-Speaker, 9,5 % en ResNet34): sin normalización por condición, un
+  solo umbral no sirve cuando cambia la condición. Es otro argumento para
+  calibrar con datos de campo.
+- Ninguno se acerca a la barra. `Noop` sigue por defecto.
+- El coste de extracción fue ~54 ms/clip en CPU de escritorio (120 clips en
+  6,5 s con un hilo); no mide el móvil ni incluye el resto del turno.
+
 ### 6. Elección de motor: diferida, con criterios claros
 
 No se elige un modelo en esta ADR porque no hay pesos, runtime ni corpus real.
@@ -357,9 +387,10 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
   el usuario percibe que Fifo "lo estudia".
 - La identidad puede fallar en ruido o con voces parecidas; por eso nunca
   autoriza nada sensible.
-- El corpus sintético es demasiado fácil y no representa micrófonos, televisión
-  ni voces reales. El siguiente número que importe tiene que salir de
-  grabaciones.
+- El corpus sintético no predice campo: la referencia espectral obtiene 31,8 %
+  EER global y tres modelos reales 42–50 % sobre el mismo corpus. Un buen número
+  aquí no autoriza a enviar nada y un mal número tampoco descarta el modelo; solo
+  un corpus real decide.
 - Guardar biometría obliga a mantenimiento: rotación de claves, borrado,
   migración de modelo y auditoría.
 
@@ -386,7 +417,9 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 | `test/.../session/speaker/SpeakerVerificationHarnessTest.kt` | **New** — determinismo, separación limpia, calibración y tabla gated. |
 | `test/.../session/speaker/SpeakerCorpusExportTest.kt` | **New** — exportación WAV + `manifest.jsonl` para evaluar un modelo real. |
 | `tools/speaker/score_embeddings.py` | **New** — puntuación, calibración y tablas sobre embeddings externos (stdlib). |
-| `tools/speaker/README.md` | **New** — contrato de exportación, embeddings y reglas de validación. |
+| `tools/speaker/extract_embeddings_sherpa.py` | **New** — extracción de embeddings con sherpa-onnx para el corpus exportado (dev-only). |
+| `tools/speaker/requirements.txt` | **New** — `sherpa-onnx` solo para desarrollo; no entra en la app. |
+| `tools/speaker/README.md` | **New** — contrato de exportación, embeddings, modelos medidos y reglas de validación. |
 
 ---
 
@@ -402,29 +435,38 @@ que promete "te reconozco" sin modelo sería una mentira de producto.
 - La exportación se ejecutó a un directorio temporal y produjo 120 WAV y 120
   líneas de manifiesto; `score_embeddings.py` se probó de extremo a extremo con
   embeddings sintéticos y escribió su informe.
-- Ninguna prueba depende de un modelo descargado ni de un dispositivo.
+- Sobre esos 120 clips se extrajeron embeddings reales con sherpa-onnx 2.0.1
+  para tres modelos (WeSpeaker CAM++, WeSpeaker ResNet34 y 3D-Speaker CAM++),
+  512/256/192 dimensiones, 120 clips cada uno, sin pesos en el repo. La tabla
+  anterior sale de esos informes; el corpus y los modelos viven en `%TEMP%`.
+- Ninguna prueba depende de un modelo descargado ni de un dispositivo; la
+  extracción es una herramienta de desarrollo, no un test.
 
 ---
 
 ## Siguiente paso (fuera de este ADR)
 
-**Hecho en esta iteración:** exportación del corpus, separación
-calibración/evaluación, herramienta offline de puntuación y almacén cifrado con
-consentimiento.
+**Hecho en esta iteración:** extracción con sherpa-onnx y medida de tres modelos
+reales sobre el corpus sintético (resultado negativo, tabla arriba). En la
+iteración anterior: exportación del corpus, separación calibración/evaluación,
+herramienta offline de puntuación y almacén cifrado con consentimiento.
 
-1. Extraer embeddings de un **ReDimNet-B0/B1 ONNX real** con WeSpeaker o
-   sherpa-onnx y pasarlos por `tools/speaker/score_embeddings.py`. Es el primer
-   número que puede compararse con la tabla del simulador.
-2. Implementar la **UI de consentimiento, enrolamiento y borrado** en
+1. **Hecho parcialmente:** extraer embeddings con un modelo real y pasarlos por
+   `tools/speaker/score_embeddings.py`. Se midieron WeSpeaker CAM++,
+   WeSpeaker ResNet34 y 3D-Speaker CAM++ con sherpa-onnx. Falta repetirlo con un
+   **ReDimNet-B0/B1** y, sobre todo, con grabaciones reales.
+2. Grabar el corpus de campo **antes** de elegir motor: 10–15 personas, 3–5
+   frases de enrolamiento y uso en silencio, TV, calle y a 1–3 m. Es el único
+   número que puede autorizar un detector; el sintético ya demostró que no
+   ordena modelos reales.
+3. Implementar la **UI de consentimiento, enrolamiento y borrado** en
    `ProfileScreen` y cablear `androidEncryptedVoiceProfileStore()` en
-   `VoiceSessionPipeline` cuando exista el extractor.
-3. Añadir aumento de ruido, sala y Lombard al entrenamiento/validación del
+   `VoiceSessionPipeline` cuando exista un extractor validado.
+4. Añadir aumento de ruido, sala y Lombard al entrenamiento/validación del
    extractor, no solo al test; normalizar scores por condición si el modelo lo
    permite.
-4. Evaluar una contramedida de spoofing (ASVspoof 5) antes de usar la identidad
+5. Evaluar una contramedida de spoofing (ASVspoof 5) antes de usar la identidad
    para cualquier acción sensible.
-5. Grabar un corpus real: 10–15 personas, 3–5 frases de enrolamiento y uso en
-   silencio, TV, calle y a 1–3 m. Sin ese corpus no se envía el detector.
 6. Solo si el modelo supera la barra, el almacén está cifrado y la UI tiene
    consentimiento, cambiar `NoopSpeakerIdentityProvider` por el proveedor real y
    actualizar este ADR con los números de campo.

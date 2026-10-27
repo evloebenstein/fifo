@@ -243,10 +243,16 @@ SpeechSegmenter ──► WAV ──┬──► STT (Whisper) ──┐
   y el EER global 31,8 %. Sirve para regresión y para decidir cuándo hace falta
   un modelo entrenado, no para afirmar un EER real.
 - `SpeakerCorpusExportTest` (gated con `FIFO_SPEAKER_EXPORT_DIR`) exporta 120
-  clips WAV + `manifest.jsonl`. `tools/speaker/score_embeddings.py` consume un
-  `embeddings.jsonl` externo, calibra con el split de calibración y reporta
-  EER/FRR/FAR por condición y duración. No se commitean WAV, embeddings ni pesos
-  y no se añade ONNX/torch a la app.
+  clips WAV + `manifest.jsonl`. `tools/speaker/extract_embeddings_sherpa.py`
+  extrae embeddings con sherpa-onnx y `score_embeddings.py` calibra con el split
+  de calibración y reporta EER/FRR/FAR por condición y duración. No se commitean
+  WAV, embeddings ni pesos y no se añade ONNX/torch a la app.
+- Los primeros modelos reales medidos (WeSpeaker CAM++/ResNet34 y 3D-Speaker
+  CAM++) quedaron entre 42 % y 50 % de EER global, peor que la referencia
+  espectral. En limpio ResNet34 baja a 9,5 %, pero el ruido sintético (5–10 dB,
+  sala + Lombard) los hunde. **El corpus no ordena motores reales**: sus números
+  no eligen ni descartan un modelo, solo validan el contrato y detectan
+  regresiones.
 
 ---
 
