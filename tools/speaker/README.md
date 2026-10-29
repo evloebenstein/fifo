@@ -259,7 +259,105 @@ Lectura:
   0–1,8 % FRR.
 - Sigue sin pasar la barra: es lectura limpia aumentada, no una calle ni un
   móvil, y el FRR de `white-5` roza el 10 %. No autoriza a cambiar `Noop`.
-- Es inglés. Repetirlo con español y con grabaciones reales sigue pendiente.
+- Es inglés. Repetirlo con español: hecho en la sección 6.
+
+## 6. Campo simulado en español
+
+El corpus inglés no basta para un usuario que habla español. Se probaron tres
+fuentes reales; solo una sirve para el arnés:
+
+| Corpus | Locutores | Clips/locutor | Veredicto |
+| :--- | ---: | ---: | :--- |
+| FLEURS `es_419` | 1.450 | 1–3 | Descartado: no hay 7 clips por locutor. |
+| VoxForge Spanish | 2.180 | ~10 | Descartado como principal: 43 frases compartidas y micrófonos domésticos. |
+| **TEDx Spanish (SLR67)** | 142 | 5–246 (mediana 75) | **Elegido**: habla espontánea, contenido distinto, 16 kHz mono. |
+
+TEDx se lee en streaming del `.tgz` (2,18 GB) sin descomprimirlo entero y se
+extraen solo los 280 clips elegidos:
+
+```powershell
+curl.exe -L -o "$env:TEMP\fifo-speaker-eval\tedx-es\tedx_spanish_corpus.tgz" `
+  "https://www.openslr.org/resources/67/tedx_spanish_corpus.tgz"
+
+& "$env:TEMP\fifo-speaker-eval\venv\Scripts\python.exe" tools\speaker\prepare_tedx_spanish_pool.py `
+  --archive "$env:TEMP\fifo-speaker-eval\tedx-es\tedx_spanish_corpus.tgz" `
+  --out "$env:TEMP\fifo-speaker-eval\real-pool-es-tedx" `
+  --speakers 40 --clips-per-speaker 7
+
+$env:FIFO_REAL_SPEECH_POOL="$env:TEMP\fifo-speaker-eval\real-pool-es-tedx"
+$env:FIFO_REAL_SPEECH_EXPORT_DIR="$env:TEMP\fifo-speaker-eval\real-field-corpus-es-tedx"
+$env:FIFO_REAL_SPEECH_CALIBRATION="12"
+.\gradlew.bat cleanTestDebugUnitTest testDebugUnitTest --tests "*RealSpeechAugmentationExportTest"
+```
+
+`cleanTestDebugUnitTest` es necesario: si solo cambian las variables de entorno,
+Gradle considera la tarea *up-to-date* y no regenera el corpus.
+
+40 locutores (20/20), 7 clips repartidos a lo largo de la charla, 12 de
+calibración y 28 de evaluación, seis condiciones, 1.020 clips, 9.408 trials:
+
+| Modelo | Dim. | EER crudo | FRR/FAR crudo | EER AS-Norm | FRR/FAR AS-Norm |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| **CAM++ zh_en advanced** | 192 | 2,4 % | **5,7 % / 0,4 %** | 5,3 % | 4,8 % / 5,7 % |
+| NeMo TitaNet large | 192 | **1,8 %** | 12,8 % / 0,1 % | 8,3 % | 3,6 % / 10,3 % |
+| ERes2NetV2 | 192 | 3,8 % | 14,3 % / 0,8 % | 8,3 % | 9,2 % / 7,6 % |
+| ERes2Net base 200k | 512 | 4,1 % | 11,9 % / 0,7 % | 8,9 % | 6,2 % / 9,5 % |
+| CAM++ zh-cn | 192 | 11,0 % | 36,9 % / 1,0 % | 12,5 % | 11,6 % / 13,1 % |
+| WeSpeaker CAM++ | 512 | 41,2 % | 88,4 % / 1,5 % | 39,9 % | 90,8 % / 2,1 % |
+| WeSpeaker ResNet34 | 256 | 40,2 % | 82,4 % / 1,2 % | 37,9 % | 78,0 % / 4,0 % |
+
+Lectura: el español cuesta ~1 punto (2,4 % frente a 1,2 % en inglés), el orden
+de los modelos se mantiene, la calibración **sí** transfiere (1,4 % en
+calibración frente a 2,4 % en evaluación) y AS-Norm empeora al avanzado. TitaNet
+gana en EER pero pierde en el punto de operación (12,8 % FRR a FAR 1 %). Sigue
+sin autorizar `Noop`: es audio de conferencia aumentado, no una llamada.
+
+VoxForge se conserva como evidencia del descarte
+(`prepare_voxforge_spanish_pool.py`): 10,1 % EER con el avanzado, pero
+calibración 30,6 % frente a evaluación 10,1 % y **94,9 % FRR** con el umbral
+calibrado, porque cada voluntario graba con su micrófono. Repartir prompts al
+azar por locutor (para que dos personas no reciten la misma frase) no cambió el
+número. Un corpus así exige normalización por locutor, no un umbral global.
+
+## 7. Spoofing: medir con un CM real antes de prometer nada
+
+`score_spoofing.py` ejecuta un CM ONNX y compara voz real con voz sintética. Se
+usó AASIST (297 k parámetros, MIT, checkpoint oficial de ASVspoof2019 LA, 0,83 %
+EER in-domain) y voz sintética en español generada con Piper:
+
+```powershell
+curl.exe -L -o "$env:TEMP\fifo-speaker-eval\spoof\aasist.onnx" `
+  "https://huggingface.co/SpeechAntiSpoofingBenchmarks/AASIST/resolve/main/aasist.onnx"
+
+& "$env:TEMP\fifo-speaker-eval\venv\Scripts\python.exe" tools\speaker\make_spoofed_spanish_pool.py `
+  --voices "$env:TEMP\fifo-speaker-eval\spoof\tts" `
+  --out "$env:TEMP\fifo-speaker-eval\spoofed-pool-es" --utterances 20
+# --voices necesita un subdirectorio por voz con el .onnx y su .onnx.json; los
+# bundles vits-piper-* de sherpa-onnx sirven tal cual.
+
+& "$env:TEMP\fifo-speaker-eval\venv\Scripts\python.exe" tools\speaker\score_spoofing.py `
+  --model "$env:TEMP\fifo-speaker-eval\spoof\aasist.onnx" `
+  --bonafide "$env:TEMP\fifo-speaker-eval\real-field-corpus-es-tedx\evaluation" `
+  --bonafide-filter=-clean- `
+  --spoof "$env:TEMP\fifo-speaker-eval\spoofed-pool-es" `
+  --normalize raw --out "$env:TEMP\fifo-speaker-eval\spoof\report-es.json"
+```
+
+`--normalize raw|peak|rms` cambia el nivel de entrada: AASIST no normaliza por
+energía y el mismo audio escalado ×10 cambia el signo del logit, así que el
+número solo vale si se declara el nivel.
+
+| Voz real | Voz sintética | EER | FRR a riesgo 0,50 | FAR |
+| :--- | :--- | ---: | ---: | ---: |
+| LibriSpeech EN `clean` | Piper ES (5 voces, 100 clips) | 7,1 % | 14,3 % | 0,0 % |
+| TEDx ES `clean` | Piper ES | 33,0 % | 74,1 % | 0,0 % |
+| TEDx ES 6 condiciones | Piper ES | 45,9 % | 95,5 % | 0,0 % |
+
+Con `peak` y `rms` el FRR español se queda en 65–74 %: no es un artefacto de
+nivel. AASIST detecta el TTS y **rechaza la voz real española** (desajuste de
+dominio, coherente con su tabla publicada: HABLA 37,4 %, InTheWild 43,0 %).
+Por eso `NoopSpoofingDetector` sigue por defecto y la UI no promete detección de
+voces sintéticas.
 
 ## Reglas
 
@@ -279,6 +377,12 @@ Lectura:
   FRR/FAR por condición, no sube audio ni embeddings y supera la validación real.
 - Cualquier cambio de corpus, umbral o extractor se documenta en ADR-0048 y se
   compara con `SpeakerVerificationHarnessTest`, no con una tabla aislada.
+- Para español, el corpus de referencia es TEDx (habla espontánea). VoxForge
+  queda como evidencia de que un corpus leído con micrófonos domésticos necesita
+  normalización por locutor: su umbral calibrado deja 94,9 % FRR.
+- Un CM de spoofing se mide con `score_spoofing.py` antes de mencionarlo en la
+  app. AASIST rechaza el 74 % de la voz real española limpia: un modelo con ese
+  FRR no puede degradar cada turno a `UNCERTAIN`.
 
 Ver `docs/adr/0048-speaker-identity.md` para la comparativa, la tabla del
 simulador y los criterios de envío.

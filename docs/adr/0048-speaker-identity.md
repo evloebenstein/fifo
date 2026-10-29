@@ -398,6 +398,60 @@ Lo honesto:
   no debería definir al locutor, pero un corpus español real sigue siendo
   necesario.
 
+#### Campo simulado en español (TEDx)
+
+El usuario de Fifo habla español, así que la tabla inglesa no basta. Se
+buscaron corpus con licencia utilizable y suficientes clips por locutor:
+
+| Corpus | Locutores | Clips/locutor | Veredicto |
+| :--- | ---: | ---: | :--- |
+| FLEURS `es_419` | 1.450 | 1–3 (máx. 3) | Descartado: no llega a 7 clips ni a 3 de enrolamiento. |
+| VoxForge Spanish (SLR) | 2.180 | ~10 | Descartado como corpus principal: lectura de 43 frases compartidas y micrófonos domésticos. |
+| **TEDx Spanish (SLR67)** | 142 | 5–246 (mediana 75) | **Elegido**: habla espontánea, contenido distinto por persona, 16 kHz mono. |
+
+`prepare_voxforge_spanish_pool.py` se queda como evidencia del descarte: con 40
+locutores (20/20), 7 prompts distintos por persona elegidos al azar para que dos
+locutores no reciten la misma frase, y la misma acústica del arnés, el CAM++
+advanced da **10,1 % EER**, pero la calibración no transfiere: EER de
+calibración 30,6 % frente a 10,1 % de evaluación, y el umbral calibrado al 1 %
+deja **94,9 % FRR**. Repartir prompts al azar en vez de por turnos no movió el
+número (9,8 % → 10,1 %): el problema no era la frase repetida, era la
+heterogeneidad de grabación de voluntarios. Un corpus así necesita normalización
+por locutor, no un umbral global.
+
+`prepare_tedx_spanish_pool.py` construye el corpus que sí se reporta: 40
+locutores (20 mujeres, 20 hombres), 7 clips repartidos a lo largo de la charla
+(principio, medio y final, para no comparar dos tomas del mismo párrafo), 12 de
+calibración y 28 de evaluación, disjuntos, seis condiciones del arnés, **1.020
+clips y 9.408 trials**. Mismo manifiesto y mismo `score_embeddings.py`.
+
+| Modelo | Dim. | EER crudo | FRR/FAR crudo | EER AS-Norm | FRR/FAR AS-Norm |
+| :--- | ---: | ---: | ---: | ---: | ---: |
+| **3D-Speaker CAM++ zh_en advanced** | 192 | 2,4 % | **5,7 % / 0,4 %** | 5,3 % | 4,8 % / 5,7 % |
+| NeMo TitaNet large | 192 | **1,8 %** | 12,8 % / 0,1 % | 8,3 % | 3,6 % / 10,3 % |
+| 3D-Speaker ERes2NetV2 | 192 | 3,8 % | 14,3 % / 0,8 % | 8,3 % | 9,2 % / 7,6 % |
+| 3D-Speaker ERes2Net base 200k | 512 | 4,1 % | 11,9 % / 0,7 % | 8,9 % | 6,2 % / 9,5 % |
+| 3D-Speaker CAM++ zh-cn | 192 | 11,0 % | 36,9 % / 1,0 % | 12,5 % | 11,6 % / 13,1 % |
+| WeSpeaker CAM++ | 512 | 41,2 % | 88,4 % / 1,5 % | 39,9 % | 90,8 % / 2,1 % |
+| WeSpeaker ResNet34 | 256 | 40,2 % | 82,4 % / 1,2 % | 37,9 % | 78,0 % / 4,0 % |
+
+Lectura:
+
+- **El español cuesta ~1 punto, no un orden de magnitud.** El avanzado pasa de
+  1,2 % (inglés) a 2,4 %; el orden de los modelos se mantiene (avanzado y
+  TitaNet delante, WeSpeaker detrás).
+- **La calibración transfiere.** EER de calibración 1,4 % frente a 2,4 % de
+  evaluación con el avanzado, y 3,5 % frente a 1,8 % con TitaNet: a diferencia
+  de VoxForge, el umbral de un split sirve en el otro.
+- **El mejor EER no es el mejor punto de operación.** TitaNet gana en EER (1,8 %)
+  pero a FAR 1 % deja 12,8 % FRR; el avanzado deja 5,7 %.
+- **AS-Norm sigue sin ser universal.** Empeora al avanzado (2,4 % → 5,3 %) y a
+  TitaNet (1,8 % → 8,3 %), y solo maquilla a CAM++ zh-cn. Se mide por modelo.
+- **Sigue sin haber motor.** La barra de campo no se mueve: esto es audio de
+  conferencia aumentado con ruido simulado, no una llamada de móvil en la calle.
+  `Noop` sigue por defecto.
+
+
 #### Corpus de campo: protocolo y manifiesto
 
 El paso que falta no es otro modelo ni otro umbral: son **grabaciones reales**.
@@ -445,15 +499,43 @@ interface SpoofingDetector {
 
 Por qué no se envía un detector real todavía:
 
+- **Se midió uno real y falla en español.** AASIST (Jung et al., ICASSP 2022;
+  297 k parámetros, MIT) publicado en ONNX por
+  `SpeechAntiSpoofingBenchmarks/AASIST`, con su checkpoint oficial de
+  ASVspoof2019 LA (0,83 % EER in-domain). `score_spoofing.py` lo ejecuta con
+  `onnxruntime` sobre voz real y voz sintética en español:
+
+  | Voz real (bonafide) | Voz sintética | EER | FRR a `maxSpoofRisk` 0,50 | FAR |
+  | :--- | :--- | ---: | ---: | ---: |
+  | LibriSpeech EN, `clean` | Piper ES, 5 voces | 7,1 % | 14,3 % | 0,0 % |
+  | TEDx ES, `clean` | Piper ES, 5 voces | 33,0 % | 74,1 % | 0,0 % |
+  | TEDx ES, 6 condiciones | Piper ES, 5 voces | 45,9 % | 95,5 % | 0,0 % |
+
+  Detecta el TTS (0 % de sintéticos aceptados) y **rechaza la voz real
+  española**: con el umbral 0,50, tres de cada cuatro turnos limpios y casi
+  todos los turnos con ruido se degradarían a `UNCERTAIN`. La causa no es el
+  nivel de entrada: normalizar a fondo de escala o por RMS mueve el FRR entre
+  65 % y 74 %, no lo arregla. Es desajuste de dominio, el mismo que publica la
+  propia tarjeta del modelo fuera de ASVspoof (HABLA 37,4 %, InTheWild 43,0 %,
+  CD-ADD 51,1 %, ASVspoof5 35,5 %).
+- La voz sintética es Piper (VITS) local, `make_spoofed_spanish_pool.py`: cinco
+  voces españolas, 100 clips, ataque de **acceso lógico por TTS**. No cubre
+  conversión de voz, reproducción de una grabación ni ataques adversarios; el
+  FAR 0 % no se puede extrapolar a esos casos.
 - ASVspoof 5 (2024/2025) está pensado para ataques crowdsourced y deepfakes, pero
   el corpus es enorme (shards de ~7 GB), requiere aceptar condiciones de acceso y
-  no hay pesos de contramedida validados en el repo.
-- ASVspoof 2019 LA está disponible en Hugging Face, pero el audio tampoco está
-  descargado ni se commitea, y un detector entrenado en inglés de laboratorio no
-  se puede presentar como protección de campo.
-- El umbral 0,50 es **configuración provisional**, no una calibración. Se
-  recalibra con EER/FAR de un modelo y corpus reales, igual que el umbral de
-  identidad.
+  no hay pesos de contramedida validados en el repo. ASVspoof 2019 LA pide
+  solicitud de acceso: sus números se citan de la tarjeta del modelo, no se
+  reproducen aquí.
+- El umbral 0,50 es **configuración provisional**, no una calibración. Con un
+  modelo que rechaza el 74 % de la voz real, el umbral correcto sería mucho más
+  alto, pero eso dejaría pasar TTS: no hay punto de operación útil sin un modelo
+  entrenado o adaptado a español y a micrófono de móvil.
+- Un CM que dependa del nivel de entrada tampoco es aceptable tal cual: el mismo
+  audio escalado ×10 cambia el signo del logit. Si algún día se envía uno, la
+  normalización de nivel va dentro del detector y se mide con el arnés, no en el
+  consumidor.
+
 
 La UI tampoco promete spoofing: dice que la voz no autoriza llamadas, pagos ni
 datos privados. La costura existe para que, cuando haya modelo, la decisión no se
@@ -461,8 +543,9 @@ repita en `VoiceSession` ni en el LLM.
 
 ### 7. Elección de motor: diferida, con criterios claros
 
-No se elige un modelo en esta ADR porque no hay pesos, runtime ni corpus real.
-Criterios para el siguiente paso:
+No se elige un modelo todavía: hay prefiltro con voz real (inglés y español),
+pero no hay corpus de campo, ni runtime dentro de la app, ni latencia medida en
+un móvil ARM. Criterios para el siguiente paso:
 
 | Criterio | Barra |
 | :--- | :--- |
@@ -485,6 +568,22 @@ Candidatos, en orden:
 
 WavLM no es primera opción por tamaño y por su sensibilidad al desajuste de
 estilo. ReDimNet-B6 queda como techo de calidad, no como primer envío.
+ReDimNet-B0/B1 no está en el release de sherpa-onnx, así que hoy no se puede
+medir con las mismas herramientas que el resto.
+
+Estado de la evidencia, para que el siguiente paso no repita lo hecho:
+
+- **Candidato**: 3D-Speaker CAM++ zh_en advanced (192 dims, Apache-2.0). Mejor
+  punto de operación en inglés (1,2 % EER; 2,4 % FRR a FAR 1 %) y en español
+  TEDx (2,4 %; 5,7 % FRR a FAR 1 %), con 192 dimensiones en vez de 512.
+- **Alternativa**: NeMo TitaNet large. Mejor EER en español (1,8 %) pero peor
+  FRR al 1 % (12,8 %) y sin ventaja de tamaño.
+- **Descartados para móvil**: WeSpeaker ResNet34/CAM++ (40–46 % EER con voz
+  real; el ranking de formantes los aprobaba), WavLM por tamaño.
+- **Sin medir**: latencia en ARM (el emulador es x86_64), tamaño del APK con
+  `onnxruntime` + modelo, y comportamiento con el micrófono real de una llamada.
+- **Bloqueado**: el número que autoriza el envío es de campo, con 10–15 personas
+  grabadas con móvil en silencio, TV, calle y a 1–3 m.
 
 ---
 
@@ -606,8 +705,12 @@ crea perfiles.
 | `tools/speaker/extract_embeddings_sherpa.py` | **New** — extracción de embeddings con sherpa-onnx para el corpus exportado (dev-only). |
 | `tools/speaker/build_librispeech_control.py` | **New** — control con voz real (LibriSpeech dev-clean) y el mismo manifiesto. |
 | `tools/speaker/prepare_librispeech_pool.py` | **New** — pool de voces reales para el campo simulado. |
+| `tools/speaker/prepare_tedx_spanish_pool.py` | **New** — pool español espontáneo (TEDx) desde el `.tgz` de OpenSLR, con dos pasadas de streaming. |
+| `tools/speaker/prepare_voxforge_spanish_pool.py` | **New** — pool español desde los parquets de VoxForge; queda documentado como descarte. |
+| `tools/speaker/make_spoofed_spanish_pool.py` | **New** — voz sintética en español con Piper (TTS de acceso lógico) y WAV 16 kHz. |
+| `tools/speaker/score_spoofing.py` | **New** — puntuación con un CM ONNX (AASIST), EER, FRR/FAR y sensibilidad al nivel. |
 | `tools/speaker/build_field_manifest.py` | **New** — layout, plan disjunto y validación del corpus de campo. |
-| `tools/speaker/requirements.txt` | **New** — `sherpa-onnx` y `soundfile` solo para desarrollo; no entran en la app. |
+| `tools/speaker/requirements.txt` | **New** — `sherpa-onnx`, `soundfile`, `pyarrow`, `onnxruntime` y `piper-tts` solo para desarrollo; no entran en la app. |
 | `tools/speaker/README.md` | **New** — contrato de exportación, embeddings, modelos medidos y reglas de validación. |
 
 ---
@@ -644,6 +747,20 @@ crea perfiles.
 - La ablación de cohorte (20 locutores de calibración, 20 de evaluación) confirmó
   el resultado del avanzado: 1,3 % EER crudo frente a 1,2 % en el reparto 12/28,
   y AS-Norm sigue sin mejorarlo (1,6 %).
+- El campo simulado en español se generó dos veces. VoxForge (un shard de 453 MB,
+  272 locutores): 40 locutores, 280 clips, 1.020 clips aumentados; el avanzado
+  dio 10,1 % EER pero la calibración no transfirió (30,6 % en calibración, 94,9 %
+  FRR con el umbral calibrado). TEDx (`.tgz` de 2,18 GB, 142 locutores): 40
+  locutores, 280 clips, **1.020 clips y 9.408 trials**; siete modelos medidos, el
+  avanzado con 2,4 % EER y 5,7 % FRR a FAR 1 %. No se commiteó audio.
+- El spoofing se midió con AASIST ONNX (1,6 MB, sin pesos en el repo) sobre voz
+  real y 100 clips de Piper: 7,1 % EER con voz inglesa limpia, **33,0 % con voz
+  española limpia y 45,9 % con las seis condiciones**, con FRR 74,1 %/95,5 % al
+  umbral de política y FAR 0 %. Repetido con normalización de fondo de escala y
+  de RMS, el FRR español se queda en 65–74 %: no es un artefacto de nivel.
+- `score_spoofing.py` y `make_spoofed_spanish_pool.py` se ejecutaron de extremo a
+  extremo; `prepare_tedx_spanish_pool.py` indexa el `.tgz` en streaming y extrae
+  solo los 280 clips elegidos.
 - `build_field_manifest.py` se probó de extremo a extremo con el control de
   LibriSpeech reorganizado como corpus de campo: 78 clips, 10 locutores,
   manifiesto válido y el mismo 0,0 % EER. También rechaza un plan incompleto y
@@ -661,12 +778,15 @@ crea perfiles.
 
 ## Siguiente paso (fuera de este ADR)
 
-**Hecho en esta iteración:** UI de consentimiento, estado y borrado en
+**Hecho en esta iteración:** corpus español simulado con dos fuentes reales
+(VoxForge descartado con números, TEDx elegido) y siete modelos medidos; spoofing
+medido con un CM real (AASIST) y voz sintética en español, que falla por desajuste
+de dominio. En la iteración anterior: UI de consentimiento, estado y borrado en
 `ProfileScreen` sobre el almacén cifrado real; costura de spoofing con `Noop` y
 degradación a `UNCERTAIN`; composición del consentimiento y del almacén en
 `VoiceIdentitySettings`; detector ejecutado en paralelo al extractor. El
-enrolamiento sigue deshabilitado porque no hay modelo. En la iteración anterior:
-campo simulado con 40 voces reales, AS-Norm y ranking de siete modelos (CAM++ zh_en
+enrolamiento sigue deshabilitado porque no hay modelo. Antes: campo simulado con
+40 voces reales inglesas, AS-Norm y ranking de siete modelos (CAM++ zh_en
 advanced, 1,2 % EER crudo). Antes: exportación del corpus, calibración disjunta,
 herramienta offline de puntuación y almacén cifrado.
 

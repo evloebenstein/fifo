@@ -126,6 +126,14 @@ _Avoid_: Benchmark de producción, Dataset biométrico
 Fijar el umbral de similitud con un conjunto de locutores de calibración a un FAR objetivo, y reportar FRR/FAR con locutores de evaluación distintos. Calibrar y evaluar sobre las mismas voces es una profecía (ADR-0048).
 _Avoid_: Ajuste de umbral sobre el test, Threshold tuning
 
+**Campo simulado en español**:
+Corpus de habla humana real en español aumentado con la acústica canónica del arnés (`RoomAcoustics`, `SimulatedNoise`, `LombardEffect`). Se construye desde TEDx Spanish con `prepare_tedx_spanish_pool.py` y se exporta con `RealSpeechAugmentationExportTest`; 40 locutores, splits disjuntos y seis condiciones. Prefiltra motores, pero no es una llamada de móvil ni autoriza a cambiar `Noop` (ADR-0048).
+_Avoid_: Corpus español sintético, Dataset de producción
+
+**Contramedida de spoofing (CM)**:
+Clasificador que estima si un audio es real o sintético/reproducido. En Fifo vive detrás de `SpoofingDetector` y solo produce `spoofRisk`; se mide con `tools/speaker/score_spoofing.py` (EER, FRR/FAR y nivel de entrada) antes de mencionarlo. AASIST deja 74 % FRR con voz española limpia, así que `Noop` sigue por defecto (ADR-0048).
+_Avoid_: Detector de deepfake, Liveness, Anti-spoofing
+
 **Política de locución**:
 Única autoridad léxica de Fifo (`UtterancePolicy`, ADR-0042). Clasifica invocación, consulta, saludo, silencio, sueño, eco, pregunta y control de llamada con las mismas reglas en el camino `SESSION` y en el legacy. Es pura y no redacta respuestas; solo decide qué hizo o pidió el usuario.
 _Avoid_: Diccionario de comandos, Reglas de voz, IntentParser

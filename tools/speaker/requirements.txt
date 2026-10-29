@@ -2,3 +2,10 @@
 # No se instalan en la app ni se empaquetan en el APK.
 sherpa-onnx>=2.0
 soundfile>=0.14
+# Corpus español desde parquets de Hugging Face (prepare_voxforge_spanish_pool.py)
+pyarrow>=17
+# Spoofing real: AASIST en ONNX (score_spoofing.py)
+onnxruntime>=1.20
+numpy>=1.26
+# Voz sintética local en español para el lado spoof (make_spoofed_spanish_pool.py)
+piper-tts>=1.8
