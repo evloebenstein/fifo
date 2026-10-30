@@ -359,6 +359,66 @@ dominio, coherente con su tabla publicada: HABLA 37,4 %, InTheWild 43,0 %).
 Por eso `NoopSpoofingDetector` sigue por defecto y la UI no promete detección de
 voces sintéticas.
 
+## 8. Canal telefónico y códec
+
+El corpus de TEDx comparte micrófono y sala por locutor. Para quitar ese atajo
+sin grabar personas, el arnés añade un canal por clip y el corpus se pasa por
+códecs reales.
+
+Canal (dentro de `RealSpeechAugmentationExportTest`, no hay segundo simulador):
+
+```powershell
+$env:FIFO_REAL_SPEECH_POOL="$env:TEMP\fifo-speaker-eval\real-pool-es-tedx"
+$env:FIFO_REAL_SPEECH_EXPORT_DIR="$env:TEMP\fifo-speaker-eval\real-field-corpus-es-tedx-channel"
+$env:FIFO_REAL_SPEECH_CALIBRATION="12"
+$env:FIFO_REAL_SPEECH_CHANNEL="telephony"
+.\gradlew.bat cleanTestDebugUnitTest testDebugUnitTest --tests "*RealSpeechAugmentationExportTest"
+```
+
+`TelephonyChannel` recorta banda (300–3400 Hz o 50–7000 Hz), inclina ±4 dB y
+aplica AGC entre −30 y −22 dBFS. El enrolamiento usa una sola sesión de canal
+por locutor y cada clip de uso usa otra: la llamada no suena como el
+enrolamiento.
+
+Códec (transporte, fuera del arnés):
+
+```powershell
+& "$env:TEMP\fifo-speaker-eval\venv\Scripts\python.exe" tools\speaker\apply_telephony_codec.py `
+  --corpus "$env:TEMP\fifo-speaker-eval\real-field-corpus-es-tedx-channel" `
+  --out "$env:TEMP\fifo-speaker-eval\real-field-corpus-es-tedx-channel-amrwb" `
+  --codec amrwb --jobs 6
+```
+
+`--codec amrwb` es VoLTE (16 kHz, 23,85 kbit/s), `amrnb` es GSM (8 kHz,
+12,2 kbit/s) y `opus` es VoIP (16 kHz, 24 kbit/s). Siempre devuelve WAV mono
+16 kHz PCM16 y copia el manifiesto, así que las herramientas de extracción y
+puntuación no cambian. Necesita `ffmpeg` con `libvo_amrwbenc`,
+`libopencore_amrnb` y `libopus`; no añade dependencias de Python.
+
+Mismo reparto (12/28) y mismo candidato, 9.408 trials:
+
+| Variante | EER | EER cal. | FRR/FAR @FAR 1 % |
+| :--- | ---: | ---: | ---: |
+| TEDx base | 2,4 % | 1,4 % | 5,7 % / 0,4 % |
+| + canal por clip | **2,5 %** | 1,4 % | 5,4 % / 0,8 % |
+| + canal + Opus 24 kbit/s | 3,0 % | 3,6 % | 6,5 % / 0,9 % |
+| + canal + AMR-WB 23,85 kbit/s | 4,2 % | 4,0 % | 12,8 % / 0,6 % |
+| + canal + AMR-NB 12,2 kbit/s | 6,2 % | 7,1 % | 22,9 % / 0,8 % |
+| AMR-WB sin canal | 3,6 % | 4,2 % | 12,8 % / 0,3 % |
+
+Lectura: el canal solo no cuesta (2,4 % → 2,5 %); el códec sí (Opus +0,6,
+VoLTE +1,8, GSM +3,8) y lo que se rompe es el FRR al 1 % de FAR. Con AMR-NB el
+clip limpio da 0 % de FRR pero `white-5` sube a 51,8 % y `babble-15` a 37,5 %.
+AS-Norm empeora todos los casos (6,2 % → 14,7 % con GSM). La calibración
+transfiere dentro de ~1,5 puntos.
+
+El micrófono del teléfono no comprime, así que AMR-NB no es el camino normal de
+Fifo; sí lo es un auricular Bluetooth (mSBC/LC3) o el BLE ESP32. Por eso el
+protocolo de campo debe grabar por el **camino real de captura**, no con un
+micrófono USB. Y esto no es una cota rigurosa: el canal original de la charla
+sigue dentro, y faltan pérdida de paquetes, distancia y salas reales. Sirve para
+descartar y dimensionar, no para autorizar `Noop`.
+
 ## Reglas
 
 - No se commitean WAV, embeddings, pesos ni informes.
@@ -373,6 +433,9 @@ voces sintéticas.
   en última instancia, las grabaciones reales son los que deciden.
 - AS-Norm se calibra **solo** con el split de calibración. Usar evaluación para
   la cohorte convertiría la tabla en una profecía.
+- Canal y códec se reportan juntos: un EER sin banda y códec declarados no es
+  comparable. El canal se simula en el arnés (`TelephonyChannel`); el códec, en
+  `apply_telephony_codec.py`, porque es transporte y no acústica.
 - Un modelo solo sustituye a `Noop` si cumple el presupuesto de 400 ms, mide
   FRR/FAR por condición, no sube audio ni embeddings y supera la validación real.
 - Cualquier cambio de corpus, umbral o extractor se documenta en ADR-0048 y se

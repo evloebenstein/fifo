@@ -34,11 +34,18 @@ import kotlin.random.Random
  * `FIFO_REAL_SPEECH_CALIBRATION` permite cambiar el tamaño de la cohorte de
  * calibración para medir si AS-Norm se estabiliza con más perfiles.
  *
+ * `FIFO_REAL_SPEECH_CHANNEL=telephony` añade `TelephonyChannel` al final de la
+ * cadena: banda, coloración y AGC **por clip de uso**, con una sola sesión de
+ * canal para el enrolamiento. Rompe el atajo de "mismo micrófono por locutor"
+ * que el corpus de una sola charla regalaba. Es una estimación dura, no campo:
+ * el canal original de la grabación no se puede quitar.
+ *
  * Está apagado por defecto. Se activa con:
  *
  * ```
  * $env:FIFO_REAL_SPEECH_POOL="C:\ruta\al\pool"
  * $env:FIFO_REAL_SPEECH_EXPORT_DIR="C:\ruta\al\corpus"
+ * $env:FIFO_REAL_SPEECH_CHANNEL="telephony"
  * .\gradlew.bat testDebugUnitTest --tests "*RealSpeechAugmentationExportTest"
  * ```
  *
@@ -95,6 +102,12 @@ class RealSpeechAugmentationExportTest {
             "hacen falta al menos 4 locutores de evaluación; hay ${evaluation.size}"
         }
 
+        val channelMode = System.getenv("FIFO_REAL_SPEECH_CHANNEL")?.lowercase(Locale.ROOT) ?: "none"
+        require(channelMode == "none" || channelMode == "telephony") {
+            "FIFO_REAL_SPEECH_CHANNEL debe ser none o telephony; es $channelMode"
+        }
+        val telephony = channelMode == "telephony"
+
         val root = File(targetPath!!).absoluteFile
         require(!root.exists() || root.isDirectory) { "la ruta de exportación no es un directorio: $root" }
         root.mkdirs()
@@ -115,9 +128,15 @@ class RealSpeechAugmentationExportTest {
 
             for (speaker in splitSpeakers.filter { it.role == "enrolled" }) {
                 val clips = wavFiles(speaker.directory).take(7)
+                val enrollChannel = if (telephony) {
+                    TelephonyChannel.profile("${speaker.name}-enroll-session".hashCode())
+                } else {
+                    null
+                }
                 for ((index, clip) in clips.take(3).withIndex()) {
                     val relative = "enroll/${speaker.name}-enroll-$index.wav"
-                    val pcm = normalise(trim(readWav(clip)))
+                    var pcm = normalise(trim(readWav(clip)))
+                    if (enrollChannel != null) pcm = TelephonyChannel.apply(pcm, enrollChannel)
                     writeWav(File(root, relative), pcm)
                     rows += row(
                         speaker = speaker,
@@ -126,17 +145,18 @@ class RealSpeechAugmentationExportTest {
                         index = index,
                         relative = relative,
                         source = clip.name,
-                        durationMs = pcm.size * 1000L / SYNTH_SAMPLE_RATE
+                        durationMs = pcm.size * 1000L / SYNTH_SAMPLE_RATE,
+                        channel = enrollChannel
                     )
                 }
                 for ((index, clip) in clips.drop(3).take(4).withIndex()) {
-                    augmented += addConditions(root, rows, speaker, clip, index)
+                    augmented += addConditions(root, rows, speaker, clip, index, telephony)
                 }
             }
             for (speaker in splitSpeakers.filter { it.role == "unseen" }) {
                 val clips = wavFiles(speaker.directory).take(4)
                 for ((index, clip) in clips.withIndex()) {
-                    augmented += addConditions(root, rows, speaker, clip, index)
+                    augmented += addConditions(root, rows, speaker, clip, index, telephony)
                 }
             }
         }
@@ -167,7 +187,7 @@ class RealSpeechAugmentationExportTest {
 
         println(
             "Corpus real aumentado en ${root.path}: ${rows.size} clips, " +
-                "$augmented aumentados, ${speakers.size} locutores, " +
+                "$augmented aumentados, ${speakers.size} locutores, canal=$channelMode, " +
                 bySplit.toSortedMap().entries.joinToString(", ") { "${it.key}=${it.value}" }
         )
         println("calibración: ${speakersInCalibration.sorted()}")
@@ -184,13 +204,20 @@ class RealSpeechAugmentationExportTest {
         rows: MutableList<Row>,
         speaker: SplitSpeaker,
         clip: File,
-        index: Int
+        index: Int,
+        telephony: Boolean
     ): Int {
         var written = 0
         for (condition in CONDITIONS) {
             val relative = "${speaker.split}/${speaker.name}-${condition.id}-$index.wav"
             val seed = "${speaker.name}-${condition.id}-$index".hashCode()
-            val rendered = render(normalise(trim(readWav(clip))), condition, seed)
+            var rendered = render(normalise(trim(readWav(clip))), condition, seed)
+            val channel = if (telephony) {
+                TelephonyChannel.profile("${speaker.name}-${condition.id}-$index-call".hashCode())
+            } else {
+                null
+            }
+            if (channel != null) rendered = TelephonyChannel.apply(rendered, channel)
             writeWav(File(root, relative), rendered)
             rows += row(
                 speaker = speaker,
@@ -199,7 +226,8 @@ class RealSpeechAugmentationExportTest {
                 index = index,
                 relative = relative,
                 source = clip.name,
-                durationMs = rendered.size * 1000L / SYNTH_SAMPLE_RATE
+                durationMs = rendered.size * 1000L / SYNTH_SAMPLE_RATE,
+                channel = channel
             )
             written++
         }
@@ -213,7 +241,8 @@ class RealSpeechAugmentationExportTest {
         index: Int,
         relative: String,
         source: String,
-        durationMs: Long
+        durationMs: Long,
+        channel: ChannelProfile?
     ): Row {
         val id = if (split == "enroll") {
             "${speaker.name}-enroll-$index"
@@ -240,6 +269,12 @@ class RealSpeechAugmentationExportTest {
             append(',')
             appendField("room", condition.room?.id)
             append(",\"lombard\":").append(condition.lombard)
+            append(",\"channel\":")
+            if (channel == null) append("null") else append("\"telephony\"")
+            append(',')
+            appendField("channel_band", channel?.band?.id)
+            append(",\"channel_tilt_db\":").append(channel?.tiltDb ?: "null")
+            append(",\"channel_rms_dbfs\":").append(channel?.targetRmsDbfs ?: "null")
             append(",\"syllables\":null")
             append(",\"duration_ms\":").append(durationMs)
             append(",\"sample_rate\":").append(SYNTH_SAMPLE_RATE)

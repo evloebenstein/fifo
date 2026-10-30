@@ -451,6 +451,59 @@ Lectura:
   conferencia aumentado con ruido simulado, no una llamada de móvil en la calle.
   `Noop` sigue por defecto.
 
+#### Canal telefónico y códec: lo que cuesta el camino real
+
+El corpus de TEDx comparte micrófono y sala por locutor: los siete clips de una
+persona salen de una sola charla. Eso regala un atajo —aprender el canal en vez
+del timbre— y explica por qué un número limpio no se puede llevar a una llamada.
+Antes de pedir grabaciones se midió cuánto de ese atajo se podía quitar sin
+personas:
+
+- **Canal por clip** (`TelephonyChannel`, dentro del arnés): recorte de banda
+  (300–3400 Hz o 50–7000 Hz), inclinación de micrófono de ±4 dB y AGC entre −30 y
+  −22 dBFS, elegidos por semilla. El enrolamiento usa **una** sesión de canal por
+  locutor; cada clip de uso usa otra, así que la sesión de uso no coincide con la
+  de enrolamiento. Se activa con `FIFO_REAL_SPEECH_CHANNEL=telephony`.
+- **Códec real** (`apply_telephony_codec.py`): AMR-WB 23,85 kbit/s (VoLTE),
+  AMR-NB 12,2 kbit/s (GSM) y Opus 24 kbit/s, de ida y vuelta a WAV 16 kHz PCM16.
+  Es transporte, no acústica, y por eso no vive en el arnés.
+
+Mismo reparto, mismo modelo candidato, 9.408 trials:
+
+| Variante | EER | EER calibración | FRR/FAR @FAR 1 % |
+| :--- | ---: | ---: | ---: |
+| TEDx base | 2,4 % | 1,4 % | 5,7 % / 0,4 % |
+| + canal por clip | **2,5 %** | 1,4 % | 5,4 % / 0,8 % |
+| + canal + Opus 24 kbit/s | 3,0 % | 3,6 % | 6,5 % / 0,9 % |
+| + canal + AMR-WB 23,85 kbit/s | 4,2 % | 4,0 % | 12,8 % / 0,6 % |
+| + canal + AMR-NB 12,2 kbit/s | 6,2 % | 7,1 % | 22,9 % / 0,8 % |
+| AMR-WB sin canal (atribución) | 3,6 % | 4,2 % | 12,8 % / 0,3 % |
+
+Lectura:
+
+- **El canal solo no cuesta nada.** 2,4 % → 2,5 %. Banda, inclinación y AGC por
+  clip rompen el atajo del micrófono compartido y el candidato sigue ahí: lo que
+  duele es comprimir, no el ancho de banda.
+- **El códec es el coste real.** Opus suma 0,6 puntos, AMR-WB 1,8 y AMR-NB 3,8.
+  AMR-WB sin canal da 3,6 %, así que canal y códec se suman, no se multiplican.
+- **Lo que se rompe es el FRR.** Al 1 % de FAR, 5,7 % → 12,8 % (VoLTE) → 22,9 %
+  (GSM): uno de cada cuatro turnos en banda estrecha se degradaría.
+- **El ruido manda cuando se suma al códec.** Con AMR-NB el clip limpio da 0 % de
+  FRR, pero `white-5` sube a 51,8 %, `babble-15` a 37,5 % y Lombard a 28,6 %. El
+  punto de operación no se elige con el clip limpio.
+- **AS-Norm sigue sin ayudar.** Empeora todos los casos (6,2 % → 14,7 % con
+  AMR-NB) y dispara el FAR a 14,9 %.
+- **La calibración transfiere.** 1,4/2,4 en base, 4,0/4,2 con VoLTE y 7,1/6,2 con
+  GSM: el umbral de un split sirve en el otro dentro de ~1,5 puntos.
+
+Qué significa para Fifo: el micrófono del teléfono no comprime, así que AMR-NB no
+es el camino normal; sí lo es un auricular Bluetooth (mSBC/LC3) o el BLE ESP32.
+Por eso el protocolo de campo tiene que grabar **por el camino real de captura**,
+no con un micrófono USB. Y la estimación no es una cota rigurosa: el canal
+original de la charla sigue dentro (optimista), y faltan pérdida de paquetes,
+distancia y salas reales (también optimista), aunque la banda estrecha y el ruido
+sintético sean duros. Sirve para descartar y para dimensionar, no para autorizar.
+
 
 #### Corpus de campo: protocolo y manifiesto
 
@@ -576,6 +629,9 @@ Estado de la evidencia, para que el siguiente paso no repita lo hecho:
 - **Candidato**: 3D-Speaker CAM++ zh_en advanced (192 dims, Apache-2.0). Mejor
   punto de operación en inglés (1,2 % EER; 2,4 % FRR a FAR 1 %) y en español
   TEDx (2,4 %; 5,7 % FRR a FAR 1 %), con 192 dimensiones en vez de 512.
+- **Robusto al canal, no al códec**: con banda, inclinación y AGC por clip sube a
+  2,5 % EER; con Opus a 3,0 %, con AMR-WB a 4,2 % (12,8 % FRR al 1 %) y con AMR-NB
+  a 6,2 % (22,9 % FRR). El FRR, no el EER, es lo que rompe la compresión.
 - **Alternativa**: NeMo TitaNet large. Mejor EER en español (1,8 %) pero peor
   FRR al 1 % (12,8 %) y sin ventaja de tamaño.
 - **Descartados para móvil**: WeSpeaker ResNet34/CAM++ (40–46 % EER con voz
@@ -583,7 +639,11 @@ Estado de la evidencia, para que el siguiente paso no repita lo hecho:
 - **Sin medir**: latencia en ARM (el emulador es x86_64), tamaño del APK con
   `onnxruntime` + modelo, y comportamiento con el micrófono real de una llamada.
 - **Bloqueado**: el número que autoriza el envío es de campo, con 10–15 personas
-  grabadas con móvil en silencio, TV, calle y a 1–3 m.
+  grabadas con móvil en silencio, TV, calle y a 1–3 m, **por el camino real de
+  captura** (micrófono, Bluetooth o BLE), no con un micro USB.
+- **Siguiente paso barato**: 4–6 personas × 2 sesiones ya dan variabilidad de
+  sesión y un primer número honesto; no llega a la barra, pero decide si merece
+  la pena ampliar.
 
 ---
 
@@ -700,7 +760,10 @@ crea perfiles.
 | `test/.../session/speaker/SpeakerVerificationHarness.kt` | **New** — corpus sintético, calibración disjunta y evaluador EER/FRR/FAR. |
 | `test/.../session/speaker/SpeakerVerificationHarnessTest.kt` | **New** — determinismo, separación limpia, calibración y tabla gated. |
 | `test/.../session/speaker/SpeakerCorpusExportTest.kt` | **New** — exportación WAV + `manifest.jsonl` para evaluar un modelo real. |
-| `test/.../session/speaker/RealSpeechAugmentationExportTest.kt` | **New** — campo simulado con voces reales y la misma acústica del arnés. |
+| `test/.../session/speaker/RealSpeechAugmentationExportTest.kt` | **New** — campo simulado con voces reales y la misma acústica del arnés; `FIFO_REAL_SPEECH_CHANNEL` añade el canal. |
+| `test/.../session/speaker/TelephonyChannel.kt` | **New** — banda, inclinación y AGC por clip en el arnés (solo `test`). |
+| `test/.../session/speaker/TelephonyChannelTest.kt` | **New** — filtro, AGC, determinismo y rango del perfil. |
+| `tools/speaker/apply_telephony_codec.py` | **New** — AMR-WB, AMR-NB y Opus de ida y vuelta sobre el corpus exportado. |
 | `tools/speaker/score_embeddings.py` | **New** — puntuación, calibración, AS-Norm y tablas sobre embeddings externos (stdlib). |
 | `tools/speaker/extract_embeddings_sherpa.py` | **New** — extracción de embeddings con sherpa-onnx para el corpus exportado (dev-only). |
 | `tools/speaker/build_librispeech_control.py` | **New** — control con voz real (LibriSpeech dev-clean) y el mismo manifiesto. |
@@ -718,10 +781,14 @@ crea perfiles.
 ## Verification
 
 - `testDebugUnitTest`, `testReleaseUnitTest` y `compileReleaseKotlin` en verde.
-- 414 pruebas en debug y 414 en release, 0 fallos, 6 omitidas (3 del arnés de
+- 420 pruebas en debug y 420 en release, 0 fallos, 6 omitidas (3 del arnés de
   wake word + el experimento de locutor sin `FIFO_SPEAKER_EXPERIMENT=1` + la
   exportación sin `FIFO_SPEAKER_EXPORT_DIR` + el campo simulado sin
   `FIFO_REAL_SPEECH_POOL`/`FIFO_REAL_SPEECH_EXPORT_DIR`).
+- `TelephonyChannelTest` 6/6: 1 kHz intacto y 6 kHz/100 Hz atenuados en banda
+  estrecha, agudos conservados en banda ancha, AGC a −26 dBFS sin pasar de 0,95
+  de pico, perfil determinista dentro de rango, id reconstruible desde el
+  manifiesto y cadena reproducible.
 - `SpeakerIdentityPolicyTest` 18/18, `SpeakerIdentityProviderTest` 16/16,
   `SpeakerIdentityIntegrationTest` 5/5, `EncryptedVoiceProfileStoreTest` 9/9 y
   `SpeakerVerificationHarnessTest` 3/3 siempre + el experimento gated.
@@ -761,6 +828,13 @@ crea perfiles.
 - `score_spoofing.py` y `make_spoofed_spanish_pool.py` se ejecutaron de extremo a
   extremo; `prepare_tedx_spanish_pool.py` indexa el `.tgz` en streaming y extrae
   solo los 280 clips elegidos.
+- El canal por clip se exportó sobre el corpus TEDx (1.020 clips, 12/28) y se
+  midió con el candidato: 2,5 % EER y 5,4 % FRR a FAR 1 %, frente a 2,4 %/5,7 %
+  sin canal. Después se pasó el mismo corpus por tres códecs con
+  `apply_telephony_codec.py` (AMR-WB, AMR-NB y Opus, 1.020 WAV cada uno) y se
+  midió: 3,0 %, 4,2 % y 6,2 % EER, con FRR 6,5 %, 12,8 % y 22,9 % al 1 % de FAR.
+  La atribución AMR-WB sin canal dio 3,6 % EER. Todos los informes viven en
+  `%TEMP%`; no se commiteó audio ni pesos.
 - `build_field_manifest.py` se probó de extremo a extremo con el control de
   LibriSpeech reorganizado como corpus de campo: 78 clips, 10 locutores,
   manifiesto válido y el mismo 0,0 % EER. También rechaza un plan incompleto y
@@ -778,17 +852,20 @@ crea perfiles.
 
 ## Siguiente paso (fuera de este ADR)
 
-**Hecho en esta iteración:** corpus español simulado con dos fuentes reales
-(VoxForge descartado con números, TEDx elegido) y siete modelos medidos; spoofing
-medido con un CM real (AASIST) y voz sintética en español, que falla por desajuste
-de dominio. En la iteración anterior: UI de consentimiento, estado y borrado en
-`ProfileScreen` sobre el almacén cifrado real; costura de spoofing con `Noop` y
-degradación a `UNCERTAIN`; composición del consentimiento y del almacén en
-`VoiceIdentitySettings`; detector ejecutado en paralelo al extractor. El
-enrolamiento sigue deshabilitado porque no hay modelo. Antes: campo simulado con
-40 voces reales inglesas, AS-Norm y ranking de siete modelos (CAM++ zh_en
-advanced, 1,2 % EER crudo). Antes: exportación del corpus, calibración disjunta,
-herramienta offline de puntuación y almacén cifrado.
+**Hecho en esta iteración:** canal telefónico por clip dentro del arnés y códecs
+reales (AMR-WB, AMR-NB, Opus) sobre el corpus TEDx, medidos con el candidato: el
+canal no cuesta (2,5 % EER) y el códec sí (hasta 6,2 % y 22,9 % FRR en GSM). En
+la iteración anterior: corpus español simulado con dos fuentes reales (VoxForge
+descartado con números, TEDx elegido) y siete modelos medidos; spoofing medido con
+un CM real (AASIST) y voz sintética en español, que falla por desajuste de
+dominio. Antes: UI de consentimiento, estado y borrado en `ProfileScreen` sobre el
+almacén cifrado real; costura de spoofing con `Noop` y degradación a `UNCERTAIN`;
+composición del consentimiento y del almacén en `VoiceIdentitySettings`; detector
+ejecutado en paralelo al extractor. El enrolamiento sigue deshabilitado porque no
+hay modelo. Antes: campo simulado con 40 voces reales inglesas, AS-Norm y ranking
+de siete modelos (CAM++ zh_en advanced, 1,2 % EER crudo). Antes: exportación del
+corpus, calibración disjunta, herramienta offline de puntuación y almacén
+cifrado.
 
 1. **Hecho parcialmente:** extraer embeddings con un modelo real y pasarlos por
    `tools/speaker/score_embeddings.py`, con control de voz real y campo simulado

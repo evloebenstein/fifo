@@ -127,8 +127,16 @@ Fijar el umbral de similitud con un conjunto de locutores de calibración a un F
 _Avoid_: Ajuste de umbral sobre el test, Threshold tuning
 
 **Campo simulado en español**:
-Corpus de habla humana real en español aumentado con la acústica canónica del arnés (`RoomAcoustics`, `SimulatedNoise`, `LombardEffect`). Se construye desde TEDx Spanish con `prepare_tedx_spanish_pool.py` y se exporta con `RealSpeechAugmentationExportTest`; 40 locutores, splits disjuntos y seis condiciones. Prefiltra motores, pero no es una llamada de móvil ni autoriza a cambiar `Noop` (ADR-0048).
+Corpus de habla humana real en español aumentado con la acústica canónica del arnés (`RoomAcoustics`, `SimulatedNoise`, `LombardEffect`) y, opcionalmente, con `TelephonyChannel`. Se construye desde TEDx Spanish con `prepare_tedx_spanish_pool.py` y se exporta con `RealSpeechAugmentationExportTest`; 40 locutores, splits disjuntos y seis condiciones. Prefiltra motores, pero no es una llamada de móvil ni autoriza a cambiar `Noop` (ADR-0048).
 _Avoid_: Corpus español sintético, Dataset de producción
+
+**Canal telefónico simulado**:
+Recorte de banda, inclinación de micrófono y AGC aplicados **por clip** en `TelephonyChannel`, con una sola sesión para el enrolamiento. Rompe el atajo de "mismo micrófono por locutor" del corpus de una sola charla. Es una estimación dura: el canal original de la grabación sigue dentro y no se puede quitar (ADR-0048).
+_Avoid_: Data augmentation, Ruido telefónico
+
+**Códec de telefonía**:
+AMR-WB (VoLTE), AMR-NB (GSM) u Opus aplicados de ida y vuelta con `apply_telephony_codec.py`. Es transporte, no acústica, y se reporta junto al canal: un EER sin banda y códec declarados no es comparable (ADR-0048).
+_Avoid_: Compresión, Formato de audio
 
 **Contramedida de spoofing (CM)**:
 Clasificador que estima si un audio es real o sintético/reproducido. En Fifo vive detrás de `SpoofingDetector` y solo produce `spoofRisk`; se mide con `tools/speaker/score_spoofing.py` (EER, FRR/FAR y nivel de entrada) antes de mencionarlo. AASIST deja 74 % FRR con voz española limpia, así que `Noop` sigue por defecto (ADR-0048).
