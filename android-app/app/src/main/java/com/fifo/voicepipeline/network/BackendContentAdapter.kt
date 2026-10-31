@@ -1,7 +1,7 @@
 package com.fifo.voicepipeline.network
 
-import com.fifo.voicepipeline.ui.model.DailyRoutine
-import com.fifo.voicepipeline.ui.model.FifoTasteStory
+import com.fifo.voicepipeline.data.model.DailyRoutine
+import com.fifo.voicepipeline.data.model.FifoTasteStory
 import org.json.JSONArray
 import org.json.JSONObject
 

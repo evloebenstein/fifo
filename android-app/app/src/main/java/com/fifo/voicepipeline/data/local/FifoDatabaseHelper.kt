@@ -21,8 +21,10 @@ import com.google.gson.Gson
  * sincronizable con el backend MySQL contenerizado, salvo la procedencia local
  * del grafo relacional (`contact_appearances`).
  */
-class FifoDatabaseHelper private constructor(context: Context) :
-    SQLiteOpenHelper(context.applicationContext, DATABASE_NAME, null, DATABASE_VERSION) {
+class FifoDatabaseHelper internal constructor(
+    context: Context,
+    databaseName: String = DATABASE_NAME
+) : SQLiteOpenHelper(context.applicationContext, databaseName, null, DATABASE_VERSION) {
 
     companion object {
         private const val TAG = "FifoDatabaseHelper"
@@ -38,6 +40,14 @@ class FifoDatabaseHelper private constructor(context: Context) :
                 instance ?: FifoDatabaseHelper(context).also { instance = it }
             }
         }
+    }
+
+    init {
+        // El índice local es un read model: la UI y el servicio leen mientras el
+        // pipeline escribe el diario y la memoria. WAL evita que una lectura
+        // bloquee al escritor y viceversa (ADR-0049). No hay poda: el detalle
+        // completo vive en el backend y se recupera con `recall_past_context`.
+        setWriteAheadLoggingEnabled(true)
     }
 
     val communityActivities = CommunityActivityDao(

@@ -2,11 +2,11 @@ package com.fifo.voicepipeline.network
 
 import android.util.Log
 import com.fifo.voicepipeline.data.memory.MentionedPersonExtraction
-import com.fifo.voicepipeline.ui.model.BackendConsolidationResult
-import com.fifo.voicepipeline.ui.model.DeepContextResult
-import com.fifo.voicepipeline.ui.model.FifoMemoryItem
-import com.fifo.voicepipeline.ui.model.FifoReminderItem
-import com.fifo.voicepipeline.ui.model.FifoTasteStory
+import com.fifo.voicepipeline.data.model.BackendConsolidationResult
+import com.fifo.voicepipeline.data.model.DeepContextResult
+import com.fifo.voicepipeline.data.model.FifoMemoryItem
+import com.fifo.voicepipeline.data.model.FifoReminderItem
+import com.fifo.voicepipeline.data.model.FifoTasteStory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request

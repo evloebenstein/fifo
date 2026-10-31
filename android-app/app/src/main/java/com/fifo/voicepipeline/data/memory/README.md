@@ -34,7 +34,7 @@ MemoryCoordinator ──► SqliteConversationJournal (PENDING)
     ▼
 RepositorySessionMemoryConsolidator
     ├─ extracción local (CloudApiClient)
-    ├─ mutaciones en FifoDataRepository
+    ├─ mutaciones en los módulos de AppGraph (accessor deprecado durante la migración)
     └─ sincronización con el backend
     │
     ├─ true  ──► markConsolidated()

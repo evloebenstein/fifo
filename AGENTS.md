@@ -13,9 +13,24 @@ Estas reglas son invariantes de Fifo. Si un cambio las rompe, el cambio está ma
 
 - **Nada de mensajes enlatados.** La respuesta hablada se compone con contexto enriquecido (perfil, orientación, ruta, memoria episódica, agenda). Solo si ese contexto falta se admite un fallback genérico de error.
 - **El fast-path solo hace acciones mecánicas:** contestar/colgar, linterna, volumen, batería, hora y cancelar una ruta. Las consultas informativas —ubicación (“¿dónde estoy?”), orientación activa (“¿dónde voy?”, “¿cuánto falta?”, “me desvié”) y cualquier pregunta conversacional o de memoria— retornan `null` y las redacta el LLM.
-- **No agregues generadores de frases.** Si necesitas contexto nuevo, agrégalo al prompt (`buildSystemPromptContext()`, `DefaultConversationContextProvider`) o a `SkillResult.data`; no agregues métodos que devuelvan una oración armada para hablar.
+- **No agregues generadores de frases.** Si necesitas contexto nuevo, agrégalo al prompt (`buildSystemPromptContext()`, `ConversationContext`) o a `SkillResult.data`; no agregues métodos que devuelvan una oración armada para hablar.
 - **`spokenFeedback` es payload, no respuesta.** El LLM lo recibe como dato y solo se locuta cuando la acción la ejecuta el fast-path o como fallback de error.
 - **Pruebas de verdad:** `VoiceIntentRouterTest` verifica que ubicación y orientación activa se delegan al LLM.
+
+## Estado del usuario, composición y contexto
+
+- **Un solo composition root.** `FifoApplication.onCreate()` construye `AppGraph`; la actividad, el servicio y los receivers leen la misma instancia. No vuelvas a llamar a `FifoDatabaseHelper.getInstance()` ni a crear módulos fuera del grafo (ADR-0049).
+- **El grafo expone módulos, no una fachada.** `identity`, `memory`, `community`, `relationalGraph`, `session`, `device` y `conversationContext` tienen un dueño cada uno. Cada consumidor toma solo el módulo que usa; no crees un `UserContext` con cuarenta métodos.
+- **`FifoDataRepository` está deprecado.** Es un accessor que solo delega; no le agregues estado ni lógica. La migración es data → red → pipeline → skills → UI y el accessor se borra al llegar a cero llamadas.
+- **Modelos puros en `data/model`.** No conocen Android ni Compose. `ui/model` solo tiene typealiases y extensiones de presentación (iconos). Un modelo nuevo de dominio nace en `data/model`.
+- **Una sola ventana de contexto.** `ConversationContext` compone hora, ubicación, ruta y memoria compacta. No dupliques esa composición en el facade, en la red ni en una skill.
+- **La recuperación es prompt, no locución.** Los cinco disparadores de `MEMORY_RECOVERY_GUIDE` deciden cuándo invocar `recall_past_context`; el LLM redacta. Regla: buscar antes de afirmar; si no hay evidencia, decirlo; nunca inventar.
+- **`recall_past_context` devuelve payload.** `context_status`, `synthesized_context`, `excerpts`, `found_entities` y `conversations_searched` viajan en `data`; `spokenFeedback` queda vacío. `no_evidence` es un hecho para el LLM, no una frase enlatada.
+- **Backend primero, local como respaldo.** `ConversationContext.searchDeep()` es `suspend`, no usa `runBlocking`, no se llama antes de hablar y solo corre bajo demanda. El índice local es un read model con WAL y sin poda.
+- **La escucha continua pertenece a `TurnOrchestrator`.** `VoiceSession` y el pipeline delegan; la UI lee el espejo del facade hasta que existan state holders. No crees un segundo booleano en la UI ni en la sesión.
+- **Costuras inyectables, no estáticos.** La libreta entra por `ContactSourcePort`, el robot por `DeviceRemotePort`, el grafo por `RelationalRemotePort` y la búsqueda profunda por `DeepContextPort`. No llames a `FifoBackendClient` desde dentro de un módulo de dominio.
+- **El borrado remoto es un hueco conocido.** Borrar conversaciones o nodos en el backend no existe; el filtro local evita resucitarlos en el dispositivo, pero no garantiza el borrado remoto.
+- **Pruebas de verdad:** `ConversationContextTest`, `RelationalGraphModuleTest`, `DeviceStateTest`, `ContextRecallSkillTest` y `DomainModulesTest`.
 
 ## Guía autónoma y sesión de ruta
 
@@ -142,3 +157,4 @@ Estas reglas son invariantes de Fifo. Si un cambio las rompe, el cambio está ma
 - El flag y la composición del camino nuevo están descritos en `docs/adr/0010-voice-session-pipeline-flag.md`.
 - La memoria durable, la cola de pendientes y la reparación están descritas en `docs/adr/0011-durable-memory-journal.md`.
 - La regla de respuestas dinámicas y la delegación de ubicación/orientación al LLM están descritas en `docs/adr/0039-dynamic-location-and-navigation-answers.md`.
+- El composition root, los modelos puros, la memoria de doble capa y la propiedad de la escucha continua están descritos en `docs/adr/0049-single-owner-user-state.md`.

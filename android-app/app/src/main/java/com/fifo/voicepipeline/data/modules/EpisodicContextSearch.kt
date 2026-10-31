@@ -1,13 +1,13 @@
 package com.fifo.voicepipeline.data.modules
 
-import com.fifo.voicepipeline.ui.model.ConversationFragment
-import com.fifo.voicepipeline.ui.model.DailyRoutine
-import com.fifo.voicepipeline.ui.model.DeepContextResult
-import com.fifo.voicepipeline.ui.model.FifoMemoryItem
-import com.fifo.voicepipeline.ui.model.FifoReminderItem
-import com.fifo.voicepipeline.ui.model.FifoTasteStory
-import com.fifo.voicepipeline.ui.model.PastConversationItem
-import com.fifo.voicepipeline.ui.model.RelationalContact
+import com.fifo.voicepipeline.data.model.ConversationFragment
+import com.fifo.voicepipeline.data.model.DailyRoutine
+import com.fifo.voicepipeline.data.model.DeepContextResult
+import com.fifo.voicepipeline.data.model.FifoMemoryItem
+import com.fifo.voicepipeline.data.model.FifoReminderItem
+import com.fifo.voicepipeline.data.model.FifoTasteStory
+import com.fifo.voicepipeline.data.model.PastConversationItem
+import com.fifo.voicepipeline.data.model.RelationalContact
 
 /**
  * Instantánea de la memoria episódica local que usa la búsqueda profunda.

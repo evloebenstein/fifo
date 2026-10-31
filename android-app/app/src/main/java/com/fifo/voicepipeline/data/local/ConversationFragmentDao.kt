@@ -2,7 +2,7 @@ package com.fifo.voicepipeline.data.local
 
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
-import com.fifo.voicepipeline.ui.model.ConversationFragment
+import com.fifo.voicepipeline.data.model.ConversationFragment
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import java.util.UUID

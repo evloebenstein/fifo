@@ -1,7 +1,7 @@
 package com.fifo.voicepipeline.data.modules
 
 import com.fifo.voicepipeline.data.local.FifoDatabaseHelper
-import com.fifo.voicepipeline.ui.model.*
+import com.fifo.voicepipeline.data.model.*
 
 /**
  * Adaptador SQLite para la identidad y perfil del usuario.
@@ -108,23 +108,23 @@ class SqliteCommunityStorageAdapter(private val getDbHelper: () -> FifoDatabaseH
     }
 
     override fun saveCommunityActivity(activity: CommunityActivityItem): Boolean {
-        getDbHelper()?.communityActivities?.addCommunityActivity(activity)
-        return true
+        val helper = getDbHelper() ?: return false
+        return helper.communityActivities.addCommunityActivity(activity)
     }
 
     override fun deleteCommunityActivity(activityId: String): Boolean {
-        getDbHelper()?.communityActivities?.deleteCommunityActivity(activityId)
-        return true
+        val helper = getDbHelper() ?: return false
+        return helper.communityActivities.deleteCommunityActivity(activityId)
     }
 
     override fun joinActivity(activityId: String, userId: String): Boolean {
-        getDbHelper()?.communityActivities?.joinCommunityActivity(activityId, userId)
-        return true
+        val helper = getDbHelper() ?: return false
+        return helper.communityActivities.joinCommunityActivity(activityId, userId)
     }
 
     override fun leaveActivity(activityId: String, userId: String): Boolean {
-        getDbHelper()?.communityActivities?.leaveCommunityActivity(activityId, userId)
-        return true
+        val helper = getDbHelper() ?: return false
+        return helper.communityActivities.leaveCommunityActivity(activityId, userId)
     }
 
     override fun getSocialPosts(): List<UserSocialPost> {
@@ -132,13 +132,25 @@ class SqliteCommunityStorageAdapter(private val getDbHelper: () -> FifoDatabaseH
     }
 
     override fun addSocialPost(post: UserSocialPost, userId: String): Boolean {
-        getDbHelper()?.socialPosts?.addSocialPost(post, userId)
-        return true
+        val helper = getDbHelper() ?: return false
+        return try {
+            helper.socialPosts.addSocialPost(post, userId)
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("SqliteCommunityStorageAdapter", "No se pudo guardar el post: ${e.message}")
+            false
+        }
     }
 
     override fun removeSocialPost(postId: String): Boolean {
-        getDbHelper()?.socialPosts?.deleteSocialPost(postId)
-        return true
+        val helper = getDbHelper() ?: return false
+        return try {
+            helper.socialPosts.deleteSocialPost(postId)
+            true
+        } catch (e: Exception) {
+            android.util.Log.e("SqliteCommunityStorageAdapter", "No se pudo borrar el post: ${e.message}")
+            false
+        }
     }
 }
 
@@ -148,7 +160,9 @@ class SqliteCommunityStorageAdapter(private val getDbHelper: () -> FifoDatabaseH
 class SqliteMemoryStorageAdapter(private val getDbHelper: () -> FifoDatabaseHelper?) : MemoryStorageAdapter {
     override fun getMemories(userId: String): List<FifoMemoryItem> = getDbHelper()?.memories?.getMemories(userId) ?: emptyList()
     override fun addMemory(userId: String, item: FifoMemoryItem) { getDbHelper()?.memories?.addMemory(userId, item) }
-    override fun removeMemory(userId: String, id: String) {}
+    override fun removeMemory(userId: String, id: String) {
+        getDbHelper()?.memories?.deleteMemory(userId, id)
+    }
 
     override fun getReminders(userId: String): List<FifoReminderItem> = getDbHelper()?.reminders?.getReminders(userId) ?: emptyList()
     override fun addReminder(userId: String, item: FifoReminderItem) { getDbHelper()?.reminders?.addReminder(userId, item) }

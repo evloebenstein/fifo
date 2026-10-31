@@ -5,414 +5,62 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
- * Modelo de una conversación pasada con Fifo
- */
-data class PastConversationItem(
-    val id: String,
-    val title: String,
-    val date: String,
-    val duration: String,
-    val summary: String,
-    val tag: String,
-    val iconName: String = "chat"
-) {
-    val icon: ImageVector
-        get() = when (iconName) {
-            "restaurant" -> Icons.Outlined.Restaurant
-            "music" -> Icons.Outlined.MusicNote
-            "heart" -> Icons.Outlined.FavoriteBorder
-            "air" -> Icons.Outlined.Air
-            else -> Icons.Outlined.ChatBubbleOutline
-        }
-}
-
-/**
- * Modelo de un recuerdo que Fifo aprendió de las conversaciones
- */
-data class FifoMemoryItem(
-    val id: String,
-    val emoji: String,
-    val title: String,
-    val detail: String,
-    val learnedDate: String
-)
-
-/**
- * Publicación creada por la usuaria en su perfil / Fifo Amigos
- */
-data class UserSocialPost(
-    val id: String,
-    val author: String = "",
-    val username: String = "",
-    val age: Int = 0,
-    val category: String,
-    val timeAgo: String,
-    val content: String,
-    var likes: Int,
-    val commentsCount: Int,
-    val accentColorHex: Long = 0xFF38BDF8
-)
-
-/**
- * Artículo o historia de blog sobre un gusto del usuario generado por Fifo
- * a partir de las charlas cotidianas (sin información sensible)
- */
-data class FifoTasteStory(
-    val id: String,
-    val title: String,
-    val subtitle: String,
-    val description: String,
-    val tags: List<String>,
-    val iconCategory: String,
-    val learnedFrom: String
-)
-
-/**
- * Datos del perfil del usuario gestionados por Fifo y sincronizados con la Base de Datos
- */
-data class UserProfileData(
-    val id: String = "",
-    val fullName: String = "",
-    val username: String = "",
-    val birthDate: String = "",
-    val birthYear: Int = 0,
-    val estimatedAge: Int = 0,
-    val genderIdentity: String = "",
-    val city: String = "",
-    val bioAi: String = "",
-    val emergencyContactName: String = "",
-    val emergencyContactPhone: String = "",
-    val preferredAddress: String = "",
-    val interestTags: List<String> = emptyList()
-)
-
-/**
- * Recordatorio creado por voz por Fifo (para pastillas, compromisos, familia)
- */
-data class FifoReminderItem(
-    val id: String,
-    val title: String,
-    val timeStr: String,
-    val category: String = "medication", // "medication", "family", "hobby", "health"
-    val isCompleted: Boolean = false,
-    val createdAt: String = "Hoy"
-)
-
-// ═════════════════════════════════════════════════════════════════════
-//  MEMORIA DE DOBLE CAPA: Fragmentos Livianos (on-device) vs.
-//  Transcripción Completa (server-side)
-// ═════════════════════════════════════════════════════════════════════
-
-/**
- * Fragmento compacto de una conversación pasada, almacenado LOCALMENTE en el celular.
+ * Modelos de presentación de Fifo.
  *
- * Diseño de doble capa:
- * - En el SERVIDOR (Firestore / Supabase) se guarda la conversación COMPLETA
- *   con cada turno de voz transcrito, todos los detalles y el contexto íntegro.
- * - En el CELULAR solo se guardan estos fragmentos livianos:
- *   temas clave, entidades mencionadas y un resumen compacto de ≤150 palabras.
+ * Los datos viven en [com.fifo.voicepipeline.data.model] (puros, sin Android ni
+ * Compose). Aquí solo se conserva la compatibilidad de los imports históricos
+ * (`com.fifo.voicepipeline.ui.model.*`) y se añade lo que sí es de UI: iconos.
  *
- * Beneficios:
- * 1. Latencia mínima: Fifo tiene contexto inmediato sin descargar conversaciones enteras.
- * 2. Si necesita más detalle → usa `recall_past_context` skill para buscar en el server.
- * 3. Privacidad: los datos sensibles completos solo viven en el servidor cifrado,
- *    no en caché local.
+ * Regla (ADR-0049): no declares `data class` en este paquete. Si un modelo
+ * necesita un `ImageVector`, añade una extensión aquí.
  */
-data class ConversationFragment(
-    val id: String,
-    /** ID de la conversación completa almacenada en el servidor */
-    val serverConversationId: String,
-    /** Temas clave extraídos (ej: "orquídeas", "cumpleaños de Tomás", "pastillas presión") */
-    val keyTopics: List<String>,
-    /** Entidades nombradas (personas, lugares, objetos relevantes) */
-    val namedEntities: List<String>,
-    /** Estado anímico detectado en la conversación ("contenta", "pensativa", "preocupada") */
-    val detectedMood: String = "neutral",
-    /** Resumen compacto de la charla (≤150 palabras, suficiente para dar contexto) */
-    val compactSummary: String,
-    /** Etiqueta temática principal */
-    val primaryTag: String,
-    /** Duración de la conversación original en segundos */
-    val durationSeconds: Int = 0,
-    /** Timestamp ISO de la conversación */
-    val recordedAt: String = "",
-    /** Si algún fragmento contenía información sensible de salud (confirmada con consentimiento) */
-    val containsSensitiveHealth: Boolean = false
-)
+
+typealias PastConversationItem = com.fifo.voicepipeline.data.model.PastConversationItem
+typealias FifoMemoryItem = com.fifo.voicepipeline.data.model.FifoMemoryItem
+typealias UserSocialPost = com.fifo.voicepipeline.data.model.UserSocialPost
+typealias FifoTasteStory = com.fifo.voicepipeline.data.model.FifoTasteStory
+typealias UserProfileData = com.fifo.voicepipeline.data.model.UserProfileData
+typealias FifoReminderItem = com.fifo.voicepipeline.data.model.FifoReminderItem
+typealias ConversationFragment = com.fifo.voicepipeline.data.model.ConversationFragment
+typealias DeepContextResult = com.fifo.voicepipeline.data.model.DeepContextResult
+typealias ContactIdentityResult = com.fifo.voicepipeline.data.model.ContactIdentityResult
+typealias NavigationContextResult = com.fifo.voicepipeline.data.model.NavigationContextResult
+typealias BackendConsolidationResult = com.fifo.voicepipeline.data.model.BackendConsolidationResult
+typealias FriendRecommendation = com.fifo.voicepipeline.data.model.FriendRecommendation
+typealias FifoDeviceLocation = com.fifo.voicepipeline.data.model.FifoDeviceLocation
+typealias CurrentLocationInfo = com.fifo.voicepipeline.data.model.CurrentLocationInfo
+typealias IncomingCallInfo = com.fifo.voicepipeline.data.model.IncomingCallInfo
+typealias PhoneHardwareStatus = com.fifo.voicepipeline.data.model.PhoneHardwareStatus
+typealias RelationalContact = com.fifo.voicepipeline.data.model.RelationalContact
+typealias ContactSource = com.fifo.voicepipeline.data.model.ContactSource
+typealias ContactAppearance = com.fifo.voicepipeline.data.model.ContactAppearance
+typealias PhoneHintStatus = com.fifo.voicepipeline.data.model.PhoneHintStatus
+typealias ContactPhoneHint = com.fifo.voicepipeline.data.model.ContactPhoneHint
+typealias DailyRoutine = com.fifo.voicepipeline.data.model.DailyRoutine
+typealias RoutineAnomaly = com.fifo.voicepipeline.data.model.RoutineAnomaly
+typealias CommunityActivityItem = com.fifo.voicepipeline.data.model.CommunityActivityItem
 
 /**
- * Resultado de una búsqueda de contexto profundo en el servidor.
- * Cuando Fifo necesita más detalle sobre un tema de nicho o un dato pasado,
- * usa el skill `recall_past_context` que retorna esto.
+ * Icono de la conversación según su etiqueta temática.
  */
-data class DeepContextResult(
-    /** Fragmentos del servidor que coincidieron con la consulta */
-    val relevantExcerpts: List<String>,
-    /** Entidades encontradas en las conversaciones buscadas */
-    val foundEntities: List<String>,
-    /** Resumen sintetizado del contexto profundo recuperado */
-    val synthesizedContext: String,
-    /** Cuántas conversaciones completas se analizaron en el servidor */
-    val conversationsSearched: Int = 0
-)
+val PastConversationItem.icon: ImageVector
+    get() = when (iconName) {
+        "restaurant" -> Icons.Outlined.Restaurant
+        "music" -> Icons.Outlined.MusicNote
+        "heart" -> Icons.Outlined.FavoriteBorder
+        "air" -> Icons.Outlined.Air
+        else -> Icons.Outlined.ChatBubbleOutline
+    }
 
 /**
- * Identidad contextual de un interlocutor telefónico obtenida del Grafo de Conocimiento del backend.
+ * Icono de la actividad comunitaria según su categoría.
  */
-data class ContactIdentityResult(
-    val isKnown: Boolean,
-    val contactName: String,
-    val relationshipRole: String,
-    val phoneNumber: String = "",
-    val contextualNotes: String = "",
-    val recentTopics: String = "",
-    val suggestedGreeting: String = "",
-    val suggestedFollowup: String = ""
-)
-
-/**
- * Comprensión de la necesidad y contexto detrás de un destino de navegación.
- */
-data class NavigationContextResult(
-    val destination: String,
-    val purposeType: String,
-    val contextualNotes: List<String> = emptyList(),
-    val proactiveRecommendations: List<String> = emptyList(),
-    val safetyAlerts: String? = null
-)
-
-/**
- * Resultado estructurado retornado por el motor de análisis y consolidación del backend.
- * Permite que Fifo modifique en tiempo real recordatorios, recuerdos, gustos en detalle,
- * tags de intereses específicos y su biografía evolucionada.
- */
-data class BackendConsolidationResult(
-    val success: Boolean,
-    val serverConversationId: String? = null,
-    val fragmentId: String? = null,
-    val updatedBioAi: String? = null,
-    val interestTags: List<String> = emptyList(),
-    val contactsUpdated: List<RelationalContact> = emptyList(),
-    val memoriesAdded: List<FifoMemoryItem> = emptyList(),
-    val tasteStoriesAdded: List<FifoTasteStory> = emptyList(),
-    val remindersAdded: List<FifoReminderItem> = emptyList(),
-    val tastesAdded: List<String> = emptyList()
-)
-
-/**
- * Recomendación de amistad en la red comunitaria Fifo Amigos calculada a partir de los
- * tags de gustos e intereses compartidos y la biografía enriquecida.
- */
-data class FriendRecommendation(
-    val friendId: String,
-    val fullName: String,
-    val age: Int,
-    val quote: String,
-    val avatarBgHex: Long,
-    val bioAi: String,
-    val sharedTags: List<String>,
-    val candTags: List<String>,
-    val affinityScore: Float,
-    val suggestedTopic: String,
-    val friendshipStatus: String = "suggested"
-)
-
-// ═════════════════════════════════════════════════════════════════════
-//  LOCALIZADOR DEL DISPOSITIVO FIFO (Rastreo ESP32 + GPS Celular)
-// ═════════════════════════════════════════════════════════════════════
-
-/**
- * Estado de ubicación y rastreo del robot físico Fifo.
- *
- * Dado que el ESP32 no tiene módulo GPS integrado propio:
- * 1. El celular guarda las coordenadas GPS del celular cada vez que
- *    el robot se conecta o desconecta por Bluetooth.
- * 2. Mide la intensidad de señal BLE (RSSI) para estimar proximidad en la casa.
- * 3. Permite activar un beeper/alarma sonora en el parlante del ESP32
- *    y encender su pantalla OLED con "¡AQUÍ ESTOY!" para encontrarlo al instante.
- */
-data class FifoDeviceLocation(
-    val isConnected: Boolean = false,
-    val lastConnectedTime: String = "Desconectado",
-    val lastKnownLatitude: Double = 0.0,
-    val lastKnownLongitude: Double = 0.0,
-    val lastKnownAddress: String = "Sin registro de ubicación",
-    val lastKnownRoom: String = "Sin registrar",
-    val signalStrengthRssi: Int = 0,
-    val isBeeping: Boolean = false
-)
-
-/**
- * Información de ubicación geográfica actual obtenida del GPS del celular.
- */
-data class CurrentLocationInfo(
-    val latitude: Double = 0.0,
-    val longitude: Double = 0.0,
-    val address: String = "Ubicación desconocida",
-    val city: String = "",
-    val isGpsActive: Boolean = false
-)
-
-// ═════════════════════════════════════════════════════════════════════
-//  GESTIÓN DE LLAMADAS Y CONTROL DEL TELÉFONO TIPO ALEXA
-// ═════════════════════════════════════════════════════════════════════
-
-/**
- * Estado reactivo de llamadas entrantes detectadas por el celular.
- */
-data class IncomingCallInfo(
-    val callerName: String = "Llamada desconocida",
-    val phoneNumber: String = "",
-    val isRinging: Boolean = false,
-    val callTimestamp: Long = System.currentTimeMillis()
-)
-
-/**
- * Estado de control de hardware del celular (Linterna, Batería, Volumen).
- */
-data class PhoneHardwareStatus(
-    val batteryPercent: Int = 100,
-    val isCharging: Boolean = false,
-    val isFlashlightOn: Boolean = false,
-    val volumePercent: Int = 80
-)
-
-// ═════════════════════════════════════════════════════════════════════
-//  GRAFO SOCIAL RELACIONAL Y HÁBITOS DE VIDA DIARIA
-// ═════════════════════════════════════════════════════════════════════
-
-/**
- * Contacto en el grafo social del usuario con rol relacional,
- * puntuación de cercanía afectiva (0.0 a 1.0) y memoria episódica.
- */
-data class RelationalContact(
-    val id: String,
-    val contactName: String,
-    val phoneNumber: String? = null,
-    val relationshipRole: String,
-    val closenessScore: Float = 0.5f,
-    val trustTier: Int = 2, // 1: Emergencia/Tutor, 2: Familia directa/Médico, 3: Amigos/Vecinos, 4: Servicios
-    val emotionalValence: String = "afectuoso",
-    val contextualMemory: String? = null,
-    val mentionCount: Int = 1,
-    val lastMentionedAt: String = "",
-    val alias: String? = null,
-    val linkedConversationIds: List<String> = emptyList()
-)
-
-/**
- * Origen de una aparición de una persona en la vida del usuario.
- */
-enum class ContactSource {
-    PHONE_CONTACT,
-    FIFO_FRIEND,
-    CONVERSATION,
-    CALL,
-    MANUAL
-}
-
-/**
- * Registro local de dónde apareció una persona del grafo relacional.
- *
- * `sourceId` identifica el origen concreto: el número de teléfono, el `friendId`
- * de FifoAmigos o el ID de la conversación. `snippet` conserva el contexto
- * inmediato sin duplicar toda la conversación.
- */
-data class ContactAppearance(
-    val id: String,
-    val contactId: String,
-    val source: ContactSource,
-    val sourceId: String? = null,
-    val snippet: String? = null,
-    val occurredAt: String = ""
-)
-
-/**
- * Estado de un teléfono mencionado en conversación y todavía no confirmado.
- */
-enum class PhoneHintStatus {
-    PENDING,
-    DISCARDED
-}
-
-/**
- * Teléfono candidato extraído de una mención.
- *
- * Vive en `contact_phone_hints` y **no** se copia a `RelationalContact.phoneNumber`
- * hasta que el usuario lo confirma. Así un indicio no se sincroniza al backend ni
- * se usa para llamar por accidente.
- */
-data class ContactPhoneHint(
-    val id: String,
-    val contactId: String,
-    val phoneNumber: String,
-    val snippet: String? = null,
-    val createdAt: String = "",
-    val status: PhoneHintStatus = PhoneHintStatus.PENDING
-)
-
-/**
- * Patrón o hábito de actividad diaria (rutina circadiana).
- */
-data class DailyRoutine(
-    val id: String,
-    val routineName: String,
-    val category: String = "medication", // medication, exercise, meal, social, rest, hobby
-    val timeAnchor: String = "morning", // morning, noon, afternoon, evening, night
-    val typicalTimeStr: String? = null,
-    val frequencyRule: String = "daily",
-    val confidenceScore: Float = 0.8f,
-    val notes: String? = null,
-    val isActive: Boolean = true,
-    val reminderAssociated: Boolean = false
-)
-
-/**
- * Registro de anomalía o ruptura de patrón en una rutina observada.
- */
-data class RoutineAnomaly(
-    val id: String,
-    val routineId: String? = null,
-    val routineName: String = "",
-    val anomalyDescription: String,
-    val severity: String = "low",
-    val isAcknowledged: Boolean = false,
-    val detectedAt: String = ""
-)
-
-/**
- * Encuentro o actividad comunitaria presencial / virtual descubierta o creada
- * por usuarios, por Fifo o por organizaciones afines.
- */
-data class CommunityActivityItem(
-    val id: String,
-    val title: String,
-    val description: String = "",
-    val spotsLabel: String = "Cupos disponibles",
-    val spotsMax: Int = 15,
-    val spotsTaken: Int = 0,
-    val dateLabel: String,
-    val locationName: String,
-    val distanceLabel: String = "Cerca de ti",
-    val iconCategory: String = "book", // book, music, park, art, cooking, walk, movie
-    val organizerId: String = "",
-    val organizerName: String = "Fifo",
-    val organizerType: String = "fifo", // "user", "fifo", "company", "community_group"
-    val targetTastes: List<String> = emptyList(),
-    val isJoined: Boolean = false,
-    val createdAt: String = ""
-) {
-    val spotsRemaining: Int
-        get() = (spotsMax - spotsTaken).coerceAtLeast(0)
-
-    val icon: ImageVector
-        get() = when (iconCategory.lowercase()) {
-            "music", "musica" -> Icons.Outlined.MusicNote
-            "park", "parque", "naturaleza" -> Icons.Outlined.Park
-            "cooking", "cocina" -> Icons.Outlined.Restaurant
-            "walk", "paseo", "caminata" -> Icons.Outlined.DirectionsWalk
-            "book", "lectura", "libro" -> Icons.Outlined.MenuBook
-            else -> Icons.Outlined.Event
-        }
-}
-
+val CommunityActivityItem.icon: ImageVector
+    get() = when (iconCategory.lowercase()) {
+        "music", "musica" -> Icons.Outlined.MusicNote
+        "park", "parque", "naturaleza" -> Icons.Outlined.Park
+        "cooking", "cocina" -> Icons.Outlined.Restaurant
+        "walk", "paseo", "caminata" -> Icons.Outlined.DirectionsWalk
+        "book", "lectura", "libro" -> Icons.Outlined.MenuBook
+        else -> Icons.Outlined.Event
+    }

@@ -1,6 +1,6 @@
 package com.fifo.voicepipeline.data.modules
 
-import com.fifo.voicepipeline.ui.model.*
+import com.fifo.voicepipeline.data.model.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -168,23 +168,16 @@ class EpisodicMemoryModule(
         }.trim()
     }
 
-    // ── CAPA 2: Memoria profunda (Servidor Grafo Relacional + Fallback Local) ────────────
-    fun searchDeepContext(userId: String, query: String): DeepContextResult {
-        // 1. Intentar consultar contexto profundo en el microservicio Docker / MySQL si está online
-        val serverResult = runCatching {
-            kotlinx.coroutines.runBlocking {
-                com.fifo.voicepipeline.network.FifoBackendClient.queryDeepContextFromServer(
-                    userId = userId,
-                    query = query
-                )
-            }
-        }.getOrNull()
-
-        if (serverResult != null && serverResult.relevantExcerpts.isNotEmpty()) {
-            return serverResult
-        }
-
-        // 2. Fallback local: política pura sobre la memoria episódica del dispositivo.
+    // ── CAPA 2: Memoria profunda (fallback local; el backend lo orquesta ConversationContext) ──
+    /**
+     * Índice local de la capa 2.
+     *
+     * Es una función pura sobre la memoria del dispositivo: no toca la red ni
+     * bloquea con `runBlocking`. `ConversationContext.searchDeep()` consulta
+     * primero el backend y cae aquí solo si no hay respuesta o no hay
+     * coincidencias remotas (ADR-0049).
+     */
+    fun searchDeepLocal(query: String): DeepContextResult {
         return EpisodicContextSearch.search(
             query = query,
             snapshot = EpisodicContextSnapshot(

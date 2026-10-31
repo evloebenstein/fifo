@@ -2,7 +2,7 @@ package com.fifo.voicepipeline.skills
 
 import android.location.Location
 import android.util.Log
-import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.data.model.UserProfileData
 import com.fifo.voicepipeline.location.FifoNavigationManager
 import com.fifo.voicepipeline.location.FifoOrientationHelper
 import com.fifo.voicepipeline.location.LocationAdapter
@@ -21,7 +21,15 @@ import com.fifo.voicepipeline.location.LocationAdapter
  */
 class NavigationDirectionsSkill(
     private val locationAdapter: LocationAdapter,
-    private val navigationManager: FifoNavigationManager
+    private val navigationManager: FifoNavigationManager,
+    /**
+     * Perfil activo. Se inyecta para que el skill siga siendo JVM-testable: sin
+     * `AppGraph` instalado devuelve un perfil vacío en vez de reventar (ADR-0049).
+     */
+    private val userProfile: () -> UserProfileData = {
+        com.fifo.voicepipeline.data.AppGraph.instanceOrNull()?.identity?.userProfile?.value
+            ?: UserProfileData()
+    }
 ) : FifoSkill {
 
     companion object {
@@ -219,7 +227,7 @@ class NavigationDirectionsSkill(
                     } else {
                         navigationManager.setPendingDestination(closest)
                     }
-                    val userId = FifoDataRepository.userProfile.value.id
+                    val userId = userProfile().id
                     val contextIntent = if (userId.isNotBlank()) {
                         com.fifo.voicepipeline.network.FifoBackendClient.fetchNavigationContextualIntent(
                             userId = userId,
@@ -257,7 +265,7 @@ class NavigationDirectionsSkill(
 
         // 3. Address or named destination (including "mi casa")
         val resolvedDestination = if (destInput.contains("casa", ignoreCase = true)) {
-            val userAddr = FifoDataRepository.userProfile.value.preferredAddress
+            val userAddr = userProfile().preferredAddress
             if (!userAddr.isNullOrBlank()) userAddr else destInput
         } else {
             destInput
@@ -265,7 +273,7 @@ class NavigationDirectionsSkill(
 
         Log.i(TAG, "Generando guía hablada hacia: '$resolvedDestination' (abrir pantalla: $openScreen)")
 
-        val userId = FifoDataRepository.userProfile.value.id
+        val userId = userProfile().id
         val contextIntent = if (userId.isNotBlank()) {
             com.fifo.voicepipeline.network.FifoBackendClient.fetchNavigationContextualIntent(
                 userId = userId,

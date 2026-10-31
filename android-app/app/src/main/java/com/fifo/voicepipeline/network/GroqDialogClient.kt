@@ -315,7 +315,10 @@ REGLAS:
                             "planned_stops", "added_stop", "completed_stops",
                             "paused", "pause_reason", "pause_minutes", "resumed",
                             "corrected_route", "last_correction",
-                            "contextual_notes", "contextual_recommendations"
+                            "contextual_notes", "contextual_recommendations",
+                            // Memoria profunda (recall_past_context)
+                            "context_status", "query", "synthesized_context", "excerpts",
+                            "found_entities", "conversations_searched"
                         )
                     }
                     val toolPayload = mapOf(

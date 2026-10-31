@@ -1,7 +1,7 @@
 package com.fifo.voicepipeline.network
 
 import android.util.Log
-import com.fifo.voicepipeline.ui.model.NavigationContextResult
+import com.fifo.voicepipeline.data.model.NavigationContextResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request

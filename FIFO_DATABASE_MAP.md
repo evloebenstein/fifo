@@ -3,6 +3,8 @@
 > **Filosofía Central de Producto:**  
 > **El adulto mayor nunca necesita ingresar a la app del celular.** Solo debe hablar con el robot físico Fifo (o mediante voz). Fifo actúa como su operador personal y asistente de bienestar: comprende sus necesidades, ejecuta *mutaciones en la base de datos* y activa *herramientas del sistema del teléfono* (recordatorios, calendario, mapas, llamadas). Toda la información se sincroniza automáticamente y se ve reflejada en tiempo real en la aplicación móvil para el usuario y su red familiar.
 
+> **Nota de arquitectura (ADR-0049):** las referencias a `FifoDataRepository` en este mapa describen la API histórica. Desde ADR-0049 el dueño del estado es `AppGraph` (construido por `FifoApplication`), y `FifoDataRepository` es un accessor deprecado que solo delega. La ventana de contexto vive en `ConversationContext` y la escucha continua en `TurnOrchestrator`.
+
 ---
 
 ## 📑 Tabla de Contenidos

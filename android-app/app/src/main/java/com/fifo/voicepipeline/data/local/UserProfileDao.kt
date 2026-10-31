@@ -3,7 +3,7 @@ package com.fifo.voicepipeline.data.local
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
-import com.fifo.voicepipeline.ui.model.UserProfileData
+import com.fifo.voicepipeline.data.model.UserProfileData
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 
@@ -24,7 +24,7 @@ class UserProfileDao(
         val sql = """
             SELECT u.id, u.full_name, u.username, u.birth_date, u.birth_year, u.estimated_age,
                    u.gender_identity, u.city, p.bio_ai, p.emergency_contact_name, p.emergency_contact_phone,
-                   p.preferred_address, p.interest_tags
+                   p.preferred_address, p.interest_tags, u.email
             FROM users u
             LEFT JOIN user_profiles p ON p.user_id = u.id
             WHERE u.id = ?
@@ -36,6 +36,7 @@ class UserProfileDao(
                     val rawHandle = cursor.getString(2) ?: ""
                     val prefAddr = if (cursor.columnCount > 11) cursor.getString(11) ?: "" else ""
                     val rawTags = if (cursor.columnCount > 12) cursor.getString(12) else null
+                    val email = if (cursor.columnCount > 13) cursor.getString(13) ?: "" else ""
                     val interestTags = parseStringList(rawTags)
                     return UserProfileData(
                         id = cursor.getString(0) ?: userId,
@@ -50,7 +51,8 @@ class UserProfileDao(
                         emergencyContactName = cursor.getString(9) ?: "",
                         emergencyContactPhone = cursor.getString(10) ?: "",
                         preferredAddress = prefAddr,
-                        interestTags = interestTags
+                        interestTags = interestTags,
+                        email = email
                     )
                 }
             }
@@ -71,6 +73,8 @@ class UserProfileDao(
         val userValues = ContentValues().apply {
             put("id", profile.id)
             put("full_name", profile.fullName)
+            put("username", profile.username)
+            put("email", profile.email.ifBlank { "${profile.id}@fifo.app" })
             put("birth_date", profile.birthDate)
             put("birth_year", profile.birthYear)
             put("estimated_age", profile.estimatedAge)

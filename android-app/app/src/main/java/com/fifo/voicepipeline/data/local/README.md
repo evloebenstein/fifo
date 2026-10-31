@@ -124,4 +124,4 @@ uno descartado.
 5. **DAOs por agregado:** cuando un agregado tiene un límite claro, su SQL operativo vive en un DAO del directorio; `FifoDatabaseHelper` solo los compone y `FifoSchema` conserva el DDL global.
 6. **Políticas puras fuera del DAO:** la lógica de decisión sin SQLite (por ejemplo `UsernameRecommender`) vive en un objeto puro y recibe la consulta de unicidad como función.
 7. **Procedencia local-only:** `contact_appearances` documenta el grafo en el dispositivo; no se serializa al backend ni se usa para decidir llamadas. La fusión de fuentes vive en `RelationalGraphCoordinator` (ADR-0031).
-8. **Indicios antes que teléfonos:** un número mencionado se guarda en `contact_phone_hints` como `PENDING`; solo `FifoDataRepository.confirmPhoneHint()` lo copia a `phoneNumber` y lo sincroniza. `discardPhoneHint()` marca `DISCARDED` sin tocar el contacto (ADR-0032).
+8. **Indicios antes que teléfonos:** un número mencionado se guarda en `contact_phone_hints` como `PENDING`; solo `RelationalGraphModule.confirmPhoneHint()` lo copia a `phoneNumber` y lo sincroniza. `discardPhoneHint()` marca `DISCARDED` sin tocar el contacto (ADR-0032, ADR-0049).

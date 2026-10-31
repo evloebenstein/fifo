@@ -2,7 +2,7 @@ package com.fifo.voicepipeline.data.local
 
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
-import com.fifo.voicepipeline.ui.model.UserSocialPost
+import com.fifo.voicepipeline.data.model.UserSocialPost
 import java.util.UUID
 
 /**

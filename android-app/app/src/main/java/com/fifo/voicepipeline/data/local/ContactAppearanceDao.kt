@@ -3,8 +3,8 @@ package com.fifo.voicepipeline.data.local
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
-import com.fifo.voicepipeline.ui.model.ContactAppearance
-import com.fifo.voicepipeline.ui.model.ContactSource
+import com.fifo.voicepipeline.data.model.ContactAppearance
+import com.fifo.voicepipeline.data.model.ContactSource
 
 /**
  * DAO de `contact_appearances`: dónde apareció cada persona del grafo.

@@ -19,5 +19,5 @@ Vistas y pantallas completas de la aplicación Android.
 ---
 
 ## 🧭 Reglas de Programación en `ui/screens/`
-1. **Consumo de Estados:** Consumir siempre los flujos desde `FifoDataRepository` usando `collectAsState()` para que la pantalla reaccione en tiempo real a mutaciones realizadas por voz o por base de datos.
+1. **Consumo de Estados:** Observa con `collectAsState()` los `StateFlow` de los módulos de `AppGraph` (o del accessor deprecado `FifoDataRepository` mientras dure la migración) para reaccionar en tiempo real a mutaciones de voz o base de datos. No construyas almacenamiento ni módulos en una pantalla (ADR-0049).
 2. **Scroll Accesible:** Las listas de tarjetas (`LazyColumn`) deben tener espaciados cómodos (`verticalArrangement = Arrangement.spacedBy(16.dp)`) y botones con etiquetas descriptivas.

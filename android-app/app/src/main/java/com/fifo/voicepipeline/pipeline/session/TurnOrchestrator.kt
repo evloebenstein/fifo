@@ -60,9 +60,20 @@ class TurnOrchestrator(
     private var followUpJob: Job? = null
     private var bargeInResumeJob: Job? = null
 
-    /** Modo de escucha continua: mantiene la ventana abierta hasta 120s de silencio. */
+    /**
+     * Modo de escucha continua: mantiene la ventana abierta hasta 120s de silencio.
+     *
+     * El orquestador es el **dueño** de este estado (ADR-0049). La UI lo lee a
+     * través del espejo del facade mientras existan las pantallas actuales.
+     */
+    private val _isContinuousListening = MutableStateFlow(false)
+    val isContinuousListening: StateFlow<Boolean> = _isContinuousListening.asStateFlow()
+
     var continuousListeningEnabled: Boolean = false
-        private set
+        private set(value) {
+            field = value
+            _isContinuousListening.value = value
+        }
 
     /** Evita responder dos veces al mismo callback duplicado de STT. */
     private var lastProcessedText: String = ""

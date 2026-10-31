@@ -3,7 +3,7 @@ package com.fifo.voicepipeline.data.local
 import android.content.ContentValues
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
-import com.fifo.voicepipeline.ui.model.CommunityActivityItem
+import com.fifo.voicepipeline.data.model.CommunityActivityItem
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 

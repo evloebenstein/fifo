@@ -2,7 +2,7 @@ package com.fifo.voicepipeline.data.local
 
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
-import com.fifo.voicepipeline.ui.model.FifoMemoryItem
+import com.fifo.voicepipeline.data.model.FifoMemoryItem
 import java.util.UUID
 
 /**
@@ -49,4 +49,8 @@ class MemoryDao(
         }
         db.insertWithOnConflict("memories", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
     }
+
+    /** Elimina un recuerdo del usuario. Devuelve `true` si borró alguna fila. */
+    fun deleteMemory(userId: String, id: String): Boolean =
+        writableDatabase().delete("memories", "user_id = ? AND id = ?", arrayOf(userId, id)) > 0
 }

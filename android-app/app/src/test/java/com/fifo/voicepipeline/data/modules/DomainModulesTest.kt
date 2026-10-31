@@ -222,17 +222,17 @@ class DomainModulesTest {
         memoryModule.addReminder(userId, "Comprar abono floral", "11:30", "hobby")
 
         // Búsqueda profunda sobre el tema "orquídeas"
-        val resultOrquideas = memoryModule.searchDeepContext(userId, "orquídeas floral")
+        val resultOrquideas = memoryModule.searchDeepLocal("orquídeas floral")
         assertTrue(resultOrquideas.relevantExcerpts.isNotEmpty())
         assertTrue(resultOrquideas.relevantExcerpts.any { it.contains("Premio de Orquídeas") || it.contains("abono floral") })
 
         // Búsqueda profunda sobre el tema "boleros"
-        val resultBoleros = memoryModule.searchDeepContext(userId, "boleros música vinilo")
+        val resultBoleros = memoryModule.searchDeepLocal("boleros música vinilo")
         assertTrue(resultBoleros.relevantExcerpts.isNotEmpty())
         assertTrue(resultBoleros.relevantExcerpts.any { it.contains("Lucho Gatica") })
 
         // Búsqueda sobre tema inexistente
-        val resultInexistente = memoryModule.searchDeepContext(userId, "astronomía telescopio")
+        val resultInexistente = memoryModule.searchDeepLocal("astronomía telescopio")
         assertTrue(resultInexistente.relevantExcerpts.isEmpty())
         assertTrue(resultInexistente.synthesizedContext.contains("no encontré registros"))
     }

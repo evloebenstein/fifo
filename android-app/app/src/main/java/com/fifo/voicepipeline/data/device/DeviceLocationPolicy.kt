@@ -1,6 +1,6 @@
 package com.fifo.voicepipeline.data.device
 
-import com.fifo.voicepipeline.ui.model.FifoDeviceLocation
+import com.fifo.voicepipeline.data.model.FifoDeviceLocation
 
 /**
  * Política de transición del estado del robot Fifo.

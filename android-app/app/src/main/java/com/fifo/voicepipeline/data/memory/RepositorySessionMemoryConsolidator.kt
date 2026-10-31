@@ -4,8 +4,8 @@ import android.util.Log
 import com.fifo.voicepipeline.data.FifoDataRepository
 import com.fifo.voicepipeline.network.CloudApiClient
 import com.fifo.voicepipeline.network.FifoBackendClient
-import com.fifo.voicepipeline.ui.model.ConversationFragment
-import com.fifo.voicepipeline.ui.model.PastConversationItem
+import com.fifo.voicepipeline.data.model.ConversationFragment
+import com.fifo.voicepipeline.data.model.PastConversationItem
 import kotlinx.coroutines.CancellationException
 import java.text.SimpleDateFormat
 import java.util.Date

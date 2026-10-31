@@ -53,7 +53,7 @@ class FifoVoiceService : Service() {
         super.onCreate()
         Log.i(TAG, "Iniciando FifoVoiceService para ejecución continua en segundo plano")
 
-        com.fifo.voicepipeline.data.FifoDataRepository.initialize(applicationContext)
+        // El grafo de datos ya existe: FifoApplication lo construyó al arrancar el proceso.
         createNotificationChannel()
         try {
             val notification = buildNotification("FIFO está activo · Di 'Fifo' para hablar")

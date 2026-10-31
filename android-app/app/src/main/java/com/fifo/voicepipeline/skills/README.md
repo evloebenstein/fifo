@@ -14,7 +14,7 @@ Catálogo de habilidades ejecutables por el LLM (Groq) y por intenciones locales
 | [`GroqToolCatalog.kt`](GroqToolCatalog.kt) | Catálogo OpenAI/Groq 100% dinámico. Genera los schemas JSON para el LLM sin acoplarse a un proveedor heredado. |
 | [`CalendarSkill.kt`](CalendarSkill.kt) | Día actual, fechas y recordatorios de calendario. |
 | [`ContactsSkill.kt`](ContactsSkill.kt) | Búsqueda, adición y notas en la agenda de contactos del teléfono. |
-| [`ContextRecallSkill.kt`](ContextRecallSkill.kt) | Recuperación GraphRAG de memoria episódica pasada desde el backend (`recall_past_context`). |
+| [`ContextRecallSkill.kt`](ContextRecallSkill.kt) | Memoria profunda bajo demanda (`recall_past_context`). Devuelve payload (`context_status`, `synthesized_context`, `excerpts`, `found_entities`, `conversations_searched`) y `spokenFeedback` vacío; `no_evidence` es un hecho, no una frase (ADR-0049). |
 | [`CurrentLocationSkill.kt`](CurrentLocationSkill.kt) | Dirección actual por GPS con geocodificación inversa. |
 | [`FindFifoDeviceSkill.kt`](FindFifoDeviceSkill.kt) | Hace pitar el ESP32 físico para localizarlo. |
 | [`MapsSkill.kt`](MapsSkill.kt) | Busca lugares cercanos (farmacias, supermercados, parques) por Overpass API. |
@@ -36,3 +36,4 @@ Catálogo de habilidades ejecutables por el LLM (Groq) y por intenciones locales
 3. **`spokenFeedback` como hint:** El campo `spokenFeedback` de `SkillResult` es solo un fallback de emergencia; el texto final siempre lo genera el LLM con los datos de `SkillResult.data`.
 4. **Consultas informativas nunca se responden en el router:** ubicación (“¿dónde estoy?”), orientación activa (“¿dónde voy?”, “¿cuánto falta?”, “me desvié”) y cualquier pregunta de memoria o recomendación retornan `null`. El router solo ejecuta acciones mecánicas (contestar/colgar, hardware, cancelar ruta). Ver ADR-0039.
 5. **Resolución compartida de personas:** llamadas, mensajería y recordatorios resuelven nombres, roles y apodos con `FifoDataRepository.findContactByRoleOrName()`, respaldado por `ContactMatcher`. No reimplementes normalización de acentos ni comparación de tokens en una skill (ADR-0034).
+6. **La memoria profunda devuelve datos, no frases:** `ContextRecallSkill` recibe `ConversationContext.searchDeep()` por costura, no llama a la red ni a SQLite, y deja que el LLM redacte. La decisión de buscar vive en la política de recuperación del prompt, no en la skill (ADR-0049).

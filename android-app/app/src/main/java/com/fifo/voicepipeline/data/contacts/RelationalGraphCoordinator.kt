@@ -1,12 +1,12 @@
 package com.fifo.voicepipeline.data.contacts
 
 import com.fifo.voicepipeline.data.memory.MentionedPersonExtraction
-import com.fifo.voicepipeline.ui.model.ContactAppearance
-import com.fifo.voicepipeline.ui.model.ContactPhoneHint
-import com.fifo.voicepipeline.ui.model.ContactSource
-import com.fifo.voicepipeline.ui.model.FriendRecommendation
-import com.fifo.voicepipeline.ui.model.PhoneHintStatus
-import com.fifo.voicepipeline.ui.model.RelationalContact
+import com.fifo.voicepipeline.data.model.ContactAppearance
+import com.fifo.voicepipeline.data.model.ContactPhoneHint
+import com.fifo.voicepipeline.data.model.ContactSource
+import com.fifo.voicepipeline.data.model.FriendRecommendation
+import com.fifo.voicepipeline.data.model.PhoneHintStatus
+import com.fifo.voicepipeline.data.model.RelationalContact
 
 /**
  * Resultado de una ingesta al grafo relacional.

@@ -138,7 +138,10 @@ class VoicePipelineManager(
     private lateinit var cloudClient: CloudApiClient
 
     // Registro de habilidades nativas del teléfono y mutaciones de BD
-    val skillRegistry = com.fifo.voicepipeline.skills.FifoSkillRegistry(context)
+    val skillRegistry = com.fifo.voicepipeline.skills.FifoSkillRegistry(
+        context = context,
+        conversationContext = com.fifo.voicepipeline.data.AppGraph.instanceOrNull()?.conversationContext
+    )
 
     // Parlante del celular (solo se crea si el camino legacy se usa)
     private val audioPlayer by lazy { AudioPlayer() }
@@ -192,6 +195,16 @@ class VoicePipelineManager(
             navigationManager = skillRegistry.navigationManager
         )
 
+        // El contexto del prompt tiene un solo dueño (ADR-0049): el grafo. La
+        // navegación entra como costura porque el motor de rutas lo posee el
+        // registro de skills, no el grafo de datos.
+        val graph = com.fifo.voicepipeline.data.AppGraph.instanceOrNull()
+        cloudClient.contextProvider = graph?.conversationContext
+        graph?.navigationContextProvider = {
+            val gps = com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(context)
+            skillRegistry.navigationManager.buildSystemPromptContext(gps).orEmpty()
+        }
+
         useVoiceSession = VoicePipelineModeSelector.select(
             flagEnabled = BuildConfig.VOICE_SESSION_ENABLED,
             hasCloudStt = hasCloudStt
@@ -202,6 +215,9 @@ class VoicePipelineManager(
             startVoiceSessionPipeline()
             return
         }
+
+        // El camino legacy conserva su propio estado; no hay puente al orquestador.
+        com.fifo.voicepipeline.data.FifoDataRepository.continuousListeningHandler = null
 
         // Inicializar reproductor de audio del celular
         audioPlayer.initialize()
@@ -428,6 +444,17 @@ class VoicePipelineManager(
         )
         sessionPipeline = pipeline
         mirrorSessionPipeline(pipeline)
+
+        // El orquestador es el dueño del modo continuo. La UI sigue leyendo el
+        // espejo del facade hasta que existan state holders (ADR-0049).
+        com.fifo.voicepipeline.data.FifoDataRepository.continuousListeningHandler = { active ->
+            pipeline.session.setContinuousListening(active)
+        }
+        sessionMirrorJobs += scope.launch {
+            pipeline.isContinuousListening.collect { active ->
+                com.fifo.voicepipeline.data.FifoDataRepository.mirrorContinuousListening(active)
+            }
+        }
         // Fijar la ruta BLE antes de empezar la captura evita abrir el micrófono
         // del celular solo para apagarlo en la siguiente transición.
         pipeline.setBleConnected(bleClient.isConnected)
@@ -720,6 +747,11 @@ class VoicePipelineManager(
      */
     fun stop() {
         Log.i(TAG, "Deteniendo pipeline...")
+
+        // El puente al orquestador no sobrevive al pipeline: si queda colgado,
+        // la UI seguiría pidiendo escucha continua a una sesión ya detenida.
+        com.fifo.voicepipeline.data.FifoDataRepository.continuousListeningHandler = null
+        com.fifo.voicepipeline.data.FifoDataRepository.mirrorContinuousListening(false)
 
         if (useVoiceSession) {
             sessionPipeline?.stop()

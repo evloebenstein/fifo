@@ -3,8 +3,8 @@ package com.fifo.voicepipeline.data.local
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
-import com.fifo.voicepipeline.ui.model.ContactPhoneHint
-import com.fifo.voicepipeline.ui.model.PhoneHintStatus
+import com.fifo.voicepipeline.data.model.ContactPhoneHint
+import com.fifo.voicepipeline.data.model.PhoneHintStatus
 
 /**
  * DAO de `contact_phone_hints`: cola local de teléfonos mencionados que esperan

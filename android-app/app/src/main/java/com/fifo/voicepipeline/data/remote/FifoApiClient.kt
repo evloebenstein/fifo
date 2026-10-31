@@ -4,7 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.fifo.voicepipeline.data.FifoDataRepository
 import com.fifo.voicepipeline.data.local.FifoDatabaseHelper
-import com.fifo.voicepipeline.ui.model.*
+import com.fifo.voicepipeline.data.model.*
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.Dispatchers

@@ -1,6 +1,6 @@
 package com.fifo.voicepipeline.data.contacts
 
-import com.fifo.voicepipeline.ui.model.RelationalContact
+import com.fifo.voicepipeline.data.model.RelationalContact
 import java.text.Normalizer
 
 /**

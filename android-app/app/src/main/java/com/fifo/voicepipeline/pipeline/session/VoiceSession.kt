@@ -60,6 +60,13 @@ class VoiceSession(
     // ── Estados observables para la UI / Servicios ──────────────
     val state: StateFlow<PipelineState> = turnOrchestrator.state
     val isAwake: StateFlow<Boolean> = turnOrchestrator.isAwake
+    /** Dueño único del modo de escucha continua (ADR-0049). */
+    val isContinuousListening: StateFlow<Boolean> = turnOrchestrator.isContinuousListening
+
+    /** Delega en el orquestador; la sesión no guarda una copia del modo. */
+    fun setContinuousListening(enabled: Boolean) {
+        turnOrchestrator.setContinuousListening(enabled)
+    }
 
     private val _rmsLevel = MutableStateFlow(0.0)
     val rmsLevel: StateFlow<Double> = _rmsLevel.asStateFlow()

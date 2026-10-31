@@ -83,8 +83,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        // ── Inicializar Base de Datos Relacional Local SQLite ─────────
-        com.fifo.voicepipeline.data.FifoDataRepository.initialize(applicationContext)
+        // El grafo de datos lo construye FifoApplication; la actividad solo lo usa.
 
         // ── Inicializar Sensor de Orientación / Brújula para Navegación en Tiempo Real ──
         com.fifo.voicepipeline.location.FifoOrientationHelper.init(applicationContext)

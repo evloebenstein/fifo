@@ -37,7 +37,7 @@ que usa como caché de contexto del LLM. **No es la fuente de verdad durable.**
 - La consolidación usa `extractSessionMemoryChecked()`:
   - una excepción de red/parseo **se propaga** y `MemoryCoordinator` reintenta con backoff;
   - `null` significa “no había nada significativo que recordar” y permite marcar el turno como consolidado;
-  - un resultado válido se persiste en `FifoDataRepository` y en el backend.
+  - un resultado válido se persiste en los módulos de `AppGraph` (o en el accessor deprecado durante la migración) y en el backend.
 - Si un turno fue reparado, la consolidación usa `repairText` en lugar de la respuesta errónea original.
 
 ---

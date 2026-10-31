@@ -3,7 +3,7 @@ package com.fifo.voicepipeline.data.local
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
 import android.util.Log
-import com.fifo.voicepipeline.ui.model.RelationalContact
+import com.fifo.voicepipeline.data.model.RelationalContact
 import com.google.gson.Gson
 import java.util.UUID
 

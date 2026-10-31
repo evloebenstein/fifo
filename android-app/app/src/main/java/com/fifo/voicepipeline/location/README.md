@@ -31,7 +31,7 @@ Callers (Skills, VoiceIntentRouter, SpeechCognitionSeam)
 ```
 
 - **Skills** reciben `LocationAdapter` + `FifoNavigationManager` por constructor.
-- **`FifoSkillRegistry`** construye el adaptador y el manager una sola vez y los inyecta en `VoiceIntentRouter`, `CloudApiClient`, `DefaultConversationContextProvider` y `VoicePipelineManager`. No existe un singleton de navegación (ADR-0038).
+- **`FifoSkillRegistry`** construye el adaptador y el manager una sola vez y los inyecta en `VoiceIntentRouter`, `CloudApiClient` y `VoicePipelineManager`. `AppGraph.navigationContextProvider` conecta el manager con `ConversationContext`, que es la única ventana de prompt (ADR-0049). No existe un singleton de navegación (ADR-0038).
 
 ## Contexto espacial para el LLM (ADR-0039)
 
@@ -93,4 +93,4 @@ NavigationSessionMemory ──onChanged──► FifoNavigationManager.persistSe
 1. **GPS solo cuando hay ruta activa:** El listener continuo se inicia en `startNavigation()` y se detiene en `stopNavigation()` / llegada a destino.
 2. **`FifoLocationHelper` NO cambia:** toda la lógica de resolución de ubicación, geocodificación y Nominatim sigue igual; `AndroidLocationAdapter` es solo un wrapper de compatibilidad.
 3. **`pendingDestination`:** El estado de confirmación vive en `FifoNavigationManager.pendingDestination`. `NavigationDirectionsSkill` confirma contra él cuando el usuario dice "sí" o "guíame".
-4. **Memoria y contexto histórico:** La memoria de ubicaciones pasadas (lugares visitados, contexto de conversaciones) vive en `FifoDataRepository` y el pipeline de enriquecimiento del backend — completamente separado de esta capa.
+4. **Memoria y contexto histórico:** La memoria de ubicaciones pasadas (lugares visitados, contexto de conversaciones) vive en `AppGraph.memory` y `ConversationContext`, con el backend como capa profunda. Está completamente separada de esta capa (ADR-0049).

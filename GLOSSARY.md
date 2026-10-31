@@ -253,8 +253,41 @@ _Avoid_: Snapshot de memoria, Journal de ruta
 ### Comunidad y Memoria
 
 **Estado del dispositivo Fifo**:
-Última conexión, ubicación, habitación, RSSI y beeper del robot (`FifoDeviceLocation`). `DeviceLocationPolicy` decide la transición; el repositorio conserva el reloj, SQLite y la sincronización.
+Última conexión, ubicación, habitación, RSSI y beeper del robot (`FifoDeviceLocation`) junto con el hardware del teléfono y la conexión con el backend. `DeviceLocationPolicy` decide la transición y `DeviceState` es el dueño del `StateFlow`, la persistencia y la publicación remota (ADR-0049).
 _Avoid_: Estado del robot, Telemetría, DeviceStatus
+
+**AppGraph**:
+Composition root de los datos de usuario. Se construye una vez en `FifoApplication.onCreate()` y expone los módulos (`identity`, `memory`, `community`, `relationalGraph`, `session`, `device`, `conversationContext`). No es una fachada de negocio: cada consumidor toma solo el módulo que usa (ADR-0049).
+_Avoid_: ServiceLocator, UserContext, Contenedor global
+
+**UserSession**:
+Dueño de quién está activo, del login (Google, identificador o perfil nuevo), del cambio de perfil y de la sincronización del bundle. Hidrata los módulos y no habla con la UI (ADR-0049).
+_Avoid_: AuthManager, SessionRepository, LoginHelper
+
+**RelationalGraphModule**:
+Dueño del grafo relacional local: ingesta desde la libreta o FifoAmigos, fusión de menciones, procedencia y publicación por `RelationalRemotePort`. La lista reactiva sigue en `EpisodicMemoryModule` porque la ventana compacta la consume en el mismo turno (ADR-0049).
+_Avoid_: ContactsManager, Agenda, GraphService
+
+**ConversationContext**:
+Única composición del contexto del prompt: hora, ubicación, ruta activa, memoria compacta y política de recuperación. También expone `searchDeep()`, la capa 2 que consulta el backend y cae al índice local. Es `ConversationContextProvider` y no redacta respuestas (ADR-0049).
+_Avoid_: PromptBuilder, ContextWindow, MemoryService
+
+**DeepContextPort**:
+Costura de la búsqueda profunda del backend. Producción usa `BackendDeepContextPort` (`/recall-context`); las pruebas usan `InMemoryDeepContextPort`. Mantiene HTTP fuera del módulo de memoria (ADR-0049).
+_Avoid_: RecallApi, GraphRagClient, RemoteSearch
+
+**Modelo puro**:
+Modelo de dominio en `data/model` que no conoce Android ni Compose. `ui/model` añade typealiases y extensiones de presentación (iconos). Un modelo nuevo nace en `data/model` (ADR-0049).
+_Avoid_: DTO, UI model, Entity
+
+**Política de recuperación**:
+Guía del system prompt con cinco disparadores para invocar `recall_past_context`: pregunta abierta sin evidencia, detalle ausente, afirmación sobre el pasado, corrección o duda, y laguna o petición de precisión. Regla: buscar antes de afirmar; si no hay evidencia, decirlo; nunca inventar. Es prompt, no locución (ADR-0049).
+_Avoid_: Frase de memoria, Regla de recall, Prompt de búsqueda
+
+**Accessor deprecado**:
+`FifoDataRepository` durante la migración strangler: ya no posee estado, solo delega en `AppGraph`. Se borra cuando las llamadas lleguen a cero. No se le añade lógica nueva (ADR-0049).
+_Avoid_: Repositorio central, Fachada, God object
+
 
 **Contexto episódico local**:
 Resultado del fallback offline de `recall_past_context`: busca contactos, rutinas, recuerdos, gustos, recordatorios y fragmentos con stop words y puntuación local. Vive en `EpisodicContextSearch`; el backend sigue teniendo prioridad cuando responde.

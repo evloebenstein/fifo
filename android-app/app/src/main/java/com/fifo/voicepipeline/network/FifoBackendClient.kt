@@ -1,7 +1,7 @@
 package com.fifo.voicepipeline.network
 
 import com.fifo.voicepipeline.data.memory.MentionedPersonExtraction
-import com.fifo.voicepipeline.ui.model.*
+import com.fifo.voicepipeline.data.model.*
 
 /**
  * Fachada HTTP del backend propio (FastAPI/MySQL, `fifo-api` en el puerto 8090).

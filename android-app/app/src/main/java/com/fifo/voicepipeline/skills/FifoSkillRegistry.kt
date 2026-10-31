@@ -38,7 +38,12 @@ class FifoSkillRegistry(
         },
         sessionStore = sessionStore
     ),
-    private val intentRouter: VoiceIntentRouter = VoiceIntentRouter(navigationManager)
+    private val intentRouter: VoiceIntentRouter = VoiceIntentRouter(navigationManager),
+    /**
+     * Contexto conversacional compartido (ADR-0049). Si es `null`, la skill de
+     * memoria usa el grafo instalado; las pruebas pueden inyectar un doble.
+     */
+    private val conversationContext: com.fifo.voicepipeline.data.context.ConversationContext? = null
 ) {
 
     companion object {
@@ -63,7 +68,16 @@ class FifoSkillRegistry(
         ))
         registerSkill(PhoneCommunicationSkill(context))
         registerSkill(ProfileDatabaseSkill(context))
-        registerSkill(ContextRecallSkill(context))
+        registerSkill(ContextRecallSkill { query ->
+            conversationContext?.searchDeep(query)
+                ?: com.fifo.voicepipeline.data.AppGraph.instanceOrNull()?.conversationContext?.searchDeep(query)
+                ?: com.fifo.voicepipeline.data.model.DeepContextResult(
+                    relevantExcerpts = emptyList(),
+                    foundEntities = emptyList(),
+                    synthesizedContext = "",
+                    conversationsSearched = 0
+                )
+        })
         registerSkill(FindFifoDeviceSkill(context))
         registerSkill(CurrentLocationSkill(context))
         registerSkill(NavigationDirectionsSkill(

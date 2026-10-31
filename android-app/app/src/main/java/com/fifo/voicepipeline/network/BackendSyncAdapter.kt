@@ -2,16 +2,16 @@ package com.fifo.voicepipeline.network
 
 import android.util.Log
 import com.fifo.voicepipeline.network.FifoBackendClient.SyncedUserBundle
-import com.fifo.voicepipeline.ui.model.ConversationFragment
-import com.fifo.voicepipeline.ui.model.DailyRoutine
-import com.fifo.voicepipeline.ui.model.FifoDeviceLocation
-import com.fifo.voicepipeline.ui.model.FifoMemoryItem
-import com.fifo.voicepipeline.ui.model.FifoReminderItem
-import com.fifo.voicepipeline.ui.model.FifoTasteStory
-import com.fifo.voicepipeline.ui.model.PastConversationItem
-import com.fifo.voicepipeline.ui.model.RelationalContact
-import com.fifo.voicepipeline.ui.model.UserProfileData
-import com.fifo.voicepipeline.ui.model.UserSocialPost
+import com.fifo.voicepipeline.data.model.ConversationFragment
+import com.fifo.voicepipeline.data.model.DailyRoutine
+import com.fifo.voicepipeline.data.model.FifoDeviceLocation
+import com.fifo.voicepipeline.data.model.FifoMemoryItem
+import com.fifo.voicepipeline.data.model.FifoReminderItem
+import com.fifo.voicepipeline.data.model.FifoTasteStory
+import com.fifo.voicepipeline.data.model.PastConversationItem
+import com.fifo.voicepipeline.data.model.RelationalContact
+import com.fifo.voicepipeline.data.model.UserProfileData
+import com.fifo.voicepipeline.data.model.UserSocialPost
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.Request
@@ -76,7 +76,8 @@ internal class BackendSyncAdapter(private val http: BackendHttp) {
                     emergencyContactName = pObj.optString("emergencyContactName", ""),
                     emergencyContactPhone = pObj.optString("emergencyContactPhone", ""),
                     preferredAddress = pObj.optString("preferredAddress", ""),
-                    interestTags = interestTags
+                    interestTags = interestTags,
+                    email = pObj.optString("email", "")
                 )
 
                 val tastesArr = root.optJSONArray("tastes") ?: JSONArray()

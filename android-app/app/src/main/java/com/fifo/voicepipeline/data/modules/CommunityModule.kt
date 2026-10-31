@@ -1,7 +1,7 @@
 package com.fifo.voicepipeline.data.modules
 
-import com.fifo.voicepipeline.ui.model.CommunityActivityItem
-import com.fifo.voicepipeline.ui.model.UserSocialPost
+import com.fifo.voicepipeline.data.model.CommunityActivityItem
+import com.fifo.voicepipeline.data.model.UserSocialPost
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

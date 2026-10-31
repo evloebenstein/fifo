@@ -100,6 +100,7 @@ internal class VoiceSessionPipeline(
 
     val state: StateFlow<com.fifo.voicepipeline.pipeline.PipelineState> = session.state
     val isAwake: StateFlow<Boolean> = session.isAwake
+    val isContinuousListening: StateFlow<Boolean> = session.isContinuousListening
     val transcription: StateFlow<String> = session.transcription
     val aiResponse: StateFlow<String> = session.aiResponse
     val statusMessage: StateFlow<String> = session.statusMessage

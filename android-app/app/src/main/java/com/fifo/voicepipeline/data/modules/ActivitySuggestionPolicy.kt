@@ -1,6 +1,6 @@
 package com.fifo.voicepipeline.data.modules
 
-import com.fifo.voicepipeline.ui.model.CommunityActivityItem
+import com.fifo.voicepipeline.data.model.CommunityActivityItem
 
 /**
  * Política de borrador para “sugerir una actividad con Fifo”.
