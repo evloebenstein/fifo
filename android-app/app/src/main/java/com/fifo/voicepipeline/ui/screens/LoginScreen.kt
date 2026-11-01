@@ -24,10 +24,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.widget.Toast
-import com.fifo.voicepipeline.data.FifoDataRepository
 import com.fifo.voicepipeline.network.FifoBackendClient
 import com.fifo.voicepipeline.ui.components.FifoFace
 import com.fifo.voicepipeline.ui.components.GoogleSignInButton
+import com.fifo.voicepipeline.ui.state.SessionStateHolder
+import com.fifo.voicepipeline.ui.state.fifoStateHolder
 import com.fifo.voicepipeline.ui.components.rememberGoogleSignInLauncher
 import com.fifo.voicepipeline.ui.theme.FifoColors
 import kotlinx.coroutines.launch
@@ -39,6 +40,7 @@ fun LoginScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val sessionState = fifoStateHolder { graph -> SessionStateHolder(graph.session, graph.identity) }
 
     var identifier by remember { mutableStateOf("") }
     var availableUsers by remember { mutableStateOf<List<FifoBackendClient.UserProfileSummary>>(emptyList()) }
@@ -48,8 +50,7 @@ fun LoginScreen(
     val launchNativeGoogleSignIn = rememberGoogleSignInLauncher(
         onSuccess = { gUser ->
             scope.launch {
-                FifoDataRepository.loginWithGoogle(
-                    context = context,
+                sessionState.loginWithGoogle(
                     googleId = gUser.googleId,
                     email = gUser.email,
                     fullName = gUser.fullName,
@@ -180,7 +181,7 @@ fun LoginScreen(
                         Surface(
                             onClick = {
                                 identifier = user.fullName
-                                FifoDataRepository.switchUserProfile(context, user.id)
+                                sessionState.switchUserProfile(user.id)
                                 onLoginSuccess(user.fullName)
                             },
                             shape = RoundedCornerShape(16.dp),
@@ -285,14 +286,13 @@ fun LoginScreen(
                     isLoading = true
                     errorMessage = null
                     scope.launch {
-                        val ok = FifoDataRepository.loginWithIdentifier(context, identifier.trim())
+                        val ok = sessionState.loginWithIdentifier(identifier.trim())
                         isLoading = false
                         if (ok) {
                             onLoginSuccess(identifier.trim())
                         } else {
                             // Si no se encuentra en backend ni localmente, crear o activar sesión con este nombre
-                            val newId = FifoDataRepository.createProfileAndStart(
-                                context = context,
+                            sessionState.createProfileAndStart(
                                 fullName = identifier.trim(),
                                 username = identifier.trim().removePrefix("@").lowercase().replace(" ", "_"),
                                 email = if (identifier.contains("@")) identifier.trim() else null

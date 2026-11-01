@@ -79,5 +79,7 @@ adaptadores de audio, la telefonía y la memoria durable. En `LEGACY`,
 `VoicePipelineManager` conserva el camino anterior y no construye nada del camino nuevo.
 
 `FifoApplication` construye `AppGraph` al arrancar el proceso; la actividad, el
-servicio y los receivers comparten esa instancia. `FifoDataRepository` sigue
-existiendo solo como accessor deprecado durante la migración (ADR-0049).
+servicio y los receivers comparten esa instancia. La UI lee state holders de
+`ui/state/` (`fifoStateHolder { graph -> ... }`) y `FifoDataRepository` sigue
+existiendo solo como accessor deprecado durante la migración (ADR-0049,
+ADR-0050).

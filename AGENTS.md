@@ -27,10 +27,13 @@ Estas reglas son invariantes de Fifo. Si un cambio las rompe, el cambio está ma
 - **La recuperación es prompt, no locución.** Los cinco disparadores de `MEMORY_RECOVERY_GUIDE` deciden cuándo invocar `recall_past_context`; el LLM redacta. Regla: buscar antes de afirmar; si no hay evidencia, decirlo; nunca inventar.
 - **`recall_past_context` devuelve payload.** `context_status`, `synthesized_context`, `excerpts`, `found_entities` y `conversations_searched` viajan en `data`; `spokenFeedback` queda vacío. `no_evidence` es un hecho para el LLM, no una frase enlatada.
 - **Backend primero, local como respaldo.** `ConversationContext.searchDeep()` es `suspend`, no usa `runBlocking`, no se llama antes de hablar y solo corre bajo demanda. El índice local es un read model con WAL y sin poda.
-- **La escucha continua pertenece a `TurnOrchestrator`.** `VoiceSession` y el pipeline delegan; la UI lee el espejo del facade hasta que existan state holders. No crees un segundo booleano en la UI ni en la sesión.
-- **Costuras inyectables, no estáticos.** La libreta entra por `ContactSourcePort`, el robot por `DeviceRemotePort`, el grafo por `RelationalRemotePort` y la búsqueda profunda por `DeepContextPort`. No llames a `FifoBackendClient` desde dentro de un módulo de dominio.
+- **La escucha continua pertenece a `TurnOrchestrator`.** `VoiceSession` y el pipeline delegan; la UI la lee por `graph.listening` (`ContinuousListeningState`: `request`/`mirror`/`handler`). No crees un segundo booleano en la UI, en la sesión ni en el facade (ADR-0050).
+- **Las pantallas leen state holders, no el accessor.** `ui/state/FifoStateHolders.kt` proyecta los `StateFlow` del módulo y delega comandos con `fifoStateHolder { graph -> ... }`; el holder no posee estado. Cero llamadas a `FifoDataRepository` en `ui/` y `MainActivity` (ADR-0050).
+- **La publicación es del módulo.** `EpisodicMemoryModule.addMemory()` y `CommunityModule.toggleJoinActivity()`/`createActivity()` guardan local y publican por `MemoryRemotePort`/`CommunityRemotePort`; el adaptador de producción absorbe el fallo de red. La pantalla no llama a `FifoBackendClient`.
+- **La telefonía visible vive en `graph.telephony`.** `CallStateCoordinator` publica la llamada; las acciones siguen siendo de `FifoCallManager`/`AndroidTelephonyPort`.
+- **Costuras inyectables, no estáticos.** La libreta entra por `ContactSourcePort`, el robot por `DeviceRemotePort`, el grafo por `RelationalRemotePort`, la búsqueda profunda por `DeepContextPort` y la publicación por `MemoryRemotePort`/`CommunityRemotePort`. No llames a `FifoBackendClient` desde dentro de un módulo de dominio.
 - **El borrado remoto es un hueco conocido.** Borrar conversaciones o nodos en el backend no existe; el filtro local evita resucitarlos en el dispositivo, pero no garantiza el borrado remoto.
-- **Pruebas de verdad:** `ConversationContextTest`, `RelationalGraphModuleTest`, `DeviceStateTest`, `ContextRecallSkillTest` y `DomainModulesTest`.
+- **Pruebas de verdad:** `ConversationContextTest`, `RelationalGraphModuleTest`, `DeviceStateTest`, `ContextRecallSkillTest`, `DomainModulesTest`, `ContentPublicationTest` y `FifoStateHoldersTest`.
 
 ## Guía autónoma y sesión de ruta
 

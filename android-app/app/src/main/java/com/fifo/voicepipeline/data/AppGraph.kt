@@ -14,8 +14,12 @@ import com.fifo.voicepipeline.data.modules.SqliteCommunityStorageAdapter
 import com.fifo.voicepipeline.data.modules.SqliteMemoryStorageAdapter
 import com.fifo.voicepipeline.data.modules.SqliteUserStorageAdapter
 import com.fifo.voicepipeline.data.modules.UserIdentityModule
+import com.fifo.voicepipeline.data.modules.BackendCommunityRemote
+import com.fifo.voicepipeline.data.modules.BackendMemoryRemote
+import com.fifo.voicepipeline.data.session.ContinuousListeningState
 import com.fifo.voicepipeline.data.session.UserSession
 import com.fifo.voicepipeline.location.FifoLocationHelper
+import com.fifo.voicepipeline.telephony.CallStateCoordinator
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -35,6 +39,8 @@ import kotlinx.coroutines.SupervisorJob
  * - [session] → quién está activo, login y sincronización.
  * - [device] → robot, hardware y conexión con backend.
  * - [conversationContext] → ventana de prompt y búsqueda profunda.
+ * - [telephony] → estado visible de la llamada (la acción vive en `FifoCallManager`).
+ * - [listening] → proyección de la escucha continua; el dueño es `TurnOrchestrator`.
  *
  * `FifoDataRepository` queda como accessor `@Deprecated` que delega aquí
  * durante la migración strangler.
@@ -47,8 +53,28 @@ class AppGraph internal constructor(
     internal val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     val identity = UserIdentityModule(SqliteUserStorageAdapter { database })
-    val community = CommunityModule(SqliteCommunityStorageAdapter { database })
-    val memory = EpisodicMemoryModule(SqliteMemoryStorageAdapter { database })
+    val community = CommunityModule(
+        storageAdapter = SqliteCommunityStorageAdapter { database },
+        remote = BackendCommunityRemote,
+        scope = scope
+    )
+    val memory = EpisodicMemoryModule(
+        storageAdapter = SqliteMemoryStorageAdapter { database },
+        remote = BackendMemoryRemote,
+        scope = scope
+    )
+
+    /**
+     * Estado de la llamada visible. La telefonía (contestar/colgar) la ejecuta
+     * `FifoCallManager`; este contenedor solo publica lo que la UI observa.
+     */
+    val telephony = CallStateCoordinator()
+
+    /**
+     * Proyección de la escucha continua. El dueño es `TurnOrchestrator`; aquí
+     * solo vive el último valor publicado para la UI (ADR-0049).
+     */
+    val listening = ContinuousListeningState()
 
     val relationalGraph = RelationalGraphModule(
         memory = memory,

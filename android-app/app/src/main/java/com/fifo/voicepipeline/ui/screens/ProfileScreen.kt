@@ -28,6 +28,8 @@ import androidx.compose.ui.window.Dialog
 import com.fifo.voicepipeline.pipeline.session.VoiceIdentitySettings
 import com.fifo.voicepipeline.pipeline.session.VoiceProfile
 import com.fifo.voicepipeline.ui.components.FifoFace
+import com.fifo.voicepipeline.ui.state.ProfileStateHolder
+import com.fifo.voicepipeline.ui.state.fifoStateHolder
 import com.fifo.voicepipeline.ui.theme.FifoColors
 import com.fifo.voicepipeline.ui.model.UserSocialPost
 import com.fifo.voicepipeline.ui.model.FifoTasteStory
@@ -73,11 +75,19 @@ fun ProfileScreen(
     var postToDelete by remember { mutableStateOf<UserSocialPost?>(null) }
     var tasteToDelete by remember { mutableStateOf<FifoTasteStory?>(null) }
 
-    // Repositorio reactivo central de Fifo (sincronizado con base de datos)
-    val userProfileState by com.fifo.voicepipeline.data.FifoDataRepository.userProfile.collectAsState()
-    val tastesState by com.fifo.voicepipeline.data.FifoDataRepository.tastes.collectAsState()
-    val storiesState by com.fifo.voicepipeline.data.FifoDataRepository.tasteStories.collectAsState()
-    val postsState by com.fifo.voicepipeline.data.FifoDataRepository.socialPosts.collectAsState()
+    // Proyección de solo lectura de los módulos de identidad, memoria y comunidad
+    val profileState = fifoStateHolder { graph ->
+        ProfileStateHolder(
+            session = graph.session,
+            identity = graph.identity,
+            memory = graph.memory,
+            community = graph.community
+        )
+    }
+    val userProfileState by profileState.userProfile.collectAsState()
+    val tastesState by profileState.tastes.collectAsState()
+    val storiesState by profileState.tasteStories.collectAsState()
+    val postsState by profileState.socialPosts.collectAsState()
 
     // Datos del perfil (se inicializan con el repositorio o parámetro)
     var name by remember { mutableStateOf(userProfileState.fullName) }
@@ -2144,7 +2154,7 @@ fun ProfileScreen(
                             } else {
                                 "Disfruta conversar con calma con Fifo sobre sus pasatiempos favoritos y su día a día."
                             }
-                            com.fifo.voicepipeline.data.FifoDataRepository.updateDemographics(
+                            profileState.updateDemographics(
                                 fullName = editName,
                                 username = editUsername.removePrefix("@").ifBlank { "usuario" },
                                 birthDate = editBirthDate,

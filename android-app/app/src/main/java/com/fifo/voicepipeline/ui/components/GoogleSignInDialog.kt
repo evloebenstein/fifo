@@ -33,7 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.fifo.voicepipeline.R
-import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.ui.state.SessionStateHolder
+import com.fifo.voicepipeline.ui.state.fifoStateHolder
 import com.fifo.voicepipeline.ui.theme.FifoColors
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
@@ -222,6 +223,7 @@ fun GoogleSignInDialog(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val sessionState = fifoStateHolder { graph -> SessionStateHolder(graph.session, graph.identity) }
 
     var email by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
@@ -424,8 +426,7 @@ fun GoogleSignInDialog(
                         errorMessage = null
                         val googleId = "goog_" + email.filter { it.isLetterOrDigit() }.lowercase().take(12)
                         scope.launch {
-                            val ok = FifoDataRepository.loginWithGoogle(
-                                context = context,
+                            val ok = sessionState.loginWithGoogle(
                                 googleId = googleId,
                                 email = email.trim(),
                                 fullName = name.trim(),

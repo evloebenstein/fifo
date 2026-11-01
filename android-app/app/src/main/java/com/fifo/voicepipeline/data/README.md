@@ -4,7 +4,9 @@ Capa de datos de Fifo. Ver **ADR-0002**
 (`docs/adr/0002-data-repository-modularization.md`) para la descomposición modular,
 **ADR-0011** (`docs/adr/0011-durable-memory-journal.md`) para la memoria durable del
 camino `SESSION` y **ADR-0049** (`docs/adr/0049-single-owner-user-state.md`) para el
-composition root y la propiedad de cada estado.
+composition root y la propiedad de cada estado, y **ADR-0050**
+(`docs/adr/0050-screen-state-holders-and-module-publication.md`) para los state
+holders y la publicación en los módulos.
 
 ---
 
@@ -12,16 +14,18 @@ composition root y la propiedad de cada estado.
 
 | Archivo / Carpeta | Rol |
 | :--- | :--- |
-| [`AppGraph.kt`](AppGraph.kt) | **Composition root (ADR-0049).** Construye una sola vez `identity`, `memory`, `community`, `relationalGraph`, `session`, `device` y `conversationContext`. Lo instala `FifoApplication`; la actividad y el servicio lo consumen. |
-| [`FifoDataRepository.kt`](FifoDataRepository.kt) | **Accessor `@Deprecated` (ADR-0049).** Ya no posee estado: delega en `AppGraph` con la misma API pública para la migración strangler. La telefonía conserva `incomingCall` y las acciones delegadas en `CallStateCoordinator` (ADR-0030). |
+| [`AppGraph.kt`](AppGraph.kt) | **Composition root (ADR-0049).** Construye una sola vez `identity`, `memory`, `community`, `relationalGraph`, `session`, `device`, `conversationContext`, `telephony` y `listening`. Lo instala `FifoApplication`; la actividad y el servicio lo consumen. |
+| [`FifoDataRepository.kt`](FifoDataRepository.kt) | **Accessor `@Deprecated` (ADR-0049).** Ya no posee estado: delega en `AppGraph` con la misma API pública para la migración strangler. `detachedListening` existe solo para pruebas JVM sin grafo. |
 | [`model/FifoModels.kt`](model/FifoModels.kt) | **Modelos puros de dominio.** No conocen Android ni Compose; los consumen datos, red y pruebas. |
+| [`modules/ContentRemotePorts.kt`](modules/ContentRemotePorts.kt) | **Costuras de publicación (ADR-0050):** `MemoryRemotePort` y `CommunityRemotePort`, con `Noop*` para pruebas y `Backend*` para producción (absorbe el fallo de red). |
+| [`session/ContinuousListeningState.kt`](session/ContinuousListeningState.kt) | **Proyección de escucha continua (ADR-0050):** `request()` encamina al `TurnOrchestrator`, `mirror()` publica el estado del dueño. `handler` solo se instala en `SESSION`. |
 | [`context/ConversationContext.kt`](context/ConversationContext.kt) | **Única ventana de contexto (ADR-0049):** hora, ubicación, ruta, memoria compacta y política de recuperación de cinco disparadores. `searchDeep()` consulta el backend y cae al índice local. |
 | [`context/DeepContextPort.kt`](context/DeepContextPort.kt) | Costura de búsqueda profunda: `BackendDeepContextPort` en producción e `InMemoryDeepContextPort` en pruebas. |
 | [`session/UserSession.kt`](session/UserSession.kt) | Dueño de la sesión: usuario activo, login, cambio de perfil e hidratación/sincronización del bundle (ADR-0049). |
 | [`device/DeviceState.kt`](device/DeviceState.kt) | Dueño del robot (`FifoDeviceLocation`), del hardware del teléfono y de la conexión con el backend. Publica por `DeviceRemotePort`. |
 | [`modules/UserIdentityModule.kt`](modules/UserIdentityModule.kt) | Perfil de usuario, identidad, bio generada por IA y tags de intereses. Costura: `UserStorageAdapter`. |
-| [`modules/CommunityModule.kt`](modules/CommunityModule.kt) | Actividades comunitarias (`ActividadComunitaria`) y red de `FifoAmigos`. Costura: `CommunityStorageAdapter`. |
-| [`modules/EpisodicMemoryModule.kt`](modules/EpisodicMemoryModule.kt) | Memoria episódica: fragmentos compactos on-device y recuperación GraphRAG en backend. Costura: `MemoryStorageAdapter`. |
+| [`modules/CommunityModule.kt`](modules/CommunityModule.kt) | Actividades comunitarias (`ActividadComunitaria`) y red de `FifoAmigos`. Costura: `CommunityStorageAdapter`; publica inscripciones y actividades por `CommunityRemotePort` (ADR-0050). |
+| [`modules/EpisodicMemoryModule.kt`](modules/EpisodicMemoryModule.kt) | Memoria episódica: fragmentos compactos on-device y recuperación GraphRAG en backend. Costura: `MemoryStorageAdapter`; publica recuerdos nuevos por `MemoryRemotePort` (ADR-0050). |
 | [`modules/EpisodicContextSearch.kt`](modules/EpisodicContextSearch.kt) | Política pura de recuperación local: stop words, tokens, puntuación de fragmentos, sesgo temporal y síntesis (ADR-0035). |
 | [`modules/ActivitySuggestionPolicy.kt`](modules/ActivitySuggestionPolicy.kt) | Política pura del borrador de actividad: categoría, gustos, título, descripción y organizador (ADR-0036). |
 | [`modules/SqliteStorageAdapters.kt`](modules/SqliteStorageAdapters.kt) | Adaptadores SQLite de producción para los módulos de dominio. |
@@ -69,13 +73,20 @@ FifoApplication.onCreate()
           │                       └─ ContactPhoneHintDao (local-only)
           ├─ session ───► UserSession ──► FifoBackendClient (/users/{id}/sync)
           ├─ device ────► DeviceState ──► DeviceLocationDao + DeviceRemotePort
+          ├─ telephony ─► CallStateCoordinator ◄── FifoCallManager (acciones)
+          ├─ listening ─► ContinuousListeningState ◄─► TurnOrchestrator
           └─ conversationContext ─► ConversationContext
                                       ├─ ventana compacta (local)
                                       └─ searchDeep() ─► DeepContextPort ─► backend
                                                        └─ fallback EpisodicContextSearch
 
-UI / skills / pipeline
-    └─► AppGraph.<módulo>          (destino)
+memory / community
+    └─► *RemotePort  (publicación del módulo; el adaptador absorbe el fallo)
+
+UI (ui/state)
+    └─► state holders ──► AppGraph.<módulo>   (proyección de solo lectura + comandos)
+
+pipeline / skills / telefonía
     └─► FifoDataRepository        (accessor deprecado durante la migración)
 ```
 
@@ -83,7 +94,7 @@ UI / skills / pipeline
 
 ## Invariantes
 
-1. **Telefonía fuera de la capa de datos:** `FifoDataRepository` conserva la API pública por compatibilidad, pero el estado mutable vive en `CallStateCoordinator` (`telephony/`). Sigue habiendo un único `FifoCallManager`. Ver ADR-0030.
+1. **Telefonía fuera de la capa de datos:** `FifoDataRepository` conserva la API pública por compatibilidad, pero el estado mutable vive en `CallStateCoordinator` (`telephony/`), expuesto como `AppGraph.telephony` (ADR-0050). Sigue habiendo un único `FifoCallManager`. Ver ADR-0030.
 2. **Actualizaciones atómicas:** insertar en SQLite antes de actualizar el `StateFlow`.
 3. **Tests sin Android:** los módulos de dominio son testables en JVM con los adaptadores `InMemory*`.
 4. **Un solo dueño de la memoria durable:** `VoiceSessionPipeline` compone `MemoryCoordinator`, el diario y el consolidador. `VoiceSession` solo ve `SessionMemory`; el facade legacy no crea otro coordinador.
@@ -98,3 +109,5 @@ UI / skills / pipeline
 13. **Un solo composition root:** `FifoApplication` instala `AppGraph` una vez. La actividad y el servicio no crean almacenamiento ni módulos paralelos. El accessor `FifoDataRepository` solo delega y se borra al terminar la migración (ADR-0049).
 14. **Una sola ventana de contexto:** `ConversationContext` compone hora, ubicación, ruta y memoria compacta; `searchDeep()` es `suspend`, backend primero y respaldo local. Los cinco disparadores de recuperación son prompt, no locución, y el skill devuelve payload (ADR-0049).
 15. **Modelos puros:** `data/model` no conoce Android ni Compose; `ui/model` solo añade typealiases e iconos. Un modelo nuevo de dominio nace en `data/model` (ADR-0049).
+16. **La publicación es del módulo:** `EpisodicMemoryModule` y `CommunityModule` guardan local y publican por `MemoryRemotePort`/`CommunityRemotePort`. El adaptador de producción absorbe el fallo; la UI no llama a `FifoBackendClient` (ADR-0050).
+17. **La escucha continua tiene dueño fuera de datos:** `ContinuousListeningState` solo proyecta y encamina; `TurnOrchestrator` decide y publica con `mirror()` (ADR-0050). `detachedListening` del accessor existe únicamente para pruebas JVM sin grafo.

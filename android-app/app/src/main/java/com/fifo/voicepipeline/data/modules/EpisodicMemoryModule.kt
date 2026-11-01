@@ -1,9 +1,13 @@
 package com.fifo.voicepipeline.data.modules
 
 import com.fifo.voicepipeline.data.model.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 /**
@@ -95,9 +99,14 @@ class InMemoryMemoryStorageAdapter : MemoryStorageAdapter {
  * Encapsula la memoria doble capa de Fifo:
  * - Capa 1: Ventana de contexto compacta local (<80 tokens) para inferencia ultra-rápida sin consumir tokens excesivos.
  * - Capa 2: Búsqueda profunda multinivel con conexión al agente del servidor backend (Grafo Relacional) y fallback local.
+ *
+ * El estado local es suyo; la publicación de un recuerdo nuevo viaja por
+ * [remote] sin que la UI ni el accessor conozcan la red (ADR-0049).
  */
 class EpisodicMemoryModule(
-    private var storageAdapter: MemoryStorageAdapter = InMemoryMemoryStorageAdapter()
+    private var storageAdapter: MemoryStorageAdapter = InMemoryMemoryStorageAdapter(),
+    private val remote: MemoryRemotePort = NoopMemoryRemote,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
     private val _memories = MutableStateFlow<List<FifoMemoryItem>>(emptyList())
     val memories: StateFlow<List<FifoMemoryItem>> = _memories.asStateFlow()
@@ -204,6 +213,7 @@ class EpisodicMemoryModule(
         )
         _memories.value = listOf(item) + _memories.value
         storageAdapter.addMemory(userId, item)
+        scope.launch { remote.postMemory(userId, item) }
         return item
     }
 

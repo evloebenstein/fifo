@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
         if (permissions[Manifest.permission.READ_CONTACTS] == true ||
             ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
             lifecycleScope.launch(Dispatchers.IO) {
-                com.fifo.voicepipeline.data.FifoDataRepository.syncDeviceContactsToRelationalGraph(applicationContext)
+                com.fifo.voicepipeline.data.AppGraph.requireInstance().contactsSync.sync()
             }
         }
 

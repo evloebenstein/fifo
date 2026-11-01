@@ -2,9 +2,13 @@ package com.fifo.voicepipeline.data.modules
 
 import com.fifo.voicepipeline.data.model.CommunityActivityItem
 import com.fifo.voicepipeline.data.model.UserSocialPost
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import java.util.UUID
 
 /**
@@ -87,9 +91,15 @@ class InMemoryCommunityStorageAdapter : CommunityStorageAdapter {
 /**
  * Módulo profundo de Comunidad (CommunityModule).
  * Encapsula la gestión de encuentros comunitarios para adultos mayores, inscripciones y muro social.
+ *
+ * Es dueño del estado local y de su publicación: las inscripciones y las
+ * actividades nuevas viajan por [remote] sin que la UI ni el accessor conozcan
+ * la red (ADR-0049).
  */
 class CommunityModule(
-    private var storageAdapter: CommunityStorageAdapter = InMemoryCommunityStorageAdapter()
+    private var storageAdapter: CommunityStorageAdapter = InMemoryCommunityStorageAdapter(),
+    private val remote: CommunityRemotePort = NoopCommunityRemote,
+    private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 ) {
     private val _communityActivities = MutableStateFlow<List<CommunityActivityItem>>(emptyList())
     val communityActivities: StateFlow<List<CommunityActivityItem>> = _communityActivities.asStateFlow()
@@ -134,12 +144,63 @@ class CommunityModule(
             } else {
                 storageAdapter.leaveActivity(activityId, userId)
             }
+            scope.launch { remote.toggleJoinActivity(activityId, userId, newJoined) }
         }
     }
 
-    fun createCommunityActivity(item: CommunityActivityItem) {
+    /**
+     * Persiste una actividad nueva, inscribe al creador y la publica.
+     *
+     * `userId` vacío significa "no inscribas": sirve para importar actividades
+     * que llegan del backend.
+     */
+    fun createCommunityActivity(item: CommunityActivityItem, userId: String = "") {
         _communityActivities.value = listOf(item) + _communityActivities.value.filter { it.id != item.id }
         storageAdapter.saveCommunityActivity(item)
+        if (userId.isNotBlank()) {
+            storageAdapter.joinActivity(item.id, userId)
+        }
+        scope.launch { remote.createCommunityActivity(item) }
+    }
+
+    /**
+     * Fábrica de una actividad creada desde la UI o por voz.
+     *
+     * El id, el cupo restante y el nombre del organizador se resuelven aquí para
+     * que la pantalla no componga el modelo ni el accessor duplique la regla.
+     */
+    fun createActivity(
+        title: String,
+        description: String,
+        dateLabel: String,
+        locationName: String,
+        organizerId: String,
+        spotsMax: Int = 10,
+        iconCategory: String = "nature",
+        targetTastes: List<String> = emptyList(),
+        organizerType: String = "user",
+        organizerName: String? = null
+    ): String {
+        val newId = "act_" + System.currentTimeMillis().toString().takeLast(6)
+        val item = CommunityActivityItem(
+            id = newId,
+            title = title.trim(),
+            description = description.trim(),
+            spotsLabel = "Quedan ${spotsMax - 1} cupos",
+            spotsMax = spotsMax,
+            spotsTaken = 1,
+            dateLabel = dateLabel.trim(),
+            locationName = locationName.trim(),
+            distanceLabel = "Cerca de tu sector",
+            iconCategory = iconCategory,
+            organizerId = organizerId,
+            organizerName = organizerName ?: "Vecino de la comunidad",
+            organizerType = organizerType,
+            targetTastes = targetTastes,
+            isJoined = organizerId.isNotBlank()
+        )
+        createCommunityActivity(item, organizerId)
+        return newId
     }
 
     fun deleteCommunityActivity(activityId: String) {

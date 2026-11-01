@@ -5,6 +5,8 @@
 
 > **Nota de arquitectura (ADR-0049):** las referencias a `FifoDataRepository` en este mapa describen la API histórica. Desde ADR-0049 el dueño del estado es `AppGraph` (construido por `FifoApplication`), y `FifoDataRepository` es un accessor deprecado que solo delega. La ventana de contexto vive en `ConversationContext` y la escucha continua en `TurnOrchestrator`.
 
+> **Nota de arquitectura (ADR-0050):** la UI ya no consume el accessor: cada pantalla usa un state holder de `ui/state/FifoStateHolders.kt`. La escritura local y su publicación en backend ocurren en el módulo dueño (`MemoryRemotePort` / `CommunityRemotePort`), y el estado visible de llamada vive en `AppGraph.telephony`.
+
 ---
 
 ## 📑 Tabla de Contenidos

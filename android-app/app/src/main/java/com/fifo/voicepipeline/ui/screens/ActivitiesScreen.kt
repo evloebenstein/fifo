@@ -29,10 +29,11 @@ import androidx.compose.ui.window.DialogProperties
 import android.content.Context
 import androidx.compose.ui.platform.LocalContext
 import com.fifo.voicepipeline.audio.NativeSpeechRecognizer
-import com.fifo.voicepipeline.data.FifoDataRepository
 import com.fifo.voicepipeline.ui.model.CommunityActivityItem
 import com.fifo.voicepipeline.ui.model.ContactPhoneHint
 import com.fifo.voicepipeline.ui.model.ContactSource
+import com.fifo.voicepipeline.ui.state.ActivitiesStateHolder
+import com.fifo.voicepipeline.ui.state.fifoStateHolder
 import com.fifo.voicepipeline.ui.theme.FifoColors
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -44,9 +45,17 @@ fun ActivitiesScreen(
     isBleConnected: Boolean = false,
     modifier: Modifier = Modifier
 ) {
-    val liveActivities by FifoDataRepository.communityActivities.collectAsState()
-    val userProfile by FifoDataRepository.userProfile.collectAsState()
-    val userTastes by FifoDataRepository.tastes.collectAsState()
+    val activitiesState = fifoStateHolder { graph ->
+        ActivitiesStateHolder(
+            community = graph.community,
+            relationalGraph = graph.relationalGraph,
+            memory = graph.memory,
+            identity = graph.identity
+        )
+    }
+    val liveActivities by activitiesState.activities.collectAsState()
+    val userProfile by activitiesState.userProfile.collectAsState()
+    val userTastes by activitiesState.tastes.collectAsState()
 
     var searchQuery by remember { mutableStateOf("") }
     var selectedFilter by remember { mutableStateOf("recommended") } // "recommended", "community"
@@ -447,7 +456,7 @@ fun ActivitiesScreen(
                                 ) {
                                     // Estado: Te has unido (puede pulsar para ver estado o cancelar si lo desea)
                                     OutlinedButton(
-                                        onClick = { FifoDataRepository.toggleJoinActivity(act.id) },
+                                        onClick = { activitiesState.toggleJoin(act.id) },
                                         shape = RoundedCornerShape(14.dp),
                                         border = BorderStroke(1.5.dp, Color(0xFF10B981)),
                                         colors = ButtonDefaults.outlinedButtonColors(
@@ -484,7 +493,7 @@ fun ActivitiesScreen(
                             } else {
                                 // Antes de unirse: botón principal único que ocupa todo el ancho
                                 Button(
-                                    onClick = { FifoDataRepository.toggleJoinActivity(act.id) },
+                                    onClick = { activitiesState.toggleJoin(act.id) },
                                     shape = RoundedCornerShape(14.dp),
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = FifoColors.NavyPrimary,
@@ -535,7 +544,7 @@ fun ActivitiesScreen(
                     isListeningToSpeech = false
                     voiceTranscript = text
                     if (text.isNotBlank()) {
-                        val suggested = FifoDataRepository.suggestActivityWithFifo(text, userTastes)
+                        val suggested = activitiesState.suggestActivity(text, userTastes)
                         generatedTitle = suggested.title
                         generatedDesc = suggested.description
                         generatedLoc = suggested.locationName
@@ -551,7 +560,7 @@ fun ActivitiesScreen(
                 onError = { _, _ ->
                     isListeningToSpeech = false
                     if (voiceTranscript.isNotBlank()) {
-                        val suggested = FifoDataRepository.suggestActivityWithFifo(voiceTranscript, userTastes)
+                        val suggested = activitiesState.suggestActivity(voiceTranscript, userTastes)
                         generatedTitle = suggested.title
                         generatedDesc = suggested.description
                         generatedLoc = suggested.locationName
@@ -709,7 +718,7 @@ fun ActivitiesScreen(
                                                     speechRecognizer.stop()
                                                     val text = voiceTranscript.trim()
                                                     if (text.isNotBlank()) {
-                                                        val suggested = FifoDataRepository.suggestActivityWithFifo(text, userTastes)
+                                                        val suggested = activitiesState.suggestActivity(text, userTastes)
                                                         generatedTitle = suggested.title
                                                         generatedDesc = suggested.description
                                                         generatedLoc = suggested.locationName
@@ -959,7 +968,7 @@ fun ActivitiesScreen(
                                 }
                                 val maxSp = generatedSpots.toIntOrNull()?.coerceIn(2, 50) ?: 10
                                 val finalTastes = if (generatedTastes.isNotEmpty()) generatedTastes else userTastes.take(2)
-                                FifoDataRepository.createCommunityActivity(
+                                activitiesState.createActivity(
                                     title = generatedTitle,
                                     description = generatedDesc.ifBlank { "Reunión agradable para conversar y disfrutar de un momento en comunidad." },
                                     dateLabel = generatedDate,
@@ -991,7 +1000,7 @@ fun ActivitiesScreen(
 
     // ── DIALOG 2: INVITA A TUS AMIGOS A UNA ACTIVIDAD ──────────────
     selectedActivityForInvite?.let { act ->
-        val liveContacts by FifoDataRepository.relationalContacts.collectAsState()
+        val liveContacts by activitiesState.contacts.collectAsState()
         var contactSources by remember {
             mutableStateOf<Map<String, List<ContactSource>>>(emptyMap())
         }
@@ -1001,9 +1010,9 @@ fun ActivitiesScreen(
 
         LaunchedEffect(liveContacts) {
             val loaded = withContext(Dispatchers.IO) {
-                val sources = FifoDataRepository.getContactAppearancesByContact()
+                val sources = activitiesState.appearancesByContact()
                     .mapValues { (_, appearances) -> appearances.map { it.source }.distinct() }
-                val hints = FifoDataRepository.getPendingPhoneHintsByContact()
+                val hints = activitiesState.pendingPhoneHintsByContact()
                 sources to hints
             }
             contactSources = loaded.first
@@ -1234,7 +1243,7 @@ fun ActivitiesScreen(
                                                         ) {
                                                             TextButton(
                                                                 onClick = {
-                                                                    if (FifoDataRepository.confirmPhoneHint(hint.id)) {
+                                                                    if (activitiesState.confirmPhoneHint(hint.id)) {
                                                                         contactHints = contactHints.toMutableMap().apply {
                                                                             remove(contact.id)
                                                                         }
@@ -1247,7 +1256,7 @@ fun ActivitiesScreen(
                                                             }
                                                             TextButton(
                                                                 onClick = {
-                                                                    FifoDataRepository.discardPhoneHint(hint.id)
+                                                                    activitiesState.discardPhoneHint(hint.id)
                                                                     contactHints = contactHints.toMutableMap().apply {
                                                                         put(
                                                                             contact.id,

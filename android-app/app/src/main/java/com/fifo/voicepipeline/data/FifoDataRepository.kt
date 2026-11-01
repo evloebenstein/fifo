@@ -3,10 +3,8 @@ package com.fifo.voicepipeline.data
 import android.content.Context
 import com.fifo.voicepipeline.data.model.*
 import com.fifo.voicepipeline.data.modules.ActivitySuggestionPolicy
-import com.fifo.voicepipeline.telephony.CallStateCoordinator
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -194,12 +192,7 @@ object FifoDataRepository {
     }
 
     fun addMemory(emoji: String, title: String, detail: String) {
-        val newMem = graph.memory.addMemory(userProfile.value.id, emoji, title, detail)
-        graph.scope.launch {
-            com.fifo.voicepipeline.network.FifoBackendClient.postMemory(
-                userProfile.value.id, newMem.emoji, newMem.title, newMem.detail
-            )
-        }
+        graph.memory.addMemory(userProfile.value.id, emoji, title, detail)
     }
 
     fun addReminder(title: String, timeStr: String, category: String = "medication"): FifoReminderItem {
@@ -353,12 +346,13 @@ object FifoDataRepository {
 
     // ══════════════════════════════════════════════════════════════
     //  10. Detección y Gestión de Llamadas Entrantes (Tipo Alexa)
-    //  La telefonía se migra en su propia tarjeta (fuera de este alcance).
+    //  El estado vive en AppGraph.telephony; aquí solo se delega.
+    //  La acción sigue siendo de FifoCallManager / AndroidTelephonyPort.
     // ══════════════════════════════════════════════════════════════
 
-    private val callState = CallStateCoordinator()
+    private val callState get() = graph.telephony
 
-    val incomingCall: StateFlow<IncomingCallInfo?> = callState.incomingCall
+    val incomingCall: StateFlow<IncomingCallInfo?> get() = callState.incomingCall
 
     var onAnswerCallAction: (() -> Boolean)?
         get() = callState.onAnswerCallAction
@@ -383,28 +377,48 @@ object FifoDataRepository {
 
     // ══════════════════════════════════════════════════════════════
     //  11. Modo de Escucha Continua
-    //  Dueño en el camino nuevo: TurnOrchestrator. Este StateFlow es el
-    //  espejo que lee la UI hasta que existan state holders.
+    //  Dueño en el camino nuevo: TurnOrchestrator. La UI la lee por
+    //  graph.listening / VoiceUiStateHolder; aquí solo queda el puente
+    //  que usa el router hasta su propia tarjeta.
     // ══════════════════════════════════════════════════════════════
 
-    private val _isContinuousListening = MutableStateFlow(false)
-    val isContinuousListening: StateFlow<Boolean> = _isContinuousListening.asStateFlow()
+    /**
+     * Proyección de escucha cuando no hay composition root. Solo ocurre en
+     * pruebas JVM que ejercitan el router sin Android; en producción el grafo
+     * siempre existe y esta instancia nunca se lee (ADR-0049).
+     */
+    private val detachedListening = MutableStateFlow(false)
+
+    val isContinuousListening: StateFlow<Boolean>
+        get() = AppGraph.instanceOrNull()?.listening?.active ?: detachedListening
 
     /**
      * Puente temporal hacia el dueño en el camino nuevo. Lo instala
      * `VoicePipelineManager` solo cuando `VoiceSession` está activo.
      */
-    @Volatile
-    var continuousListeningHandler: ((Boolean) -> Unit)? = null
+    var continuousListeningHandler: ((Boolean) -> Unit)?
+        get() = AppGraph.instanceOrNull()?.listening?.handler
+        set(value) {
+            AppGraph.instanceOrNull()?.listening?.handler = value
+        }
 
     fun setContinuousListening(active: Boolean) {
-        _isContinuousListening.value = active
-        continuousListeningHandler?.invoke(active)
+        val listening = AppGraph.instanceOrNull()?.listening
+        if (listening == null) {
+            detachedListening.value = active
+        } else {
+            listening.request(active)
+        }
     }
 
     /** El dueño (TurnOrchestrator) publica aquí su estado para la UI. */
     fun mirrorContinuousListening(active: Boolean) {
-        _isContinuousListening.value = active
+        val listening = AppGraph.instanceOrNull()?.listening
+        if (listening == null) {
+            detachedListening.value = active
+        } else {
+            listening.mirror(active)
+        }
     }
 
     // ══════════════════════════════════════════════════════════════
@@ -425,21 +439,7 @@ object FifoDataRepository {
     // ══════════════════════════════════════════════════════════════
 
     fun toggleJoinActivity(activityId: String) {
-        val currentUserId = userProfile.value.id
-        val target = communityActivities.value.find { it.id == activityId } ?: return
-        graph.community.toggleJoinActivity(activityId, currentUserId)
-
-        graph.scope.launch {
-            try {
-                com.fifo.voicepipeline.network.FifoBackendClient.toggleJoinActivity(
-                    activityId = activityId,
-                    userId = currentUserId,
-                    join = !target.isJoined
-                )
-            } catch (e: Exception) {
-                android.util.Log.d("FifoDataRepository", "Aviso en sync backend toggleJoinActivity: ${e.message}")
-            }
-        }
+        graph.community.toggleJoinActivity(activityId, userProfile.value.id)
     }
 
     fun createCommunityActivity(
@@ -453,40 +453,19 @@ object FifoDataRepository {
         organizerType: String = "user",
         organizerName: String? = null
     ): String {
-        val currentUserId = userProfile.value.id
-        val resolvedOrganizerName = organizerName ?: userProfile.value.fullName.ifBlank { "Vecino de la comunidad" }
-        val newId = "act_" + System.currentTimeMillis().toString().takeLast(6)
-
-        val item = CommunityActivityItem(
-            id = newId,
-            title = title.trim(),
-            description = description.trim(),
-            spotsLabel = "Quedan ${spotsMax - 1} cupos",
+        val user = userProfile.value
+        return graph.community.createActivity(
+            title = title,
+            description = description,
+            dateLabel = dateLabel,
+            locationName = locationName,
+            organizerId = user.id,
             spotsMax = spotsMax,
-            spotsTaken = 1,
-            dateLabel = dateLabel.trim(),
-            locationName = locationName.trim(),
-            distanceLabel = "Cerca de tu sector",
             iconCategory = iconCategory,
-            organizerId = currentUserId,
-            organizerName = resolvedOrganizerName,
-            organizerType = organizerType,
             targetTastes = targetTastes,
-            isJoined = true
+            organizerType = organizerType,
+            organizerName = organizerName ?: user.fullName.ifBlank { "Vecino de la comunidad" }
         )
-
-        graph.community.createCommunityActivity(item)
-        graph.database.communityActivities.joinCommunityActivity(newId, currentUserId)
-
-        graph.scope.launch {
-            try {
-                com.fifo.voicepipeline.network.FifoBackendClient.createCommunityActivity(item)
-            } catch (e: Exception) {
-                android.util.Log.d("FifoDataRepository", "Aviso sync backend createCommunityActivity: ${e.message}")
-            }
-        }
-
-        return newId
     }
 
     fun deleteCommunityActivity(activityId: String) = graph.community.deleteCommunityActivity(activityId)

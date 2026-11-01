@@ -1,6 +1,6 @@
 package com.fifo.voicepipeline.telephony
 
-import com.fifo.voicepipeline.ui.model.IncomingCallInfo
+import com.fifo.voicepipeline.data.model.IncomingCallInfo
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

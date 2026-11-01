@@ -14,6 +14,8 @@ import com.fifo.voicepipeline.pipeline.MicSource
 import com.fifo.voicepipeline.pipeline.PipelineState
 import com.fifo.voicepipeline.ui.components.*
 import com.fifo.voicepipeline.ui.screens.*
+import com.fifo.voicepipeline.ui.state.SessionStateHolder
+import com.fifo.voicepipeline.ui.state.fifoStateHolder
 import com.fifo.voicepipeline.ui.theme.FifoColors
 import kotlinx.coroutines.launch
 
@@ -65,7 +67,8 @@ fun MainScreen(
         mutableStateOf(if (hasCompletedSetup) AppFlowScreen.MAIN_APP else AppFlowScreen.WELCOME)
     }
     var currentTab by remember { mutableStateOf(FifoTab.HOME) }
-    val userProfileState by com.fifo.voicepipeline.data.FifoDataRepository.userProfile.collectAsState()
+    val sessionState = fifoStateHolder { graph -> SessionStateHolder(graph.session, graph.identity) }
+    val userProfileState by sessionState.userProfile.collectAsState()
     var userName by remember { mutableStateOf(userProfileState.fullName) }
 
     LaunchedEffect(userProfileState) {
@@ -99,13 +102,13 @@ fun MainScreen(
                     },
                     onNavigateToLogin = { currentFlowScreen = AppFlowScreen.LOGIN },
                     onGoogleSignInSuccess = { googleUser ->
-                        val existingUserId = com.fifo.voicepipeline.data.FifoDataRepository.findUserByEmailOrId(
+                        val existingUserId = sessionState.findUserByEmailOrId(
                             googleUser.email,
                             googleUser.googleId
                         )
                         if (existingUserId != null) {
                             coroutineScope.launch {
-                                com.fifo.voicepipeline.data.FifoDataRepository.switchUserProfile(context, existingUserId)
+                                sessionState.switchUserProfile(existingUserId)
                             }
                             userName = googleUser.fullName
                             prefs.edit().putBoolean("has_completed_setup", true).apply()
@@ -134,8 +137,7 @@ fun MainScreen(
                     initialGoogleUser = pendingGoogleUser,
                     onComplete = { name, username, age, interests, birthDate, birthYear, gender, city, email ->
                         coroutineScope.launch {
-                            com.fifo.voicepipeline.data.FifoDataRepository.createProfileAndStart(
-                                context = context,
+                            sessionState.createProfileAndStart(
                                 fullName = name,
                                 username = username,
                                 birthDate = birthDate,

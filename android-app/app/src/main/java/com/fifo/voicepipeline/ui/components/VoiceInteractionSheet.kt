@@ -58,8 +58,16 @@ fun VoiceInteractionSheet(
     var showCallGuideDialog by remember { mutableStateOf(false) }
 
     val context = androidx.compose.ui.platform.LocalContext.current
-    val isContinuousListening by com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.collectAsState()
-    val incomingCall by com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.collectAsState()
+    val voiceState = com.fifo.voicepipeline.ui.state.fifoStateHolder { graph ->
+        com.fifo.voicepipeline.ui.state.VoiceUiStateHolder(
+            memory = graph.memory,
+            identity = graph.identity,
+            telephony = graph.telephony,
+            listening = graph.listening
+        )
+    }
+    val isContinuousListening by voiceState.isContinuousListening.collectAsState()
+    val incomingCall by voiceState.incomingCall.collectAsState()
 
     LaunchedEffect(isBleConnected) {
         if (wasEverDisconnected && isBleConnected && !isPhoneMicMode) {
@@ -411,7 +419,7 @@ fun VoiceInteractionSheet(
                                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
                                             Button(
-                                                onClick = { com.fifo.voicepipeline.data.FifoDataRepository.answerCurrentCall() },
+                                                onClick = { voiceState.answerCall() },
                                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
                                                 shape = RoundedCornerShape(14.dp),
                                                 modifier = Modifier.weight(1f).height(44.dp)
@@ -422,7 +430,7 @@ fun VoiceInteractionSheet(
                                             }
 
                                             OutlinedButton(
-                                                onClick = { com.fifo.voicepipeline.data.FifoDataRepository.hangupCurrentCall() },
+                                                onClick = { voiceState.hangupCall() },
                                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFEF4444)),
                                                 border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444)),
                                                 shape = RoundedCornerShape(14.dp),
@@ -479,7 +487,7 @@ fun VoiceInteractionSheet(
                                         Spacer(modifier = Modifier.height(12.dp))
 
                                         Button(
-                                            onClick = { com.fifo.voicepipeline.data.FifoDataRepository.hangupCurrentCall() },
+                                            onClick = { voiceState.hangupCall() },
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444)),
                                             shape = RoundedCornerShape(14.dp),
                                             modifier = Modifier.fillMaxWidth().height(42.dp)

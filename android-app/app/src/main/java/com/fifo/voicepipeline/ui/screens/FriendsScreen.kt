@@ -31,8 +31,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.fifo.voicepipeline.data.FifoDataRepository
 import com.fifo.voicepipeline.ui.components.FifoFace
+import com.fifo.voicepipeline.ui.state.FriendsStateHolder
+import com.fifo.voicepipeline.ui.state.fifoStateHolder
 import com.fifo.voicepipeline.ui.theme.FifoColors
 import kotlinx.coroutines.launch
 import java.util.UUID
@@ -79,7 +80,14 @@ fun FriendsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    val userProfileState by FifoDataRepository.userProfile.collectAsState()
+    val friendsState = fifoStateHolder { graph ->
+        FriendsStateHolder(
+            identity = graph.identity,
+            community = graph.community,
+            relationalGraph = graph.relationalGraph
+        )
+    }
+    val userProfileState by friendsState.userProfile.collectAsState()
     val currentUserName = userProfileState.fullName.ifBlank { "Tú" }
     val currentUsername = userProfileState.username.ifBlank { "@mi_usuario" }
 
@@ -89,7 +97,7 @@ fun FriendsScreen(
     val scope = rememberCoroutineScope()
 
     // Posts del muro: vienen del repositorio real (publicaciones de usuarios reales)
-    val rawSocialPosts by FifoDataRepository.socialPosts.collectAsState()
+    val rawSocialPosts by friendsState.socialPosts.collectAsState()
     val posts = remember(rawSocialPosts) {
         rawSocialPosts.map { sp ->
             FriendPost(
@@ -115,7 +123,7 @@ fun FriendsScreen(
             scope.launch {
                 val recs = com.fifo.voicepipeline.network.FifoBackendClient.fetchFriendRecommendations(userProfileState.id)
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    com.fifo.voicepipeline.data.FifoDataRepository.syncFifoFriendsToRelationalGraph(recs)
+                    friendsState.syncFifoFriends(recs)
                 }
                 searchProfiles = recs.map { r ->
                     FriendProfile(

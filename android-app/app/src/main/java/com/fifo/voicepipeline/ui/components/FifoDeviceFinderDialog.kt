@@ -26,8 +26,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.fifo.voicepipeline.data.FifoDataRepository
 import com.fifo.voicepipeline.location.FifoLocationHelper
+import com.fifo.voicepipeline.ui.state.DeviceUiStateHolder
+import com.fifo.voicepipeline.ui.state.fifoStateHolder
 import com.fifo.voicepipeline.ui.theme.FifoColors
 
 /**
@@ -42,7 +43,8 @@ fun FifoDeviceFinderDialog(
     onScanBle: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val deviceLoc by FifoDataRepository.deviceLocation.collectAsState()
+    val deviceState = fifoStateHolder { graph -> DeviceUiStateHolder(graph.device) }
+    val deviceLoc by deviceState.location.collectAsState()
     var isBeepTriggered by remember { mutableStateOf(false) }
 
     Dialog(
@@ -184,7 +186,7 @@ fun FifoDeviceFinderDialog(
                                 Surface(
                                     onClick = {
                                         isBeepTriggered = true
-                                        FifoDataRepository.triggerDeviceBeep(true)
+                                        deviceState.triggerBeep(true)
                                     },
                                     shape = RoundedCornerShape(22.dp),
                                     color = Color.Transparent,

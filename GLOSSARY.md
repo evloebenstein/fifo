@@ -257,7 +257,7 @@ _Avoid_: Snapshot de memoria, Journal de ruta
 _Avoid_: Estado del robot, Telemetría, DeviceStatus
 
 **AppGraph**:
-Composition root de los datos de usuario. Se construye una vez en `FifoApplication.onCreate()` y expone los módulos (`identity`, `memory`, `community`, `relationalGraph`, `session`, `device`, `conversationContext`). No es una fachada de negocio: cada consumidor toma solo el módulo que usa (ADR-0049).
+Composition root de los datos de usuario. Se construye una vez en `FifoApplication.onCreate()` y expone los módulos (`identity`, `memory`, `community`, `relationalGraph`, `session`, `device`, `conversationContext`) más los contenedores `telephony` y `listening`. No es una fachada de negocio: cada consumidor toma solo el módulo que usa (ADR-0049, ADR-0050).
 _Avoid_: ServiceLocator, UserContext, Contenedor global
 
 **UserSession**:
@@ -287,6 +287,22 @@ _Avoid_: Frase de memoria, Regla de recall, Prompt de búsqueda
 **Accessor deprecado**:
 `FifoDataRepository` durante la migración strangler: ya no posee estado, solo delega en `AppGraph`. Se borra cuando las llamadas lleguen a cero. No se le añade lógica nueva (ADR-0049).
 _Avoid_: Repositorio central, Fachada, God object
+
+**State holder de pantalla**:
+Proyección de solo lectura que una pantalla recibe del `AppGraph` (`ui/state/FifoStateHolders.kt`): expone los `StateFlow` del módulo dueño y delega los comandos. No posee estado de dominio ni se crea con `ViewModel`; `fifoStateHolder { graph -> ... }` lo recuerda por composición (ADR-0050).
+_Avoid_: ViewModel, Pantalla-con-estado, Store de UI
+
+**Puerto de publicación**:
+Costura por la que un módulo dueño guarda local y luego publica en el backend (`MemoryRemotePort`, `CommunityRemotePort`). Producción usa el adaptador `Backend*`, que absorbe el fallo de red; las pruebas usan `Noop` o un grabador. La pantalla no publica (ADR-0050).
+_Avoid_: Repositorio remoto, SyncManager, API de UI
+
+**Proyección de escucha**:
+`ContinuousListeningState` en `AppGraph.listening`: refleja el estado de escucha continua y encamina peticiones al `TurnOrchestrator` con `request()`. El dueño publica con `mirror()`; sin orquestador (`LEGACY`) no hay un segundo booleano que lo contradiga (ADR-0050).
+_Avoid_: Booleano de escucha, ListeningManager, Estado duplicado
+
+**Coordinador de llamada visible**:
+`CallStateCoordinator` en `AppGraph.telephony`: guarda la llamada entrante, la última activa y los callbacks que enlaza `FifoCallManager`. No contesta ni cuelga por su cuenta y no toca `AudioManager` (ADR-0030, ADR-0050).
+_Avoid_: CallManager, PhoneState, TelephonyService
 
 
 **Contexto episódico local**:

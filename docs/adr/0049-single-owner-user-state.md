@@ -155,9 +155,9 @@ honestidad, sin una frase enlatada.
 
 `TurnOrchestrator` posee `isContinuousListening: StateFlow<Boolean>` y expone
 `setContinuousListening()`. `VoiceSession` y `VoiceSessionPipeline` delegan. La
-UI sigue leyendo el espejo del facade (`FifoDataRepository.
-isContinuousListening`) hasta que existan state holders; `VoicePipelineManager`
-instala el puente solo en `SESSION` y publica cada cambio del orquestador.
+UI lo lee por `graph.listening` (`ContinuousListeningState`, ADR-0050) desde los
+state holders; `VoicePipelineManager` instala el puente solo en `SESSION` y
+publica cada cambio del orquestador.
 
 En `LEGACY` no hay puente: el camino antiguo conserva su propio estado.
 
@@ -219,9 +219,11 @@ recupera bajo demanda.
   fuera de la app seguiría apareciendo si el backend lo devuelve. Queda como
   hueco documentado, no como garantía.
 - **La telefonía no se migra aquí.** `CallStateCoordinator` sigue en el
-  accessor; su tarjeta moverá el estado al grafo.
+  accessor; su tarjeta moverá el estado al grafo. *(Resuelto por ADR-0050:
+  `graph.telephony`.)*
 - **Las pantallas no tienen state holders todavía.** Leen `StateFlow` globales;
-  la migración de UI es la última capa.
+  la migración de UI es la última capa. *(Resuelto por ADR-0050:
+  `ui/state/FifoStateHolders.kt`.)*
 
 ---
 
@@ -235,7 +237,7 @@ recupera bajo demanda.
 | 4 | Accessor `@Deprecated` y migración de datos/red | Hecho |
 | 5 | Pipeline: escucha continua al `TurnOrchestrator` y contexto al grafo | Hecho |
 | 6 | Skills: `ContextRecallSkill` por costura y payload | Hecho |
-| 7 | UI: state holders y borrado del accessor | Pendiente |
+| 7 | UI: state holders y borrado del accessor | Hecho (state holders en ADR-0050; el accessor se borra en el paso 8) |
 
 ---
 

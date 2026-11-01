@@ -32,6 +32,8 @@ import com.fifo.voicepipeline.pipeline.PipelineState
 import com.fifo.voicepipeline.ui.components.FifoFace
 import com.fifo.voicepipeline.ui.model.FifoMemoryItem
 import com.fifo.voicepipeline.ui.model.PastConversationItem
+import com.fifo.voicepipeline.ui.state.VoiceUiStateHolder
+import com.fifo.voicepipeline.ui.state.fifoStateHolder
 import com.fifo.voicepipeline.ui.theme.FifoColors
 
 @Composable
@@ -48,11 +50,19 @@ fun HomeScreen(
 ) {
     var selectedMood by remember { mutableStateOf<String?>("Bien") }
 
-    val liveReminders by com.fifo.voicepipeline.data.FifoDataRepository.reminders.collectAsState()
-    val liveConversations by com.fifo.voicepipeline.data.FifoDataRepository.conversations.collectAsState()
-    val liveMemories by com.fifo.voicepipeline.data.FifoDataRepository.memories.collectAsState()
-    val incomingCall by com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.collectAsState()
-    val isContinuousListening by com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.collectAsState()
+    val voiceState = fifoStateHolder { graph ->
+        VoiceUiStateHolder(
+            memory = graph.memory,
+            identity = graph.identity,
+            telephony = graph.telephony,
+            listening = graph.listening
+        )
+    }
+    val liveReminders by voiceState.reminders.collectAsState()
+    val liveConversations by voiceState.conversations.collectAsState()
+    val liveMemories by voiceState.memories.collectAsState()
+    val incomingCall by voiceState.incomingCall.collectAsState()
+    val isContinuousListening by voiceState.isContinuousListening.collectAsState()
 
     var isConversationsSheetOpen by remember { mutableStateOf(false) }
     var isAddMemoryOpen by remember { mutableStateOf(false) }
@@ -166,7 +176,7 @@ fun HomeScreen(
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Button(
-                                onClick = { com.fifo.voicepipeline.data.FifoDataRepository.answerCurrentCall() },
+                                onClick = { voiceState.answerCall() },
                                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
                                 shape = RoundedCornerShape(16.dp),
                                 modifier = Modifier
@@ -179,7 +189,7 @@ fun HomeScreen(
                             }
 
                             OutlinedButton(
-                                onClick = { com.fifo.voicepipeline.data.FifoDataRepository.hangupCurrentCall() },
+                                onClick = { voiceState.hangupCall() },
                                 colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFDC2626)),
                                 border = androidx.compose.foundation.BorderStroke(1.5.dp, Color(0xFFDC2626)),
                                 shape = RoundedCornerShape(16.dp),
@@ -238,7 +248,7 @@ fun HomeScreen(
                         Spacer(modifier = Modifier.height(14.dp))
 
                         Button(
-                            onClick = { com.fifo.voicepipeline.data.FifoDataRepository.hangupCurrentCall() },
+                            onClick = { voiceState.hangupCall() },
                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFDC2626)),
                             shape = RoundedCornerShape(16.dp),
                             modifier = Modifier
@@ -296,7 +306,7 @@ fun HomeScreen(
                     }
 
                     TextButton(
-                        onClick = { com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false) },
+                        onClick = { voiceState.stopContinuousListening() },
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
                     ) {
                         Text(
@@ -926,7 +936,7 @@ fun HomeScreen(
 
                                                 // Botón accesible para borrar charla
                                                 IconButton(
-                                                    onClick = { com.fifo.voicepipeline.data.FifoDataRepository.removeConversation(conv.id) },
+                                                    onClick = { voiceState.removeConversation(conv.id) },
                                                     modifier = Modifier.size(32.dp)
                                                 ) {
                                                     Icon(
@@ -1051,7 +1061,7 @@ fun HomeScreen(
 
                                             // Botón accesible para borrar recuerdo
                                             IconButton(
-                                                onClick = { com.fifo.voicepipeline.data.FifoDataRepository.removeMemory(mem.id) },
+                                                onClick = { voiceState.removeMemory(mem.id) },
                                                 modifier = Modifier.size(32.dp)
                                             ) {
                                                 Icon(
@@ -1167,7 +1177,7 @@ fun HomeScreen(
                         Button(
                             onClick = {
                                 if (newTitle.isNotBlank()) {
-                                    com.fifo.voicepipeline.data.FifoDataRepository.addMemory(
+                                    voiceState.addMemory(
                                         emoji = "idea",
                                         title = newTitle.trim(),
                                         detail = newDetail.trim().ifEmpty { newTitle.trim() }
