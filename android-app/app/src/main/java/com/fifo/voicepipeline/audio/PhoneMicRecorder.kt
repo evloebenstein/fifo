@@ -11,6 +11,7 @@ import android.media.audiofx.AutomaticGainControl
 import android.media.audiofx.NoiseSuppressor
 import android.os.Build
 import android.util.Log
+import com.fifo.voicepipeline.telephony.CallStateCoordinator
 import kotlinx.coroutines.*
 
 /**
@@ -23,6 +24,7 @@ import kotlinx.coroutines.*
  */
 internal class PhoneMicRecorder(
     private val context: android.content.Context? = null,
+    private val callState: CallStateCoordinator? = null,
     private val sampleRate: Int = AudioConfig.SAMPLE_RATE,
     private val chunkBytes: Int = AudioConfig.CHUNK_BYTES
 ) {
@@ -81,9 +83,9 @@ internal class PhoneMicRecorder(
             val bufferSize = maxOf(minBufferSize, chunkBytes * 4)
 
             val audioManager = context?.getSystemService(android.content.Context.AUDIO_SERVICE) as? AudioManager
+            val hasIncomingCall = callState?.incomingCall?.value != null
             val inCallMode = forceCallSource ?: (
-                audioManager?.mode == AudioManager.MODE_IN_CALL ||
-                com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
+                audioManager?.mode == AudioManager.MODE_IN_CALL || hasIncomingCall
             )
 
             var targetDevice: AudioDeviceInfo? = null
@@ -97,11 +99,11 @@ internal class PhoneMicRecorder(
                         it.type == AudioDeviceInfo.TYPE_USB_HEADSET
                     }
                     // Solo enrutar globalmente si Fifo maneja directamente una llamada celular SIM
-                    if (com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null && targetDevice != null) {
+                    if (hasIncomingCall && targetDevice != null) {
                         val setOk = audioManager?.setCommunicationDevice(targetDevice)
                         Log.i(TAG, "Audio de llamada celular enrutado a ${targetDevice.productName} (éxito: $setOk)")
                     }
-                } else if (com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null) {
+                } else if (hasIncomingCall) {
                     try {
                         audioManager?.startBluetoothSco()
                         audioManager?.isBluetoothScoOn = true

@@ -1,7 +1,9 @@
 package com.fifo.voicepipeline.network
 
 import android.util.Log
-import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.data.model.UserProfileData
+import com.fifo.voicepipeline.data.modules.EpisodicMemoryModule
+import com.fifo.voicepipeline.data.modules.UserIdentityModule
 import com.fifo.voicepipeline.pipeline.session.ConversationContextProvider
 import com.fifo.voicepipeline.pipeline.session.SpeakerIdentity
 import com.fifo.voicepipeline.pipeline.session.SpeakerPromptContext
@@ -34,7 +36,9 @@ internal class GroqDialogClient(
     private val apiKeyProvider: () -> String,
     private val conversationContext: () -> ConversationContextProvider?,
     private val androidContext: () -> android.content.Context?,
-    private val navigationManager: () -> com.fifo.voicepipeline.location.FifoNavigationManager?
+    private val navigationManager: () -> com.fifo.voicepipeline.location.FifoNavigationManager?,
+    private val identityProvider: () -> UserIdentityModule?,
+    private val memoryProvider: () -> EpisodicMemoryModule?
 ) {
     companion object {
         private const val TAG = "GroqDialog"
@@ -704,7 +708,7 @@ Genera ÚNICAMENTE 1 oración concisa para hablar en voz alta por voz, sin intro
         }
 
         val userTurnsInHistory = conversationHistory.count { it["role"] == "user" }
-        val pastConvsCount = FifoDataRepository.conversations.value.size
+        val pastConvsCount = memoryProvider()?.conversations?.value?.size ?: 0
 
         return "HORA ACTUAL: $timeFormatted hrs ($period, saludo: '$correctGreeting')." +
             if (userTurnsInHistory > 1 || pastConvsCount > 0) " (Conversación en curso: responde directo y cercano sin repetir saludos formales)." else ""
@@ -723,11 +727,13 @@ Genera ÚNICAMENTE 1 oración concisa para hablar en voz alta por voz, sin intro
             }.trim()
         }
 
-        val compactContext = FifoDataRepository.buildCompactContextWindow(maxFragments = 1)
+        val profile = identityProvider()?.userProfile?.value ?: UserProfileData()
+        val compactContext = memoryProvider()
+            ?.buildCompactContextWindow(profile, maxFragments = 1)
+            .orEmpty()
         val temporalContext = buildTemporalAndSessionContext()
-        val profile = FifoDataRepository.userProfile.value
         val gpsInfo = androidContext()?.let {
-            com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(it)
+            com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(it, profile)
         }
 
         val locationContext = if (gpsInfo != null && gpsInfo.isGpsActive) {

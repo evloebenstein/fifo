@@ -1,6 +1,7 @@
 package com.fifo.voicepipeline.location
 
 import android.content.Context
+import com.fifo.voicepipeline.data.model.UserProfileData
 import com.fifo.voicepipeline.ui.model.CurrentLocationInfo
 
 /**
@@ -11,16 +12,22 @@ import com.fifo.voicepipeline.ui.model.CurrentLocationInfo
  * in the codebase that is allowed to hold a reference to an Android [Context]
  * for location purposes; every caller above this layer receives only a
  * [LocationAdapter].
+ *
+ * El perfil (ciudad y dirección de respaldo) entra por [profileProvider] para
+ * que el helper no lea el accessor deprecado.
  */
-class AndroidLocationAdapter(private val context: Context) : LocationAdapter {
+class AndroidLocationAdapter(
+    private val context: Context,
+    private val profileProvider: () -> UserProfileData
+) : LocationAdapter {
 
     // ── Location resolution ───────────────────────────────────────────────
 
     override suspend fun getFreshLocation(): CurrentLocationInfo =
-        FifoLocationHelper.getFreshLocation(context)
+        FifoLocationHelper.getFreshLocation(context, profileProvider())
 
     override fun getCurrentLocation(): CurrentLocationInfo =
-        FifoLocationHelper.getCurrentLocation(context)
+        FifoLocationHelper.getCurrentLocation(context, profileProvider())
 
     // ── Geocoding ─────────────────────────────────────────────────────────
 
@@ -28,7 +35,7 @@ class AndroidLocationAdapter(private val context: Context) : LocationAdapter {
         FifoLocationHelper.reverseGeocodeDetailed(context, latitude, longitude)
 
     override fun getSpokenRouteGuidance(destination: String): SpokenRouteGuidance =
-        FifoLocationHelper.getSpokenRouteGuidance(context, destination)
+        FifoLocationHelper.getSpokenRouteGuidance(context, destination, profileProvider())
 
     // ── POI search ────────────────────────────────────────────────────────
 
@@ -36,7 +43,7 @@ class AndroidLocationAdapter(private val context: Context) : LocationAdapter {
         query: String,
         currentLocation: CurrentLocationInfo?
     ): List<NearbyPlaceMatch> =
-        FifoLocationHelper.searchNearbyPlaces(context, query, currentLocation)
+        FifoLocationHelper.searchNearbyPlaces(context, query, currentLocation, profileProvider())
 
     // ── Navigation intents ────────────────────────────────────────────────
 

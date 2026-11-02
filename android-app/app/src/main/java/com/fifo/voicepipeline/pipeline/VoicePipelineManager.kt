@@ -151,7 +151,9 @@ class VoicePipelineManager(
     private var androidTtsSpeaker: AndroidTtsSpeaker? = null
 
     // Micrófono del celular (fallback; solo se crea si el camino legacy se usa)
-    private val phoneMicRecorder by lazy { PhoneMicRecorder(context = context) }
+    private val phoneMicRecorder by lazy {
+        PhoneMicRecorder(context = context, callState = appGraph.telephony)
+    }
 
     // ── Coroutine scope ─────────────────────────────
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -203,9 +205,17 @@ class VoicePipelineManager(
         // registro de skills, no el grafo de datos.
         val graph = com.fifo.voicepipeline.data.AppGraph.instanceOrNull()
         cloudClient.contextProvider = graph?.conversationContext
-        graph?.navigationContextProvider = {
-            val gps = com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(context)
-            skillRegistry.navigationManager.buildSystemPromptContext(gps).orEmpty()
+        cloudClient.identity = graph?.identity
+        cloudClient.memory = graph?.memory
+        if (graph != null) {
+            graph.navigationContextProvider = {
+                val profile = graph.identity.userProfile.value
+                val gps = com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(
+                    context,
+                    profile
+                )
+                skillRegistry.navigationManager.buildSystemPromptContext(gps).orEmpty()
+            }
         }
 
         useVoiceSession = VoicePipelineModeSelector.select(
@@ -443,6 +453,7 @@ class VoicePipelineManager(
             scope = scope,
             cloudClient = cloudClient,
             skillRegistry = skillRegistry,
+            graph = appGraph,
             initialMicMuted = _isMicMuted.value
         )
         sessionPipeline = pipeline
@@ -577,7 +588,10 @@ class VoicePipelineManager(
 
     private fun registerBleLocation(connected: Boolean) {
         try {
-            val loc = com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(context)
+            val loc = com.fifo.voicepipeline.location.FifoLocationHelper.getCurrentLocation(
+                context,
+                appGraph.identity.userProfile.value
+            )
             com.fifo.voicepipeline.data.FifoDataRepository.updateDeviceConnectionStatus(
                 connected = connected,
                 latitude = loc.latitude,

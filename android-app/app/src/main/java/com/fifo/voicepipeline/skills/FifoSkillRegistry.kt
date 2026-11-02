@@ -22,8 +22,15 @@ import com.fifo.voicepipeline.location.SharedPreferencesNavigationSessionStore
  */
 class FifoSkillRegistry(
     private val context: Context,
+    /**
+     * Composition root (ADR-0049). Las skills reciben solo el módulo que usan;
+     * el registro nunca consulta el accessor `FifoDataRepository` (ADR-0051).
+     */
+    private val graph: AppGraph = AppGraph.requireInstance(),
     private val groqCatalog: GroqToolCatalog = GroqToolCatalog(),
-    private val locationAdapter: LocationAdapter = AndroidLocationAdapter(context),
+    private val locationAdapter: LocationAdapter = AndroidLocationAdapter(context) {
+        graph.identity.userProfile.value
+    },
     /**
      * Persistencia de la ruta activa y su sesión conversacional (ADR-0041).
      * Producción usa `SharedPreferences`; las pruebas pueden inyectar un doble.
@@ -40,11 +47,6 @@ class FifoSkillRegistry(
         },
         sessionStore = sessionStore
     ),
-    /**
-     * Composition root (ADR-0049). Las skills reciben solo el módulo que usan;
-     * el registro nunca consulta el accessor `FifoDataRepository` (ADR-0051).
-     */
-    private val graph: AppGraph = AppGraph.requireInstance(),
     private val intentRouter: VoiceIntentRouter = VoiceIntentRouter(navigationManager, graph.listening),
     /**
      * Contexto conversacional compartido (ADR-0049). Si es `null`, la skill de
@@ -96,7 +98,7 @@ class FifoSkillRegistry(
             context = context,
             device = graph.device
         ))
-        registerSkill(CurrentLocationSkill(context))
+        registerSkill(CurrentLocationSkill(locationAdapter))
         registerSkill(NavigationDirectionsSkill(
             locationAdapter = locationAdapter,
             navigationManager = navigationManager
@@ -121,7 +123,7 @@ class FifoSkillRegistry(
             relationalGraph = graph.relationalGraph,
             identity = graph.identity
         ))
-        registerSkill(WebSearchSkill(context))
+        registerSkill(WebSearchSkill(context, locationAdapter))
         Log.i(TAG, "Inicializado FifoSkillRegistry con ${skills.size} herramientas.")
     }
 

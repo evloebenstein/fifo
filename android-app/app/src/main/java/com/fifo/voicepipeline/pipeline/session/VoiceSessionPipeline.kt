@@ -1,7 +1,7 @@
 package com.fifo.voicepipeline.pipeline.session
 
 import android.content.Context
-import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.data.AppGraph
 import com.fifo.voicepipeline.data.local.SqliteConversationJournal
 import com.fifo.voicepipeline.data.memory.RepositorySessionMemoryConsolidator
 import com.fifo.voicepipeline.network.CloudApiClient
@@ -32,6 +32,7 @@ internal class VoiceSessionPipeline(
     private val scope: CoroutineScope,
     private val cloudClient: CloudApiClient,
     private val skillRegistry: FifoSkillRegistry,
+    private val graph: AppGraph,
     initialMicMuted: Boolean
 ) {
     private companion object {
@@ -50,17 +51,26 @@ internal class VoiceSessionPipeline(
         telephony = telephony,
         provider = callerContextProvider,
         scope = scope,
-        userIdProvider = { FifoDataRepository.userProfile.value.id }
+        userIdProvider = { graph.identity.userProfile.value.id }
     )
 
     private val outbound = AndroidAudioHardwareAdapter(context, scope)
-    private val inbound = AndroidAudioHardwareInboundAdapter(context)
+    private val inbound = AndroidAudioHardwareInboundAdapter(
+        context,
+        callState = graph.telephony
+    )
 
     private val memory = MemoryCoordinator(
         journal = SqliteConversationJournal(context.applicationContext),
-        consolidator = RepositorySessionMemoryConsolidator(cloudClient),
+        consolidator = RepositorySessionMemoryConsolidator(
+            cloudClient = cloudClient,
+            identity = graph.identity,
+            memory = graph.memory,
+            relationalGraph = graph.relationalGraph,
+            session = graph.session
+        ),
         scope = scope,
-        userIdProvider = { FifoDataRepository.userProfile.value.id }
+        userIdProvider = { graph.identity.userProfile.value.id }
     )
 
     /**
@@ -251,7 +261,7 @@ internal class VoiceSessionPipeline(
                 if (context.phase != CallPhase.RINGING || announcedRinging) return@collect
 
                 announcedRinging = true
-                val firstName = FifoDataRepository.userProfile.value.fullName
+                val firstName = graph.identity.userProfile.value.fullName
                     .split(" ")
                     .firstOrNull { it.isNotBlank() }
                 session.speakResponse(context.announcementText(firstName))
@@ -278,7 +288,7 @@ internal class VoiceSessionPipeline(
             }
 
             CallAction.CALLER_STATUS -> {
-                val firstName = FifoDataRepository.userProfile.value.fullName
+                val firstName = graph.identity.userProfile.value.fullName
                     .split(" ")
                     .firstOrNull { it.isNotBlank() }
                 val announcement = callerContext.context.value?.announcementText(firstName)
@@ -291,10 +301,10 @@ internal class VoiceSessionPipeline(
 
     private fun resolveLocalContact(name: String?, phone: String?): LocalCallerContact? {
         val byName = name?.trim()?.takeIf { it.isNotBlank() }?.let {
-            FifoDataRepository.findContactByRoleOrName(it)
+            graph.relationalGraph.findContactByRoleOrName(it)
         }
         val contact = byName ?: phone?.trim()?.takeIf { it.isNotBlank() }?.let { number ->
-            FifoDataRepository.relationalContacts.value.firstOrNull { it.phoneNumber == number }
+            graph.relationalGraph.contacts.value.firstOrNull { it.phoneNumber == number }
         }
         return contact?.let {
             LocalCallerContact(

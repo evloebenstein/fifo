@@ -5,6 +5,7 @@ import com.fifo.voicepipeline.data.model.DailyRoutine
 import com.fifo.voicepipeline.data.model.FifoMemoryItem
 import com.fifo.voicepipeline.data.model.FifoReminderItem
 import com.fifo.voicepipeline.data.model.FifoTasteStory
+import com.fifo.voicepipeline.data.model.PastConversationItem
 import com.fifo.voicepipeline.network.FifoBackendClient
 
 /**
@@ -26,6 +27,7 @@ interface MemoryRemotePort {
     suspend fun completeReminder(reminderId: String)
     suspend fun deleteReminder(reminderId: String)
     suspend fun postDailyRoutine(userId: String, routine: DailyRoutine)
+    suspend fun postConversation(userId: String, item: PastConversationItem)
 }
 
 interface CommunityRemotePort {
@@ -44,6 +46,7 @@ object NoopMemoryRemote : MemoryRemotePort {
     override suspend fun completeReminder(reminderId: String) = Unit
     override suspend fun deleteReminder(reminderId: String) = Unit
     override suspend fun postDailyRoutine(userId: String, routine: DailyRoutine) = Unit
+    override suspend fun postConversation(userId: String, item: PastConversationItem) = Unit
 }
 
 object NoopCommunityRemote : CommunityRemotePort {
@@ -115,6 +118,20 @@ object BackendMemoryRemote : MemoryRemotePort {
             FifoBackendClient.postDailyRoutine(userId, routine)
         } catch (e: Exception) {
             android.util.Log.d("MemoryRemote", "Aviso al publicar rutina: ${e.message}")
+        }
+    }
+
+    override suspend fun postConversation(userId: String, item: PastConversationItem) {
+        try {
+            FifoBackendClient.postConversation(
+                userId = userId,
+                title = item.title,
+                summary = item.summary,
+                primaryTag = item.tag,
+                durationSeconds = 180
+            )
+        } catch (e: Exception) {
+            android.util.Log.d("MemoryRemote", "Aviso al publicar conversación: ${e.message}")
         }
     }
 }

@@ -3,6 +3,7 @@ package com.fifo.voicepipeline.pipeline.session
 import android.content.Context
 import com.fifo.voicepipeline.audio.PhoneMicRecorder
 import com.fifo.voicepipeline.pipeline.MicSource
+import com.fifo.voicepipeline.telephony.CallStateCoordinator
 
 /**
  * Adaptador de producción de hardware de audio entrante.
@@ -14,8 +15,9 @@ import com.fifo.voicepipeline.pipeline.MicSource
  */
 internal class AndroidAudioHardwareInboundAdapter(
     context: Context,
+    callState: CallStateCoordinator,
     private val captureHardware: CaptureHardware = AndroidCaptureHardware(
-        PhoneMicRecorder(context = context)
+        PhoneMicRecorder(context = context, callState = callState)
     )
 ) : AudioInboundAdapter {
 

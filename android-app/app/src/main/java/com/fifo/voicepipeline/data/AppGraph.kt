@@ -116,7 +116,7 @@ class AppGraph internal constructor(
         identity = identity,
         memory = memory,
         deepContext = BackendDeepContextPort(),
-        location = { FifoLocationHelper.getCurrentLocation(appContext) },
+        location = { FifoLocationHelper.getCurrentLocation(appContext, identity.userProfile.value) },
         navigation = { navigationContextProvider?.invoke().orEmpty() }
     )
 

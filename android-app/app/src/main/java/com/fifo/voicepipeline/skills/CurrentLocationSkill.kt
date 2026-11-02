@@ -1,8 +1,7 @@
 package com.fifo.voicepipeline.skills
 
-import android.content.Context
 import android.util.Log
-import com.fifo.voicepipeline.location.FifoLocationHelper
+import com.fifo.voicepipeline.location.LocationAdapter
 
 /**
  * Skill que permite a Fifo responder a preguntas como:
@@ -10,9 +9,12 @@ import com.fifo.voicepipeline.location.FifoLocationHelper
  * - "¿En qué calle estoy?"
  * - "¿Cuál es mi ubicación actual?"
  *
- * Utiliza el módulo GPS del teléfono celular con geocodificación inversa.
+ * Usa el adapter de ubicación inyectado (GPS + geocodificación inversa); no
+ * toca el hardware ni el accessor.
  */
-class CurrentLocationSkill(private val context: Context) : FifoSkill {
+class CurrentLocationSkill(
+    private val locationAdapter: LocationAdapter
+) : FifoSkill {
 
     companion object {
         private const val TAG = "CurrentLocationSkill"
@@ -38,7 +40,7 @@ class CurrentLocationSkill(private val context: Context) : FifoSkill {
 
     override suspend fun execute(args: Map<String, Any?>): SkillResult {
         Log.i(TAG, "Consultando ubicación actual por GPS...")
-        val loc = FifoLocationHelper.getCurrentLocation(context)
+        val loc = locationAdapter.getCurrentLocation()
 
         val spokenFeedback = if (loc.isGpsActive) {
             "Estamos en ${loc.address}, en ${loc.city}."

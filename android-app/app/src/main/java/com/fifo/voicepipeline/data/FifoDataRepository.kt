@@ -181,39 +181,17 @@ object FifoDataRepository {
 
     fun removeReminder(id: String) = graph.memory.removeReminder(userProfile.value.id, id)
 
-    fun addMemoryDirect(item: FifoMemoryItem) {
-        val current = memories.value
-        if (current.any { it.title.equals(item.title, ignoreCase = true) }) return
-        graph.memory.setDirectMemories(listOf(item) + current)
-        graph.database.memories.addMemory(userProfile.value.id, item)
-    }
+    fun addMemoryDirect(item: FifoMemoryItem) =
+        graph.memory.addMemoryDirect(userProfile.value.id, item)
 
-    fun addTasteStoryDirect(story: FifoTasteStory) {
-        val current = tasteStories.value
-        if (current.any { it.title.equals(story.title, ignoreCase = true) }) return
-        graph.memory.setDirectTasteStories(listOf(story) + current)
-        graph.database.tastes.addTasteStory(userProfile.value.id, story)
-    }
+    fun addTasteStoryDirect(story: FifoTasteStory) =
+        graph.memory.addTasteStoryDirect(userProfile.value.id, story)
 
-    fun addReminderDirect(reminder: FifoReminderItem) {
-        val current = reminders.value
-        if (current.any { it.title.equals(reminder.title, ignoreCase = true) && it.timeStr == reminder.timeStr }) return
-        graph.memory.setDirectReminders(listOf(reminder) + current)
-        graph.database.reminders.addReminder(userProfile.value.id, reminder)
-    }
+    fun addReminderDirect(reminder: FifoReminderItem) =
+        graph.memory.addReminderDirect(userProfile.value.id, reminder)
 
-    fun addConversation(item: PastConversationItem) {
+    fun addConversation(item: PastConversationItem) =
         graph.memory.addConversation(userProfile.value.id, item)
-        graph.scope.launch {
-            com.fifo.voicepipeline.network.FifoBackendClient.postConversation(
-                userId = userProfile.value.id,
-                title = item.title,
-                summary = item.summary,
-                primaryTag = item.tag,
-                durationSeconds = 180
-            )
-        }
-    }
 
     fun addPastConversation(item: PastConversationItem) = addConversation(item)
 

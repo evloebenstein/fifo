@@ -1,11 +1,14 @@
 package com.fifo.voicepipeline.data.memory
 
 import android.util.Log
-import com.fifo.voicepipeline.data.FifoDataRepository
-import com.fifo.voicepipeline.network.CloudApiClient
-import com.fifo.voicepipeline.network.FifoBackendClient
 import com.fifo.voicepipeline.data.model.ConversationFragment
 import com.fifo.voicepipeline.data.model.PastConversationItem
+import com.fifo.voicepipeline.data.modules.EpisodicMemoryModule
+import com.fifo.voicepipeline.data.modules.RelationalGraphModule
+import com.fifo.voicepipeline.data.modules.UserIdentityModule
+import com.fifo.voicepipeline.data.session.UserSession
+import com.fifo.voicepipeline.network.CloudApiClient
+import com.fifo.voicepipeline.network.FifoBackendClient
 import kotlinx.coroutines.CancellationException
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -18,12 +21,19 @@ import java.util.TimeZone
  * correctamente (`user`/`assistant`) y con IDs estables para que un reintento
  * no duplique fragmentos ni conversaciones.
  *
+ * Recibe los módulos dueños del estado (identidad, memoria, grafo relacional y
+ * sesión); no lee ni escribe el accessor deprecado.
+ *
  * Si la extracción local falla de forma recuperable, devuelve `false` y el
  * `MemoryCoordinator` reprograma el lote con backoff.
  */
 class RepositorySessionMemoryConsolidator(
     private val cloudClient: CloudApiClient,
-    private val userIdProvider: () -> String = { FifoDataRepository.userProfile.value.id }
+    private val identity: UserIdentityModule,
+    private val memory: EpisodicMemoryModule,
+    private val relationalGraph: RelationalGraphModule,
+    private val session: UserSession,
+    private val userIdProvider: () -> String = { identity.userProfile.value.id }
 ) : SessionMemoryConsolidator {
 
     private companion object {
@@ -70,8 +80,10 @@ class RepositorySessionMemoryConsolidator(
             timeZone = TimeZone.getTimeZone("UTC")
         }.format(Date())
         val stableId = turns.first().id
+        val userId = userIdProvider()
 
-        FifoDataRepository.addConversationFragment(
+        memory.addConversationFragment(
+            userId,
             ConversationFragment(
                 id = "frag_$stableId",
                 serverConversationId = "srv_$stableId",
@@ -86,7 +98,8 @@ class RepositorySessionMemoryConsolidator(
             )
         )
 
-        FifoDataRepository.addConversation(
+        memory.addConversation(
+            userId,
             PastConversationItem(
                 id = "conv_$stableId",
                 title = consolidation.conversationTitle
@@ -102,7 +115,8 @@ class RepositorySessionMemoryConsolidator(
         if (!consolidation.memoryTitle.isNullOrBlank() &&
             !consolidation.memoryDetail.isNullOrBlank()
         ) {
-            FifoDataRepository.addMemory(
+            memory.addMemory(
+                userId,
                 emoji = consolidation.memoryEmoji ?: "⭐",
                 title = consolidation.memoryTitle,
                 detail = consolidation.memoryDetail
@@ -110,11 +124,11 @@ class RepositorySessionMemoryConsolidator(
         }
 
         if (!consolidation.newTaste.isNullOrBlank()) {
-            FifoDataRepository.addTaste(consolidation.newTaste.trim())
+            memory.addTaste(userId, consolidation.newTaste.trim())
         }
 
         if (consolidation.mentionedPersons.isNotEmpty()) {
-            FifoDataRepository.updateContactsFromSessionMentions(
+            relationalGraph.ingestSessionMentions(
                 mentions = consolidation.mentionedPersons,
                 conversationId = "conv_$stableId"
             )
@@ -127,7 +141,7 @@ class RepositorySessionMemoryConsolidator(
             )
         }
         val backendResult = FifoBackendClient.analyzeAndConsolidateSession(
-            userId = userIdProvider(),
+            userId = userId,
             turns = backendTurns,
             durationSeconds = durationSeconds,
             primaryTag = consolidation.primaryTag,
@@ -137,14 +151,14 @@ class RepositorySessionMemoryConsolidator(
 
         if (backendResult != null) {
             if (!backendResult.updatedBioAi.isNullOrBlank()) {
-                FifoDataRepository.updateBio(backendResult.updatedBioAi)
+                session.updateBio(backendResult.updatedBioAi)
             }
             if (backendResult.interestTags.isNotEmpty()) {
-                FifoDataRepository.updateInterestTags(backendResult.interestTags)
+                session.updateInterestTags(backendResult.interestTags)
             }
-            backendResult.memoriesAdded.forEach { FifoDataRepository.addMemoryDirect(it) }
-            backendResult.tasteStoriesAdded.forEach { FifoDataRepository.addTasteStoryDirect(it) }
-            backendResult.remindersAdded.forEach { FifoDataRepository.addReminderDirect(it) }
+            backendResult.memoriesAdded.forEach { memory.addMemoryDirect(userId, it) }
+            backendResult.tasteStoriesAdded.forEach { memory.addTasteStoryDirect(userId, it) }
+            backendResult.remindersAdded.forEach { memory.addReminderDirect(userId, it) }
         }
     }
 

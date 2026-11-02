@@ -222,6 +222,16 @@ class EpisodicMemoryModule(
         storageAdapter.removeMemory(userId, id)
     }
 
+    /**
+     * Inserta un recuerdo que ya viene del backend sin volver a publicarlo.
+     * Mantiene la deduplicación por título que antes vivía en el accessor.
+     */
+    fun addMemoryDirect(userId: String, item: FifoMemoryItem) {
+        if (_memories.value.any { it.title.equals(item.title, ignoreCase = true) }) return
+        _memories.value = listOf(item) + _memories.value
+        storageAdapter.addMemory(userId, item)
+    }
+
     fun addReminder(userId: String, title: String, timeStr: String, category: String = "medication"): FifoReminderItem {
         val item = FifoReminderItem(
             id = "rem_${UUID.randomUUID()}",
@@ -249,6 +259,16 @@ class EpisodicMemoryModule(
         _reminders.value = _reminders.value.filter { it.id != id }
         storageAdapter.removeReminder(userId, id)
         scope.launch { remote.deleteReminder(id) }
+    }
+
+    /** Inserta un recordatorio del backend sin republicarlo (dedupe por título y hora). */
+    fun addReminderDirect(userId: String, reminder: FifoReminderItem) {
+        val exists = _reminders.value.any {
+            it.title.equals(reminder.title, ignoreCase = true) && it.timeStr == reminder.timeStr
+        }
+        if (exists) return
+        _reminders.value = listOf(reminder) + _reminders.value
+        storageAdapter.addReminder(userId, reminder)
     }
 
     fun addTaste(userId: String, tasteName: String): Boolean {
@@ -285,9 +305,17 @@ class EpisodicMemoryModule(
         storageAdapter.removeTasteStory(userId, id)
     }
 
+    /** Inserta una historia del backend sin republicarla (dedupe por título). */
+    fun addTasteStoryDirect(userId: String, story: FifoTasteStory) {
+        if (_tasteStories.value.any { it.title.equals(story.title, ignoreCase = true) }) return
+        _tasteStories.value = listOf(story) + _tasteStories.value
+        storageAdapter.addTasteStory(userId, story)
+    }
+
     fun addConversation(userId: String, item: PastConversationItem) {
         _conversations.value = listOf(item) + _conversations.value
         storageAdapter.addConversation(userId, item)
+        scope.launch { remote.postConversation(userId, item) }
     }
 
     fun removeConversation(userId: String, id: String) {

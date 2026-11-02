@@ -1,6 +1,8 @@
 package com.fifo.voicepipeline.network
 
 import com.fifo.voicepipeline.data.memory.SessionMemoryConsolidation
+import com.fifo.voicepipeline.data.modules.EpisodicMemoryModule
+import com.fifo.voicepipeline.data.modules.UserIdentityModule
 import com.fifo.voicepipeline.pipeline.session.ConversationContextProvider
 import com.fifo.voicepipeline.pipeline.session.SpeakerIdentity
 import com.fifo.voicepipeline.pipeline.session.SpeechCognitionAdapter
@@ -23,6 +25,13 @@ class CloudApiClient(
     var contextProvider: ConversationContextProvider? = null,
     var navigationManager: com.fifo.voicepipeline.location.FifoNavigationManager? = null
 ) : SpeechCognitionAdapter {
+    /**
+     * Módulos dueños del perfil y la memoria que el prompt necesita. Se
+     * instalan desde el composition root; si faltan, el diálogo compone un
+     * contexto mínimo sin accessor (ADR-0051).
+     */
+    var identity: UserIdentityModule? = null
+    var memory: EpisodicMemoryModule? = null
     /**
      * Clave efectiva para Groq: prioriza `groqApiKey` y acepta una clave `gsk_`
      * guardada en el campo de STT por compatibilidad.
@@ -65,7 +74,9 @@ class CloudApiClient(
         apiKeyProvider = { effectiveGroqKey },
         conversationContext = { contextProvider },
         androidContext = { context },
-        navigationManager = { navigationManager }
+        navigationManager = { navigationManager },
+        identityProvider = { identity },
+        memoryProvider = { memory }
     )
     private val memoryExtractor = GroqSessionMemoryExtractor(
         apiKeyProvider = { effectiveGroqKey }

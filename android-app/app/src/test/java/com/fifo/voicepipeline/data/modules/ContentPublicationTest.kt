@@ -5,6 +5,7 @@ import com.fifo.voicepipeline.data.model.DailyRoutine
 import com.fifo.voicepipeline.data.model.FifoMemoryItem
 import com.fifo.voicepipeline.data.model.FifoReminderItem
 import com.fifo.voicepipeline.data.model.FifoTasteStory
+import com.fifo.voicepipeline.data.model.PastConversationItem
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import org.junit.Assert.assertEquals
@@ -146,6 +147,63 @@ class ContentPublicationTest {
     }
 
     @Test
+    fun `a conversation is stored locally and published once`() {
+        val item = PastConversationItem(
+            id = "conv_1",
+            title = "Charla de jardinería",
+            date = "Hoy",
+            duration = "120 seg",
+            summary = "Carmen habló de sus orquídeas.",
+            tag = "hobby",
+            iconName = "nature"
+        )
+
+        memory.addConversation(USER_ID, item)
+
+        assertEquals(listOf(item), memory.conversations.value)
+        assertEquals(listOf(item), memoryRemote.conversations)
+    }
+
+    @Test
+    fun `direct backend inserts are deduplicated and not republished`() {
+        val memoryItem = FifoMemoryItem(
+            id = "m_1",
+            emoji = "⭐",
+            title = "Orquídeas",
+            detail = "Riego por inmersión",
+            learnedDate = "Aprendido recién"
+        )
+        val story = FifoTasteStory(
+            id = "s_1",
+            title = "Orquídeas",
+            subtitle = "Cuidados",
+            description = "Detalle",
+            tags = listOf("Jardinería"),
+            iconCategory = "nature",
+            learnedFrom = "Backend"
+        )
+        val reminder = FifoReminderItem(
+            id = "r_1",
+            title = "Regar",
+            timeStr = "08:00"
+        )
+
+        memory.addMemoryDirect(USER_ID, memoryItem)
+        memory.addMemoryDirect(USER_ID, memoryItem.copy(id = "m_2"))
+        memory.addTasteStoryDirect(USER_ID, story)
+        memory.addTasteStoryDirect(USER_ID, story.copy(id = "s_2"))
+        memory.addReminderDirect(USER_ID, reminder)
+        memory.addReminderDirect(USER_ID, reminder.copy(id = "r_2"))
+
+        assertEquals(1, memory.memories.value.size)
+        assertEquals(1, memory.tasteStories.value.size)
+        assertEquals(1, memory.reminders.value.size)
+        assertTrue(memoryRemote.posted.isEmpty())
+        assertTrue(memoryRemote.stories.isEmpty())
+        assertTrue(memoryRemote.reminders.isEmpty())
+    }
+
+    @Test
     fun `toggling a join publishes the new state`() {
         community.createCommunityActivity(activity("act_1"), userId = "")
         communityRemote.created.clear()
@@ -212,6 +270,7 @@ class ContentPublicationTest {
         val completedReminders = mutableListOf<String>()
         val deletedReminders = mutableListOf<String>()
         val routines = mutableListOf<DailyRoutine>()
+        val conversations = mutableListOf<PastConversationItem>()
 
         override suspend fun postMemory(userId: String, item: FifoMemoryItem) {
             posted.add(item)
@@ -243,6 +302,10 @@ class ContentPublicationTest {
 
         override suspend fun postDailyRoutine(userId: String, routine: DailyRoutine) {
             routines.add(routine)
+        }
+
+        override suspend fun postConversation(userId: String, item: PastConversationItem) {
+            conversations.add(item)
         }
     }
 

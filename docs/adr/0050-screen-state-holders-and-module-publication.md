@@ -191,10 +191,11 @@ detenido.
 | 5 | Pipeline: escucha continua al `TurnOrchestrator` y contexto al grafo | Hecho |
 | 6 | Skills: `ContextRecallSkill` por costura y payload | Hecho |
 | 7 | UI: state holders, publicación en módulos, telefonía y escucha en el grafo | Hecho |
-| 8 | Pipeline, skills y telefonía fuera del accessor; borrar el accessor a cero | Parcial: skills en cero (ADR-0051); restan 91 llamadas |
+| 8 | Pipeline, skills y telefonía fuera del accessor; borrar el accessor a cero | Parcial: skills en cero (ADR-0051), memoria/red/audio/ubicación en cero (ADR-0052); restan 66 llamadas |
 
 Contador de llamadas al accessor al cerrar esta pasada: **137**; tras ADR-0051
-(skills fuera y puertos extendidos): **91**.
+(skills fuera y puertos extendidos): **91**; tras ADR-0052 (consolidador, prompt,
+audio y ubicación): **66**.
 
 ---
 

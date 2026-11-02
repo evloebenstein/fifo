@@ -34,7 +34,7 @@ MemoryCoordinator ──► SqliteConversationJournal (PENDING)
     ▼
 RepositorySessionMemoryConsolidator
     ├─ extracción local (CloudApiClient)
-    ├─ mutaciones en los módulos de AppGraph (accessor deprecado durante la migración)
+    ├─ mutaciones en los módulos de AppGraph (identidad, memoria, grafo y sesión; ADR-0052)
     └─ sincronización con el backend
     │
     ├─ true  ──► markConsolidated()

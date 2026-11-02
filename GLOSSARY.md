@@ -218,6 +218,10 @@ _Avoid_: ChatMessage, TurnRecord
 Orquestador de la memoria durable. Escribe turnos, mantiene la cola persistente, reintenta consolidaciones con backoff exponencial y restaura los turnos recientes en `CloudApiClient`. VoiceSession solo ve la costura `SessionMemory`.
 _Avoid_: MemoryManager, PersistenceService
 
+**Consolidador de sesión**:
+Adaptador que convierte un lote de turnos en memoria (fragmentos, conversaciones, recuerdos, gustos, mencionados). En producción, `RepositorySessionMemoryConsolidator` recibe identidad, memoria, grafo relacional y sesión; no lee el accessor. Las inserciones que vienen del backend usan `*Direct()` y no se republican (ADR-0052).
+_Avoid_: Extractor de memoria, SessionWriter, SyncMemory
+
 **PendingConsolidationQueue**:
 Cola de turnos `PENDING` cuyo backoff ya venció. Vive en `conversation_journal`, no en RAM; un reinicio de la app la recupera.
 _Avoid_: RetryCache, ConsolidationList
@@ -285,7 +289,7 @@ Guía del system prompt con cinco disparadores para invocar `recall_past_context
 _Avoid_: Frase de memoria, Regla de recall, Prompt de búsqueda
 
 **Accessor deprecado**:
-`FifoDataRepository` durante la migración strangler: ya no posee estado, solo delega en `AppGraph`. Se borra cuando las llamadas lleguen a cero; tras ADR-0051 quedan 91, ninguna en `skills/`. No se le añade lógica nueva (ADR-0049, ADR-0051).
+`FifoDataRepository` durante la migración strangler: ya no posee estado, solo delega en `AppGraph`. Se borra cuando las llamadas lleguen a cero; tras ADR-0052 quedan 66, solo en pipeline y telefonía. No se le añade lógica nueva (ADR-0049, ADR-0051, ADR-0052).
 _Avoid_: Repositorio central, Fachada, God object
 
 **Skill inyectada**:
@@ -297,7 +301,7 @@ Proyección de solo lectura que una pantalla recibe del `AppGraph` (`ui/state/Fi
 _Avoid_: ViewModel, Pantalla-con-estado, Store de UI
 
 **Puerto de publicación**:
-Costura por la que un módulo dueño guarda local y luego publica en el backend (`MemoryRemotePort`, `CommunityRemotePort`). Cubre recuerdos, gustos, historias, recordatorios, rutinas, inscripciones, actividades y publicaciones sociales. Producción usa el adaptador `Backend*`, que absorbe el fallo de red; las pruebas usan `Noop` o un grabador. La pantalla y las skills no publican (ADR-0050, ADR-0051).
+Costura por la que un módulo dueño guarda local y luego publica en el backend (`MemoryRemotePort`, `CommunityRemotePort`). Cubre recuerdos, gustos, historias, recordatorios, rutinas, conversaciones, inscripciones, actividades y publicaciones sociales. Producción usa el adaptador `Backend*`, que absorbe el fallo de red; las pruebas usan `Noop` o un grabador. La pantalla y las skills no publican (ADR-0050, ADR-0051, ADR-0052).
 _Avoid_: Repositorio remoto, SyncManager, API de UI
 
 **Puerto de llamada**:

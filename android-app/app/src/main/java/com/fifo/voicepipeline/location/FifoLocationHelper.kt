@@ -11,7 +11,7 @@ import android.net.Uri
 import android.os.Build
 import android.util.Log
 import androidx.core.content.ContextCompat
-import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.data.model.UserProfileData
 import com.fifo.voicepipeline.ui.model.CurrentLocationInfo
 import com.google.gson.JsonParser
 import kotlinx.coroutines.Dispatchers
@@ -46,7 +46,7 @@ object FifoLocationHelper {
      * Si la última ubicación conocida tiene menos de 45 segundos, la retorna directamente.
      * Si no, solicita una actualización one-shot al hardware GPS (API 30+) o al proveedor disponible.
      */
-    suspend fun getFreshLocation(context: Context): CurrentLocationInfo = withContext(Dispatchers.IO) {
+    suspend fun getFreshLocation(context: Context, profile: UserProfileData): CurrentLocationInfo = withContext(Dispatchers.IO) {
         val cached = cachedLocationInfo
         val now = System.currentTimeMillis()
         if (cached != null && cached.isGpsActive && (now - lastLocationFixTime) < 45_000L) {
@@ -63,11 +63,11 @@ object FifoLocationHelper {
         ) == PackageManager.PERMISSION_GRANTED
 
         if (!hasFine && !hasCoarse) {
-            return@withContext getCurrentLocation(context)
+            return@withContext getCurrentLocation(context, profile)
         }
 
         val lm = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-            ?: return@withContext getCurrentLocation(context)
+            ?: return@withContext getCurrentLocation(context, profile)
 
         // En Android 11+ (API 30+), solicitar actualización one-shot directa
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
@@ -102,7 +102,7 @@ object FifoLocationHelper {
                     val lat = freshLoc.latitude
                     val lon = freshLoc.longitude
                     val geocoded = reverseGeocodeDetailed(context, lat, lon)
-                    val profileCity = FifoDataRepository.userProfile.value.city.trim()
+                    val profileCity = profile.city.trim()
                     val addr = geocoded?.first ?: "Ubicación detectada"
                     val city = geocoded?.second?.ifBlank { profileCity } ?: profileCity
 
@@ -124,7 +124,7 @@ object FifoLocationHelper {
         }
 
         // Fallback síncrono estándar
-        getCurrentLocation(context)
+        getCurrentLocation(context, profile)
     }
 
     /**
@@ -133,7 +133,7 @@ object FifoLocationHelper {
      * retorna la ubicación de perfil como fallback seguro.
      */
     @SuppressLint("MissingPermission")
-    fun getCurrentLocation(context: Context): CurrentLocationInfo {
+    fun getCurrentLocation(context: Context, profile: UserProfileData): CurrentLocationInfo {
         val now = System.currentTimeMillis()
         val cached = cachedLocationInfo
         if (cached != null && cached.isGpsActive && (now - lastLocationFixTime) < 90_000L) {
@@ -149,7 +149,7 @@ object FifoLocationHelper {
             android.Manifest.permission.ACCESS_COARSE_LOCATION
         ) == PackageManager.PERMISSION_GRANTED
 
-        val userProfile = FifoDataRepository.userProfile.value
+        val userProfile = profile
         val profileCity = userProfile.city.trim()
         val profileAddress = userProfile.preferredAddress.trim().ifBlank { profileCity }
 
@@ -385,8 +385,12 @@ object FifoLocationHelper {
      * permitiendo al adulto mayor saber hacia dónde caminar, la distancia y el tiempo
      * SIN necesidad de sacar el celular del bolsillo ni mirar la pantalla.
      */
-    fun getSpokenRouteGuidance(context: Context, destination: String): SpokenRouteGuidance {
-        val currentLoc = getCurrentLocation(context)
+    fun getSpokenRouteGuidance(
+        context: Context,
+        destination: String,
+        profile: UserProfileData
+    ): SpokenRouteGuidance {
+        val currentLoc = getCurrentLocation(context, profile)
         var destLat: Double
         var destLon: Double
         var resolvedName = destination
@@ -618,9 +622,10 @@ object FifoLocationHelper {
     suspend fun searchNearbyPlaces(
         context: Context,
         query: String,
-        currentLocation: CurrentLocationInfo? = null
+        currentLocation: CurrentLocationInfo? = null,
+        profile: UserProfileData
     ): List<NearbyPlaceMatch> = withContext(Dispatchers.IO) {
-        val currentLoc = currentLocation ?: getFreshLocation(context)
+        val currentLoc = currentLocation ?: getFreshLocation(context, profile)
         val queryLower = query.lowercase().trim()
 
         val cleanQuery = if (currentLoc.isGpsActive && !currentLoc.city.contains("Providencia", ignoreCase = true)) {

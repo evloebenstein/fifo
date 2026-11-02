@@ -3,7 +3,7 @@ package com.fifo.voicepipeline.skills
 import android.content.Context
 import android.net.Uri
 import android.util.Log
-import com.fifo.voicepipeline.location.FifoLocationHelper
+import com.fifo.voicepipeline.location.LocationAdapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.FormBody
@@ -24,7 +24,10 @@ import java.util.concurrent.TimeUnit
  * Entrega una síntesis hablada lista para TTS y metadatos completos para que el LLM
  * elabore respuestas atinadas.
  */
-class WebSearchSkill(private val context: Context) : FifoSkill {
+class WebSearchSkill(
+    private val context: Context,
+    private val locationAdapter: LocationAdapter
+) : FifoSkill {
 
     companion object {
         private const val TAG = "WebSearchSkill"
@@ -127,7 +130,7 @@ class WebSearchSkill(private val context: Context) : FifoSkill {
      */
     private fun fetchWeather(query: String): SkillResult? {
         return try {
-            val currentLoc = FifoLocationHelper.getCurrentLocation(context)
+            val currentLoc = locationAdapter.getCurrentLocation()
             val lat = currentLoc.latitude
             val lon = currentLoc.longitude
             val url = "https://api.open-meteo.com/v1/forecast?latitude=$lat&longitude=$lon&current=temperature_2m,relative_humidity_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m&timezone=auto"
