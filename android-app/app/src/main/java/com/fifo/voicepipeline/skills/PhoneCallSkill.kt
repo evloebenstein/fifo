@@ -4,7 +4,11 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
-import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.data.modules.RelationalGraphModule
+import com.fifo.voicepipeline.data.modules.UserIdentityModule
+import com.fifo.voicepipeline.telephony.BackendCallRemote
+import com.fifo.voicepipeline.telephony.CallRemotePort
+import com.fifo.voicepipeline.telephony.CallStateCoordinator
 
 /**
  * Skill que permite a Fifo gestionar llamadas telefónicas por comandos de voz:
@@ -12,8 +16,18 @@ import com.fifo.voicepipeline.data.FifoDataRepository
  * - Colgar o rechazar llamadas ("Fifo cuelga", "detener llamada")
  * - Saber quién está llamando ("Fifo quién llama")
  * - Marcar llamadas a contactos ("Fifo llama a mi hija")
+ *
+ * La acción de llamada sigue siendo del manager de telefonía: la skill solo
+ * pide `answer`/`hangup` al coordinador y publica la identificación por
+ * [CallRemotePort] (ADR-0051).
  */
-class PhoneCallSkill(private val context: Context) : FifoSkill {
+class PhoneCallSkill(
+    private val context: Context,
+    private val telephony: CallStateCoordinator,
+    private val identity: UserIdentityModule,
+    private val relationalGraph: RelationalGraphModule,
+    private val callRemote: CallRemotePort = BackendCallRemote
+) : FifoSkill {
 
     companion object {
         private const val TAG = "PhoneCallSkill"
@@ -44,25 +58,25 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
 
     override suspend fun execute(args: Map<String, Any?>): SkillResult {
         val action = args["action"]?.toString()?.lowercase()?.trim() ?: "status"
-        val userId = FifoDataRepository.userProfile.value.id
+        val userId = identity.userProfile.value.id
         Log.i(TAG, "Ejecutando PhoneCallSkill con acción: $action")
 
         return when (action) {
             "answer" -> {
-                val callInfo = FifoDataRepository.incomingCall.value ?: FifoDataRepository.lastActiveCall
-                val answered = FifoDataRepository.answerCurrentCall()
+                val callInfo = telephony.incomingCall.value ?: telephony.lastActiveCall
+                val answered = telephony.answerCurrentCall()
                 if (answered) {
                     val rawCaller = callInfo?.callerName ?: ""
                     val phone = callInfo?.phoneNumber ?: ""
 
                     // 1. Identificar interlocutor localmente en el grafo relacional
-                    val relContact = if (rawCaller.isNotBlank()) FifoDataRepository.findContactByRoleOrName(rawCaller) else null
+                    val relContact = if (rawCaller.isNotBlank()) relationalGraph.findContactByRoleOrName(rawCaller) else null
                     val contactName = relContact?.contactName ?: rawCaller.ifBlank { "la llamada" }
                     val role = relContact?.relationshipRole ?: ""
 
                     // 2. Consultar / catalogar en el backend si hay ID de usuario disponible
                     val backendIdentity = if (userId.isNotBlank()) {
-                        com.fifo.voicepipeline.network.FifoBackendClient.identifyContact(userId, rawCaller, phone)
+                        callRemote.identifyContact(userId, rawCaller, phone)
                     } else null
 
                     val finalName = backendIdentity?.contactName ?: contactName
@@ -72,7 +86,7 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
 
                     // 3. Registrar evento en backend de forma asíncrona
                     if (userId.isNotBlank()) {
-                        com.fifo.voicepipeline.network.FifoBackendClient.logCallEvent(
+                        callRemote.logCallEvent(
                             userId = userId,
                             action = "answer",
                             callerName = finalName,
@@ -113,19 +127,19 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
             }
 
             "hangup" -> {
-                val callInfo = FifoDataRepository.incomingCall.value ?: FifoDataRepository.lastActiveCall
-                FifoDataRepository.hangupCurrentCall()
+                val callInfo = telephony.incomingCall.value ?: telephony.lastActiveCall
+                telephony.hangupCurrentCall()
                 val rawCaller = callInfo?.callerName ?: ""
                 val phone = callInfo?.phoneNumber ?: ""
 
                 // 1. Identificar interlocutor localmente
-                val relContact = if (rawCaller.isNotBlank()) FifoDataRepository.findContactByRoleOrName(rawCaller) else null
+                val relContact = if (rawCaller.isNotBlank()) relationalGraph.findContactByRoleOrName(rawCaller) else null
                 val contactName = relContact?.contactName ?: rawCaller.ifBlank { "la llamada" }
                 val role = relContact?.relationshipRole ?: ""
 
                 // 2. Consultar o actualizar catalogación en backend
                 val backendIdentity = if (userId.isNotBlank() && rawCaller.isNotBlank()) {
-                    com.fifo.voicepipeline.network.FifoBackendClient.identifyContact(userId, rawCaller, phone)
+                    callRemote.identifyContact(userId, rawCaller, phone)
                 } else null
 
                 val finalName = backendIdentity?.contactName ?: contactName
@@ -134,7 +148,7 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
 
                 // 3. Registrar evento en backend
                 if (userId.isNotBlank()) {
-                    com.fifo.voicepipeline.network.FifoBackendClient.logCallEvent(
+                    callRemote.logCallEvent(
                         userId = userId,
                         action = "hangup",
                         callerName = finalName,
@@ -167,12 +181,12 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
             }
 
             "status" -> {
-                val callInfo = FifoDataRepository.incomingCall.value
+                val callInfo = telephony.incomingCall.value
                 if (callInfo != null && callInfo.isRinging) {
                     val rawCaller = callInfo.callerName
-                    val relContact = FifoDataRepository.findContactByRoleOrName(rawCaller)
+                    val relContact = relationalGraph.findContactByRoleOrName(rawCaller)
                     val backendIdentity = if (userId.isNotBlank()) {
-                        com.fifo.voicepipeline.network.FifoBackendClient.identifyContact(userId, rawCaller, callInfo.phoneNumber)
+                        callRemote.identifyContact(userId, rawCaller, callInfo.phoneNumber)
                     } else null
 
                     val finalName = backendIdentity?.contactName ?: (relContact?.contactName ?: rawCaller)
@@ -206,7 +220,7 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
 
             "call" -> {
                 val contactInput = args["contact_name"]?.toString()?.trim() ?: "contacto de apoyo"
-                val profile = FifoDataRepository.userProfile.value
+                val profile = identity.userProfile.value
                 val lower = contactInput.lowercase()
 
                 var resolvedContactName = profile.emergencyContactName
@@ -228,7 +242,7 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
 
                 // Si no es un servicio de emergencia nacional, consultar el Grafo Relacional de Fifo
                 if (phoneNumber.isBlank()) {
-                    val relContact = FifoDataRepository.findContactByRoleOrName(contactInput)
+                    val relContact = relationalGraph.findContactByRoleOrName(contactInput)
                     if (relContact != null && !relContact.phoneNumber.isNullOrBlank()) {
                         resolvedContactName = "${relContact.contactName} (${relContact.relationshipRole})"
                         phoneNumber = relContact.phoneNumber
@@ -274,7 +288,7 @@ class PhoneCallSkill(private val context: Context) : FifoSkill {
                 }
 
                 if (userId.isNotBlank()) {
-                    com.fifo.voicepipeline.network.FifoBackendClient.logCallEvent(
+                    callRemote.logCallEvent(
                         userId = userId,
                         action = "dialed",
                         callerName = resolvedContactName,

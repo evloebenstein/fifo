@@ -6,15 +6,26 @@ import android.database.Cursor
 import android.provider.ContactsContract
 import android.util.Log
 import androidx.core.content.ContextCompat
-import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.data.contacts.DeviceContactsSync
+import com.fifo.voicepipeline.data.model.RelationalContact
+import com.fifo.voicepipeline.data.modules.RelationalGraphModule
+import com.fifo.voicepipeline.data.modules.UserIdentityModule
 
 /**
  * Skill para acceder y consultar los contactos reales del teléfono celular:
  * - Responder si Fifo puede ver los contactos.
  * - Listar nombres de los contactos guardados en la libreta.
  * - Buscar el número de teléfono de una persona específica.
+ *
+ * Los módulos son la única vía de lectura/escritura: la skill no usa el
+ * accessor `FifoDataRepository` ni conoce la red (ADR-0051).
  */
-class ContactsSkill(private val context: Context) : FifoSkill {
+class ContactsSkill(
+    private val context: Context,
+    private val contactsSync: DeviceContactsSync,
+    private val relationalGraph: RelationalGraphModule,
+    private val identity: UserIdentityModule
+) : FifoSkill {
 
     companion object {
         private const val TAG = "ContactsSkill"
@@ -82,14 +93,14 @@ class ContactsSkill(private val context: Context) : FifoSkill {
         ) == PackageManager.PERMISSION_GRANTED
 
         // Si tenemos permiso, asegurar que la libreta esté sincronizada en el Grafo Relacional
-        if (hasPermission && FifoDataRepository.relationalContacts.value.size <= 4) {
-            FifoDataRepository.syncDeviceContactsToRelationalGraph(context)
+        if (hasPermission && relationalGraph.contacts.value.size <= 4) {
+            contactsSync.sync()
         }
 
         // 1. Acciones de búsqueda y dictado telefónico
         if ((action == "search" || action == "dictate") && query.isNotBlank()) {
             // A. Buscar primero en el Grafo Relacional de Fifo (que incluye contactos reales + relaciones aprendidas)
-            val relContact = FifoDataRepository.findContactByRoleOrName(query)
+            val relContact = relationalGraph.findContactByRoleOrName(query)
             if (relContact != null && !relContact.phoneNumber.isNullOrBlank()) {
                 val spokenPhone = formatPhoneNumberForSpeech(relContact.phoneNumber)
                 val rolePart = if (relContact.relationshipRole != "Contacto del teléfono") " (${relContact.relationshipRole.lowercase()})" else ""
@@ -113,8 +124,8 @@ class ContactsSkill(private val context: Context) : FifoSkill {
                 if (deviceContact != null) {
                     val spokenPhone = formatPhoneNumberForSpeech(deviceContact.second)
                     // Guardar en el grafo relacional para futuras charlas
-                    FifoDataRepository.addOrUpdateRelationalContact(
-                        com.fifo.voicepipeline.ui.model.RelationalContact(
+                    relationalGraph.addOrUpdate(
+                        RelationalContact(
                             id = "ctc_phone_${deviceContact.first.take(15).lowercase()}_${System.currentTimeMillis() % 10000}",
                             contactName = deviceContact.first,
                             phoneNumber = deviceContact.second,
@@ -136,7 +147,7 @@ class ContactsSkill(private val context: Context) : FifoSkill {
             }
 
             // C. Revisar si coincide con el contacto de emergencia registrado en el perfil
-            val profile = FifoDataRepository.userProfile.value
+            val profile = identity.userProfile.value
             val emergName = profile.emergencyContactName.lowercase().trim()
             val isEmergencyMatch = (emergName.isNotBlank() && query.contains(emergName, ignoreCase = true)) ||
                     query.contains("emergencia", ignoreCase = true) ||
@@ -159,7 +170,7 @@ class ContactsSkill(private val context: Context) : FifoSkill {
         }
 
         if (!hasPermission) {
-            val relContacts = FifoDataRepository.relationalContacts.value
+            val relContacts = relationalGraph.contacts.value
             if (action == "list" && relContacts.isNotEmpty()) {
                 val names = relContacts.take(4).joinToString(", ") { "${it.contactName} (${it.relationshipRole})" }
                 return SkillResult(
@@ -187,7 +198,7 @@ class ContactsSkill(private val context: Context) : FifoSkill {
             else -> { // "list"
                 val contacts = getAllContacts(limit = 8)
                 val totalCount = getTotalContactCount()
-                val relContacts = FifoDataRepository.relationalContacts.value
+                val relContacts = relationalGraph.contacts.value
                 val sampleNames = if (relContacts.isNotEmpty()) {
                     relContacts.take(4).joinToString(", ") { "${it.contactName} (${it.relationshipRole})" }
                 } else if (contacts.isNotEmpty()) {

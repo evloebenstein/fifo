@@ -1,12 +1,16 @@
 package com.fifo.voicepipeline.skills
 
-import android.content.Context
 import android.util.Log
-import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.data.model.FifoTasteStory
+import com.fifo.voicepipeline.data.modules.CommunityModule
+import com.fifo.voicepipeline.data.modules.EpisodicMemoryModule
+import com.fifo.voicepipeline.data.modules.UserIdentityModule
+import com.fifo.voicepipeline.data.session.UserSession
 
 /**
- * Skill que ejecuta mutaciones directamente sobre la base de datos de Fifo
- * ([FifoDataRepository]), permitiendo que el usuario modifique su perfil,
+ * Skill que ejecuta mutaciones sobre el perfil, los gustos, los recuerdos y el
+ * muro social usando los módulos dueños del estado, permitiendo que el usuario
+ * modifique su perfil,
  * fecha de cumpleaños, gustos, recuerdos o publicaciones sociales
  * EXCLUSIVAMENTE HABLANDO con Fifo, sin tocar la app.
  *
@@ -16,7 +20,12 @@ import com.fifo.voicepipeline.data.FifoDataRepository
  * 3. TOTALMENTE PROHIBIDOS temas con connotación sexual en perfiles o publicaciones.
  * 4. Protocolo de salvaguarda ante revelación de abuso/violencia (asistencia y contención con consentimiento).
  */
-class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
+class ProfileDatabaseSkill(
+    private val session: UserSession,
+    private val identity: UserIdentityModule,
+    private val memory: EpisodicMemoryModule,
+    private val community: CommunityModule
+) : FifoSkill {
 
     companion object {
         private const val TAG = "ProfileDBSkill"
@@ -91,7 +100,7 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
                 val gender = args["gender"]?.toString()
                 val city = args["city"]?.toString()
 
-                FifoDataRepository.updateDemographics(
+                session.updateDemographics(
                     fullName = fullName,
                     birthDate = birthDate,
                     birthYear = birthYear,
@@ -135,14 +144,14 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
                 }
 
                 // Registro positivo exitoso
-                val added = FifoDataRepository.addTaste(taste)
+                val added = memory.addTaste(identity.userProfile.value.id, taste)
                 val spoken = if (added) "Gusto guardado: $taste." else "Gusto ya registrado: $taste."
                 SkillResult(success = true, spokenFeedback = spoken)
             }
 
             "remove_taste" -> {
                 val taste = args["taste_name"]?.toString()?.trim() ?: ""
-                val removed = FifoDataRepository.removeTaste(taste)
+                val removed = memory.removeTaste(identity.userProfile.value.id, taste)
                 val spoken = if (removed) "Gusto eliminado: $taste." else "No se encontró: $taste."
                 SkillResult(success = true, spokenFeedback = spoken)
             }
@@ -183,8 +192,17 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
                     )
                 }
 
-                // Publicación autorizada
-                FifoDataRepository.addSocialPost(content, category)
+                // Publicación autorizada: el módulo guarda local y publica por su puerto
+                val user = identity.userProfile.value
+                val author = user.fullName.split(" ").firstOrNull() ?: user.fullName
+                community.addSocialPost(
+                    content = content,
+                    category = category,
+                    author = author,
+                    username = user.username,
+                    age = user.estimatedAge,
+                    userId = user.id
+                )
                 SkillResult(success = true, spokenFeedback = "Publicación realizada en Fifo Amigos.")
             }
 
@@ -214,7 +232,7 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
                     )
                 }
 
-                FifoDataRepository.addMemory(icon, title, description)
+                memory.addMemory(identity.userProfile.value.id, icon, title, description)
                 SkillResult(
                     success = true,
                     spokenFeedback = "Recuerdo guardado: $title.",
@@ -250,7 +268,7 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
                     )
                 }
 
-                val story = com.fifo.voicepipeline.ui.model.FifoTasteStory(
+                val story = FifoTasteStory(
                     id = "taste_${java.util.UUID.randomUUID()}",
                     title = title,
                     subtitle = subtitle,
@@ -259,8 +277,9 @@ class ProfileDatabaseSkill(private val context: Context) : FifoSkill {
                     iconCategory = iconCategory,
                     learnedFrom = "Conversación hablada con Fifo"
                 )
-                FifoDataRepository.addTasteStory(story)
-                FifoDataRepository.addTaste(title)
+                val userId = identity.userProfile.value.id
+                memory.addTasteStory(userId, story)
+                memory.addTaste(userId, title)
 
                 SkillResult(
                     success = true,

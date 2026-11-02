@@ -230,6 +230,9 @@ class CommunityModule(
         )
         _socialPosts.value = listOf(newPost) + _socialPosts.value
         storageAdapter.addSocialPost(newPost, userId)
+        if (userId.isNotBlank()) {
+            scope.launch { remote.postSocialPost(userId, newPost.content, category) }
+        }
         return newPost
     }
 

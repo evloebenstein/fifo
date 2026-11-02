@@ -2,7 +2,7 @@ package com.fifo.voicepipeline.skills
 
 import android.content.Context
 import android.util.Log
-import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.data.device.DeviceState
 import com.fifo.voicepipeline.location.FifoLocationHelper
 
 /**
@@ -16,7 +16,10 @@ import com.fifo.voicepipeline.location.FifoLocationHelper
  * 2. Si está desconectado: Consulta el registro de la última conexión guardada por el GPS del celular
  *    (coordenadas, dirección, habitación aproximada y hora de última conexión) y abre el mapa en el teléfono.
  */
-class FindFifoDeviceSkill(private val context: Context) : FifoSkill {
+class FindFifoDeviceSkill(
+    private val context: Context,
+    private val device: DeviceState
+) : FifoSkill {
 
     companion object {
         private const val TAG = "FindFifoDeviceSkill"
@@ -43,13 +46,13 @@ class FindFifoDeviceSkill(private val context: Context) : FifoSkill {
 
     override suspend fun execute(args: Map<String, Any?>): SkillResult {
         val action = args["action"]?.toString()?.trim() ?: "locate"
-        val devLoc = FifoDataRepository.deviceLocation.value
+        val devLoc = device.location.value
 
         Log.i(TAG, "Ejecutando FindFifoDeviceSkill: action=$action, isConnected=${devLoc.isConnected}")
 
         return if (devLoc.isConnected) {
             // El robot está conectado por Bluetooth cerca
-            FifoDataRepository.triggerDeviceBeep(true)
+            device.triggerBeep(true)
 
             SkillResult(
                 success = true,

@@ -3,6 +3,8 @@ package com.fifo.voicepipeline.skills
 import android.content.Context
 import android.location.LocationManager
 import android.util.Log
+import com.fifo.voicepipeline.data.AppGraph
+import com.fifo.voicepipeline.data.context.ConversationContext
 import com.fifo.voicepipeline.location.AndroidLocationAdapter
 import com.fifo.voicepipeline.location.FifoNavigationManager
 import com.fifo.voicepipeline.location.LocationAdapter
@@ -38,12 +40,17 @@ class FifoSkillRegistry(
         },
         sessionStore = sessionStore
     ),
-    private val intentRouter: VoiceIntentRouter = VoiceIntentRouter(navigationManager),
+    /**
+     * Composition root (ADR-0049). Las skills reciben solo el módulo que usan;
+     * el registro nunca consulta el accessor `FifoDataRepository` (ADR-0051).
+     */
+    private val graph: AppGraph = AppGraph.requireInstance(),
+    private val intentRouter: VoiceIntentRouter = VoiceIntentRouter(navigationManager, graph.listening),
     /**
      * Contexto conversacional compartido (ADR-0049). Si es `null`, la skill de
-     * memoria usa el grafo instalado; las pruebas pueden inyectar un doble.
+     * memoria usa el del grafo; las pruebas pueden inyectar un doble.
      */
-    private val conversationContext: com.fifo.voicepipeline.data.context.ConversationContext? = null
+    private val conversationContext: ConversationContext? = null
 ) {
 
     companion object {
@@ -59,26 +66,36 @@ class FifoSkillRegistry(
     var lastTopic: String = ""
 
     init {
-        registerSkill(ReminderSkill(context))
+        val promptContext = conversationContext ?: graph.conversationContext
+        registerSkill(ReminderSkill(
+            identity = graph.identity,
+            memory = graph.memory,
+            relationalGraph = graph.relationalGraph
+        ))
         registerSkill(CalendarSkill(context))
         registerSkill(MapsSkill(
             locationAdapter = locationAdapter,
             navigationManager = navigationManager,
             intentLauncher = { intent -> context.startActivity(intent) }
         ))
-        registerSkill(PhoneCommunicationSkill(context))
-        registerSkill(ProfileDatabaseSkill(context))
+        registerSkill(PhoneCommunicationSkill(
+            context = context,
+            identity = graph.identity,
+            relationalGraph = graph.relationalGraph
+        ))
+        registerSkill(ProfileDatabaseSkill(
+            session = graph.session,
+            identity = graph.identity,
+            memory = graph.memory,
+            community = graph.community
+        ))
         registerSkill(ContextRecallSkill { query ->
-            conversationContext?.searchDeep(query)
-                ?: com.fifo.voicepipeline.data.AppGraph.instanceOrNull()?.conversationContext?.searchDeep(query)
-                ?: com.fifo.voicepipeline.data.model.DeepContextResult(
-                    relevantExcerpts = emptyList(),
-                    foundEntities = emptyList(),
-                    synthesizedContext = "",
-                    conversationsSearched = 0
-                )
+            promptContext.searchDeep(query)
         })
-        registerSkill(FindFifoDeviceSkill(context))
+        registerSkill(FindFifoDeviceSkill(
+            context = context,
+            device = graph.device
+        ))
         registerSkill(CurrentLocationSkill(context))
         registerSkill(NavigationDirectionsSkill(
             locationAdapter = locationAdapter,
@@ -88,9 +105,22 @@ class FifoSkillRegistry(
             locationAdapter = locationAdapter,
             navigationManager = navigationManager
         ))
-        registerSkill(PhoneCallSkill(context))
-        registerSkill(PhoneDeviceControlSkill(context))
-        registerSkill(ContactsSkill(context))
+        registerSkill(PhoneCallSkill(
+            context = context,
+            telephony = graph.telephony,
+            identity = graph.identity,
+            relationalGraph = graph.relationalGraph
+        ))
+        registerSkill(PhoneDeviceControlSkill(
+            context = context,
+            device = graph.device
+        ))
+        registerSkill(ContactsSkill(
+            context = context,
+            contactsSync = graph.contactsSync,
+            relationalGraph = graph.relationalGraph,
+            identity = graph.identity
+        ))
         registerSkill(WebSearchSkill(context))
         Log.i(TAG, "Inicializado FifoSkillRegistry con ${skills.size} herramientas.")
     }

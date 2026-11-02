@@ -7,7 +7,7 @@ import android.hardware.camera2.CameraManager
 import android.media.AudioManager
 import android.os.BatteryManager
 import android.util.Log
-import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.data.device.DeviceState
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -20,7 +20,10 @@ import java.util.Locale
  * - Batería: "Fifo cuánta batería le queda al celular"
  * - Hora y fecha: "Fifo qué hora es", "qué día es hoy"
  */
-class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
+class PhoneDeviceControlSkill(
+    private val context: Context,
+    private val device: DeviceState
+) : FifoSkill {
 
     companion object {
         private const val TAG = "PhoneDeviceControlSkill"
@@ -79,7 +82,7 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
             } ?: "0"
 
             cameraManager.setTorchMode(cameraId, turnOn)
-            FifoDataRepository.updateHardwareStatus(isFlashlightOn = turnOn)
+            device.updateHardware(isFlashlightOn = turnOn)
 
             val spoken = if (turnOn) "Linterna encendida." else "Linterna apagada."
             SkillResult(
@@ -105,7 +108,7 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
         return when {
             state.contains("max") || state.contains("alto") || state.contains("máximo") -> {
                 audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVolume, AudioManager.FLAG_SHOW_UI)
-                FifoDataRepository.updateHardwareStatus(volumePercent = 100)
+                device.updateHardware(volumePercent = 100)
                 SkillResult(
                     success = true,
                     spokenFeedback = "Volumen al máximo.",
@@ -115,7 +118,7 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
             state.contains("min") || state.contains("silencio") || state.contains("bajo") -> {
                 val low = (maxVolume * 0.25).toInt().coerceAtLeast(1)
                 audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, low, AudioManager.FLAG_SHOW_UI)
-                FifoDataRepository.updateHardwareStatus(volumePercent = 25)
+                device.updateHardware(volumePercent = 25)
                 SkillResult(
                     success = true,
                     spokenFeedback = "Volumen al mínimo.",
@@ -126,7 +129,7 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
                 audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_LOWER, AudioManager.FLAG_SHOW_UI)
                 val newVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
                 val pct = ((newVol.toFloat() / maxVolume) * 100).toInt()
-                FifoDataRepository.updateHardwareStatus(volumePercent = pct)
+                device.updateHardware(volumePercent = pct)
                 SkillResult(
                     success = true,
                     spokenFeedback = "Volumen bajado.",
@@ -137,7 +140,7 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
                 audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_RAISE, AudioManager.FLAG_SHOW_UI)
                 val newVol = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
                 val pct = ((newVol.toFloat() / maxVolume) * 100).toInt()
-                FifoDataRepository.updateHardwareStatus(volumePercent = pct)
+                device.updateHardware(volumePercent = pct)
                 SkillResult(
                     success = true,
                     spokenFeedback = "Volumen subido.",
@@ -160,7 +163,7 @@ class PhoneDeviceControlSkill(private val context: Context) : FifoSkill {
                     status == BatteryManager.BATTERY_STATUS_FULL
 
             val pct = if (level >= 0 && scale > 0) ((level.toFloat() / scale.toFloat()) * 100).toInt() else 85
-            FifoDataRepository.updateHardwareStatus(batteryPercent = pct, isCharging = isCharging)
+            device.updateHardware(batteryPercent = pct, isCharging = isCharging)
 
             val chargeTag = if (isCharging) " (cargando)" else ""
             val spoken = "Batería: $pct%$chargeTag."

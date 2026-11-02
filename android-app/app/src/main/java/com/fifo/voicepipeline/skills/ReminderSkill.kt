@@ -1,16 +1,21 @@
 package com.fifo.voicepipeline.skills
 
-import android.content.Context
 import android.util.Log
-import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.data.modules.EpisodicMemoryModule
+import com.fifo.voicepipeline.data.modules.RelationalGraphModule
+import com.fifo.voicepipeline.data.modules.UserIdentityModule
 
 /**
  * Skill para gestionar recordatorios de medicamentos, compromisos familiares y hábitos de salud.
  *
- * Guarda el recordatorio en [FifoDataRepository] (reflejándose en la app)
- * y emite una confirmación hablada para el usuario.
+ * Guarda el recordatorio en [EpisodicMemoryModule] (reflejándose en la app y
+ * publicándose por su puerto) y emite una confirmación hablada para el usuario.
  */
-class ReminderSkill(private val context: Context) : FifoSkill {
+class ReminderSkill(
+    private val identity: UserIdentityModule,
+    private val memory: EpisodicMemoryModule,
+    private val relationalGraph: RelationalGraphModule
+) : FifoSkill {
 
     companion object {
         private const val TAG = "ReminderSkill"
@@ -55,10 +60,11 @@ class ReminderSkill(private val context: Context) : FifoSkill {
         val action = args["action"]?.toString()?.trim()?.lowercase() ?: "set"
         val reminderId = args["reminder_id"]?.toString()?.trim()
         val title = args["title"]?.toString()?.trim() ?: ""
+        val userId = identity.userProfile.value.id
 
         when (action) {
             "complete" -> {
-                val allReminders = FifoDataRepository.reminders.value
+                val allReminders = memory.reminders.value
                 val target = if (!reminderId.isNullOrBlank()) {
                     allReminders.firstOrNull { it.id == reminderId }
                 } else if (title.isNotBlank()) {
@@ -75,7 +81,7 @@ class ReminderSkill(private val context: Context) : FifoSkill {
                     )
                 }
 
-                FifoDataRepository.completeReminder(target.id)
+                memory.completeReminder(userId, target.id)
                 return SkillResult(
                     success = true,
                     spokenFeedback = "Recordatorio completado: ${target.title}.",
@@ -84,7 +90,7 @@ class ReminderSkill(private val context: Context) : FifoSkill {
             }
 
             "delete" -> {
-                val allReminders = FifoDataRepository.reminders.value
+                val allReminders = memory.reminders.value
                 val target = if (!reminderId.isNullOrBlank()) {
                     allReminders.firstOrNull { it.id == reminderId }
                 } else if (title.isNotBlank()) {
@@ -98,7 +104,7 @@ class ReminderSkill(private val context: Context) : FifoSkill {
                     )
                 }
 
-                FifoDataRepository.removeReminder(target.id)
+                memory.removeReminder(userId, target.id)
                 return SkillResult(
                     success = true,
                     spokenFeedback = "Recordatorio eliminado: ${target.title}.",
@@ -107,7 +113,7 @@ class ReminderSkill(private val context: Context) : FifoSkill {
             }
 
             "list" -> {
-                val active = FifoDataRepository.reminders.value.filter { !it.isCompleted }
+                val active = memory.reminders.value.filter { !it.isCompleted }
                 if (active.isEmpty()) {
                     return SkillResult(
                         success = true,
@@ -131,13 +137,13 @@ class ReminderSkill(private val context: Context) : FifoSkill {
 
                 // 1. Verificar si el recordatorio menciona un contacto del grafo relacional
                 var enrichedTitle = taskTitle
-                val foundContact = FifoDataRepository.findContactByRoleOrName(taskTitle)
+                val foundContact = relationalGraph.findContactByRoleOrName(taskTitle)
                 if (foundContact != null && !taskTitle.contains(foundContact.contactName, ignoreCase = true)) {
                     enrichedTitle = "$taskTitle (${foundContact.contactName})"
                 }
 
                 // 2. Verificar si coincide con una rutina diaria conocida
-                val matchingRoutine = FifoDataRepository.dailyRoutines.value.firstOrNull { routine ->
+                val matchingRoutine = memory.dailyRoutines.value.firstOrNull { routine ->
                     val normRoutine = routine.routineName.lowercase()
                     val normTitle = taskTitle.lowercase()
                     val titleWords = normTitle.split(" ", "-", "_").filter { it.length > 3 }
@@ -146,7 +152,8 @@ class ReminderSkill(private val context: Context) : FifoSkill {
                 }
 
                 // 3. Guardar en el repositorio central de datos (se refleja en la app de inmediato)
-                val item = FifoDataRepository.addReminder(
+                val item = memory.addReminder(
+                    userId = userId,
                     title = enrichedTitle,
                     timeStr = timeStr,
                     category = category
@@ -154,7 +161,7 @@ class ReminderSkill(private val context: Context) : FifoSkill {
 
                 // Si coincide con una rutina, marcar reminderAssociated = true
                 if (matchingRoutine != null && !matchingRoutine.reminderAssociated) {
-                    FifoDataRepository.addOrUpdateDailyRoutine(matchingRoutine.copy(reminderAssociated = true))
+                    memory.addOrUpdateDailyRoutine(userId, matchingRoutine.copy(reminderAssociated = true))
                 }
 
                 val spokenText = "Recordatorio guardado: $enrichedTitle a las $timeStr."

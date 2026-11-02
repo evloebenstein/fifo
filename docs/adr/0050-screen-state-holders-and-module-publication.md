@@ -171,8 +171,8 @@ detenido.
 
 ### Lo que **no** resuelve
 
-- **El pipeline, las skills y la telefonía siguen usando el accessor.** Es la
-  siguiente capa; el accessor no se borra hasta llegar a cero.
+- **El pipeline y la telefonía siguen usando el accessor.** Las skills ya salieron
+  en ADR-0051; el accessor no se borra hasta llegar a cero.
 - **El borrado remoto sigue sin existir.** Esta pasada no toca backend.
 - **No hay `ViewModel` ni state holder con ciclo de vida.** Si en el futuro una
   pantalla necesita sobrevivir a un proceso, el estado debe mudarse al módulo,
@@ -191,9 +191,10 @@ detenido.
 | 5 | Pipeline: escucha continua al `TurnOrchestrator` y contexto al grafo | Hecho |
 | 6 | Skills: `ContextRecallSkill` por costura y payload | Hecho |
 | 7 | UI: state holders, publicación en módulos, telefonía y escucha en el grafo | Hecho |
-| 8 | Pipeline, skills y telefonía fuera del accessor; borrar el accessor a cero | Pendiente |
+| 8 | Pipeline, skills y telefonía fuera del accessor; borrar el accessor a cero | Parcial: skills en cero (ADR-0051); restan 91 llamadas |
 
-Contador de llamadas al accessor al cerrar esta pasada: **137**.
+Contador de llamadas al accessor al cerrar esta pasada: **137**; tras ADR-0051
+(skills fuera y puertos extendidos): **91**.
 
 ---
 

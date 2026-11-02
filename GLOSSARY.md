@@ -285,16 +285,24 @@ Guía del system prompt con cinco disparadores para invocar `recall_past_context
 _Avoid_: Frase de memoria, Regla de recall, Prompt de búsqueda
 
 **Accessor deprecado**:
-`FifoDataRepository` durante la migración strangler: ya no posee estado, solo delega en `AppGraph`. Se borra cuando las llamadas lleguen a cero. No se le añade lógica nueva (ADR-0049).
+`FifoDataRepository` durante la migración strangler: ya no posee estado, solo delega en `AppGraph`. Se borra cuando las llamadas lleguen a cero; tras ADR-0051 quedan 91, ninguna en `skills/`. No se le añade lógica nueva (ADR-0049, ADR-0051).
 _Avoid_: Repositorio central, Fachada, God object
+
+**Skill inyectada**:
+Habilidad del catálogo que recibe por constructor los módulos y puertos que usa, en vez de leer el accessor global. `FifoSkillRegistry` recibe `AppGraph` y reparte solo lo necesario: identidad, memoria, comunidad, grafo relacional, dispositivo, sesión, telefonía y `CallRemotePort` según corresponda (ADR-0051).
+_Avoid_: Skill global, Herramienta con repositorio, Skill acoplada
 
 **State holder de pantalla**:
 Proyección de solo lectura que una pantalla recibe del `AppGraph` (`ui/state/FifoStateHolders.kt`): expone los `StateFlow` del módulo dueño y delega los comandos. No posee estado de dominio ni se crea con `ViewModel`; `fifoStateHolder { graph -> ... }` lo recuerda por composición (ADR-0050).
 _Avoid_: ViewModel, Pantalla-con-estado, Store de UI
 
 **Puerto de publicación**:
-Costura por la que un módulo dueño guarda local y luego publica en el backend (`MemoryRemotePort`, `CommunityRemotePort`). Producción usa el adaptador `Backend*`, que absorbe el fallo de red; las pruebas usan `Noop` o un grabador. La pantalla no publica (ADR-0050).
+Costura por la que un módulo dueño guarda local y luego publica en el backend (`MemoryRemotePort`, `CommunityRemotePort`). Cubre recuerdos, gustos, historias, recordatorios, rutinas, inscripciones, actividades y publicaciones sociales. Producción usa el adaptador `Backend*`, que absorbe el fallo de red; las pruebas usan `Noop` o un grabador. La pantalla y las skills no publican (ADR-0050, ADR-0051).
 _Avoid_: Repositorio remoto, SyncManager, API de UI
+
+**Puerto de llamada**:
+`CallRemotePort` (`telephony/CallRemotePort.kt`): costura para identificar al llamante y registrar eventos de llamada (`identifyContact`, `logCallEvent`). Producción usa `BackendCallRemote`, que absorbe el fallo; las pruebas usan `NoopCallRemote`. No contesta ni cuelga: la acción sigue en `FifoCallManager` (ADR-0051).
+_Avoid_: CallApi, TelephonyClient, Backend de llamadas
 
 **Proyección de escucha**:
 `ContinuousListeningState` en `AppGraph.listening`: refleja el estado de escucha continua y encamina peticiones al `TurnOrchestrator` con `request()`. El dueño publica con `mirror()`; sin orquestador (`LEGACY`) no hay un segundo booleano que lo contradiga (ADR-0050).

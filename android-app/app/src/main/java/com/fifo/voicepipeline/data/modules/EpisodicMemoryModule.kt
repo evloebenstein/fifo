@@ -233,6 +233,7 @@ class EpisodicMemoryModule(
         )
         _reminders.value = listOf(item) + _reminders.value
         storageAdapter.addReminder(userId, item)
+        scope.launch { remote.postReminder(userId, item) }
         return item
     }
 
@@ -241,11 +242,13 @@ class EpisodicMemoryModule(
             if (it.id == id) it.copy(isCompleted = true) else it
         }
         storageAdapter.updateReminderCompleted(userId, id, true)
+        scope.launch { remote.completeReminder(id) }
     }
 
     fun removeReminder(userId: String, id: String) {
         _reminders.value = _reminders.value.filter { it.id != id }
         storageAdapter.removeReminder(userId, id)
+        scope.launch { remote.deleteReminder(id) }
     }
 
     fun addTaste(userId: String, tasteName: String): Boolean {
@@ -255,6 +258,7 @@ class EpisodicMemoryModule(
         }
         _tastes.value = _tastes.value + trimmed
         storageAdapter.addTaste(userId, trimmed)
+        scope.launch { remote.addTaste(userId, trimmed) }
         return true
     }
 
@@ -264,6 +268,7 @@ class EpisodicMemoryModule(
         if (filtered.size != _tastes.value.size) {
             _tastes.value = filtered
             storageAdapter.removeTaste(userId, trimmed)
+            scope.launch { remote.removeTaste(userId, trimmed) }
             return true
         }
         return false
@@ -272,6 +277,7 @@ class EpisodicMemoryModule(
     fun addTasteStory(userId: String, story: FifoTasteStory) {
         _tasteStories.value = listOf(story) + _tasteStories.value.filter { it.id != story.id }
         storageAdapter.addTasteStory(userId, story)
+        scope.launch { remote.postTasteStory(userId, story) }
     }
 
     fun removeTasteStory(userId: String, id: String) {
@@ -303,6 +309,7 @@ class EpisodicMemoryModule(
         current.add(routine)
         _dailyRoutines.value = current
         storageAdapter.addOrUpdateDailyRoutine(userId, routine)
+        scope.launch { remote.postDailyRoutine(userId, routine) }
     }
 
     fun addConversationFragment(userId: String, fragment: ConversationFragment) {

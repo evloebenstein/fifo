@@ -1,7 +1,10 @@
 package com.fifo.voicepipeline.data.modules
 
 import com.fifo.voicepipeline.data.model.CommunityActivityItem
+import com.fifo.voicepipeline.data.model.DailyRoutine
 import com.fifo.voicepipeline.data.model.FifoMemoryItem
+import com.fifo.voicepipeline.data.model.FifoReminderItem
+import com.fifo.voicepipeline.data.model.FifoTasteStory
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import org.junit.Assert.assertEquals
@@ -64,6 +67,85 @@ class ContentPublicationTest {
     }
 
     @Test
+    fun `a new taste is stored locally and published once`() {
+        assertTrue(memory.addTaste(USER_ID, "Jardinería"))
+        assertFalse(memory.addTaste(USER_ID, "Jardinería"))
+
+        assertEquals(listOf("Jardinería"), memory.tastes.value)
+        assertEquals(listOf("Jardinería"), memoryRemote.addedTastes)
+        assertTrue(memoryRemote.removedTastes.isEmpty())
+
+        assertTrue(memory.removeTaste(USER_ID, "Jardinería"))
+        assertEquals(listOf("Jardinería"), memoryRemote.removedTastes)
+    }
+
+    @Test
+    fun `a taste story is stored locally and published once`() {
+        val story = FifoTasteStory(
+            id = "taste_1",
+            title = "Orquídeas",
+            subtitle = "Riego por inmersión",
+            description = "Carmen cuida sus orquídeas cada mañana.",
+            tags = listOf("Jardinería"),
+            iconCategory = "nature",
+            learnedFrom = "Conversación hablada con Fifo"
+        )
+
+        memory.addTasteStory(USER_ID, story)
+
+        assertEquals(story, memory.tasteStories.value.single())
+        assertEquals(listOf(story), memoryRemote.stories)
+    }
+
+    @Test
+    fun `a reminder is stored locally and published on every change`() {
+        val item = memory.addReminder(USER_ID, "Tomar la presión", "20:00", "health")
+
+        assertEquals(item, memory.reminders.value.single())
+        assertEquals(listOf(item), memoryRemote.reminders)
+
+        memory.completeReminder(USER_ID, item.id)
+        assertEquals(listOf(item.id), memoryRemote.completedReminders)
+
+        memory.removeReminder(USER_ID, item.id)
+        assertTrue(memory.reminders.value.isEmpty())
+        assertEquals(listOf(item.id), memoryRemote.deletedReminders)
+    }
+
+    @Test
+    fun `a daily routine update is published`() {
+        val routine = DailyRoutine(id = "routine_1", routineName = "Caminata")
+
+        memory.addOrUpdateDailyRoutine(USER_ID, routine)
+
+        assertEquals(listOf(routine), memory.dailyRoutines.value)
+        assertEquals(listOf(routine), memoryRemote.routines)
+    }
+
+    @Test
+    fun `a social post is stored locally and published once`() {
+        community.addSocialPost(
+            content = "Hoy caminé por el parque.",
+            category = "Bienestar",
+            author = "Carmen",
+            username = "carmen",
+            age = 68,
+            userId = USER_ID
+        )
+
+        assertEquals(1, community.socialPosts.value.size)
+        assertEquals(listOf("Hoy caminé por el parque."), communityRemote.posts)
+    }
+
+    @Test
+    fun `a social post without a user stays local`() {
+        community.addSocialPost(content = "Sin sesión", category = "Bienestar", userId = "")
+
+        assertEquals(1, community.socialPosts.value.size)
+        assertTrue(communityRemote.posts.isEmpty())
+    }
+
+    @Test
     fun `toggling a join publishes the new state`() {
         community.createCommunityActivity(activity("act_1"), userId = "")
         communityRemote.created.clear()
@@ -123,15 +205,51 @@ class ContentPublicationTest {
 
     private class RecordingMemoryRemote : MemoryRemotePort {
         val posted = mutableListOf<FifoMemoryItem>()
+        val addedTastes = mutableListOf<String>()
+        val removedTastes = mutableListOf<String>()
+        val stories = mutableListOf<FifoTasteStory>()
+        val reminders = mutableListOf<FifoReminderItem>()
+        val completedReminders = mutableListOf<String>()
+        val deletedReminders = mutableListOf<String>()
+        val routines = mutableListOf<DailyRoutine>()
 
         override suspend fun postMemory(userId: String, item: FifoMemoryItem) {
             posted.add(item)
+        }
+
+        override suspend fun addTaste(userId: String, taste: String) {
+            addedTastes.add(taste)
+        }
+
+        override suspend fun removeTaste(userId: String, taste: String) {
+            removedTastes.add(taste)
+        }
+
+        override suspend fun postTasteStory(userId: String, story: FifoTasteStory) {
+            stories.add(story)
+        }
+
+        override suspend fun postReminder(userId: String, item: FifoReminderItem) {
+            reminders.add(item)
+        }
+
+        override suspend fun completeReminder(reminderId: String) {
+            completedReminders.add(reminderId)
+        }
+
+        override suspend fun deleteReminder(reminderId: String) {
+            deletedReminders.add(reminderId)
+        }
+
+        override suspend fun postDailyRoutine(userId: String, routine: DailyRoutine) {
+            routines.add(routine)
         }
     }
 
     private class RecordingCommunityRemote : CommunityRemotePort {
         val joins = mutableListOf<Triple<String, String, Boolean>>()
         val created = mutableListOf<CommunityActivityItem>()
+        val posts = mutableListOf<String>()
 
         override suspend fun toggleJoinActivity(activityId: String, userId: String, join: Boolean) {
             joins.add(Triple(activityId, userId, join))
@@ -139,6 +257,10 @@ class ContentPublicationTest {
 
         override suspend fun createCommunityActivity(item: CommunityActivityItem) {
             created.add(item)
+        }
+
+        override suspend fun postSocialPost(userId: String, content: String, category: String) {
+            posts.add(content)
         }
     }
 

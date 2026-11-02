@@ -147,37 +147,20 @@ object FifoDataRepository {
     fun addTaste(tasteName: String): Boolean {
         val clean = tasteName.trim()
         if (clean.isBlank()) return false
-        val added = graph.memory.addTaste(userProfile.value.id, clean)
-        if (added) {
-            graph.scope.launch {
-                com.fifo.voicepipeline.network.FifoBackendClient.postTaste(userProfile.value.id, "add", clean)
-            }
-        }
-        return added
+        return graph.memory.addTaste(userProfile.value.id, clean)
     }
 
-    fun removeTaste(tasteName: String): Boolean {
-        val clean = tasteName.trim()
-        val removed = graph.memory.removeTaste(userProfile.value.id, clean)
-        if (removed) {
-            graph.scope.launch {
-                com.fifo.voicepipeline.network.FifoBackendClient.postTaste(userProfile.value.id, "remove", clean)
-            }
-        }
-        return removed
-    }
+    fun removeTaste(tasteName: String): Boolean =
+        graph.memory.removeTaste(userProfile.value.id, tasteName.trim())
 
     fun addTasteStory(story: FifoTasteStory) {
         graph.memory.addTasteStory(userProfile.value.id, story)
-        graph.scope.launch {
-            com.fifo.voicepipeline.network.FifoBackendClient.postTasteStory(userProfile.value.id, story)
-        }
     }
 
     fun addSocialPost(content: String, category: String = "Bienestar"): UserSocialPost {
         val user = userProfile.value
         val author = user.fullName.split(" ").firstOrNull() ?: user.fullName
-        val newPost = graph.community.addSocialPost(
+        return graph.community.addSocialPost(
             content = content,
             category = category,
             author = author,
@@ -185,39 +168,18 @@ object FifoDataRepository {
             age = user.estimatedAge,
             userId = user.id
         )
-        graph.scope.launch {
-            com.fifo.voicepipeline.network.FifoBackendClient.postSocialPost(user.id, content.trim(), category)
-        }
-        return newPost
     }
 
     fun addMemory(emoji: String, title: String, detail: String) {
         graph.memory.addMemory(userProfile.value.id, emoji, title, detail)
     }
 
-    fun addReminder(title: String, timeStr: String, category: String = "medication"): FifoReminderItem {
-        val item = graph.memory.addReminder(userProfile.value.id, title, timeStr, category)
-        graph.scope.launch {
-            com.fifo.voicepipeline.network.FifoBackendClient.postReminder(
-                userProfile.value.id, item.title, item.timeStr, item.category
-            )
-        }
-        return item
-    }
+    fun addReminder(title: String, timeStr: String, category: String = "medication"): FifoReminderItem =
+        graph.memory.addReminder(userProfile.value.id, title, timeStr, category)
 
-    fun completeReminder(id: String) {
-        graph.memory.completeReminder(userProfile.value.id, id)
-        graph.scope.launch {
-            com.fifo.voicepipeline.network.FifoBackendClient.patchReminderComplete(id)
-        }
-    }
+    fun completeReminder(id: String) = graph.memory.completeReminder(userProfile.value.id, id)
 
-    fun removeReminder(id: String) {
-        graph.memory.removeReminder(userProfile.value.id, id)
-        graph.scope.launch {
-            com.fifo.voicepipeline.network.FifoBackendClient.deleteReminder(id)
-        }
-    }
+    fun removeReminder(id: String) = graph.memory.removeReminder(userProfile.value.id, id)
 
     fun addMemoryDirect(item: FifoMemoryItem) {
         val current = memories.value

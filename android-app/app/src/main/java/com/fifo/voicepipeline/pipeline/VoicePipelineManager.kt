@@ -137,10 +137,13 @@ class VoicePipelineManager(
     private val pcmBuffer = PcmBuffer()
     private lateinit var cloudClient: CloudApiClient
 
-    // Registro de habilidades nativas del teléfono y mutaciones de BD
+    // Registro de habilidades nativas del teléfono y mutaciones de BD.
+    // Recibe el composition root: cada skill usa solo el módulo que necesita.
+    private val appGraph = com.fifo.voicepipeline.data.AppGraph.requireInstance()
     val skillRegistry = com.fifo.voicepipeline.skills.FifoSkillRegistry(
         context = context,
-        conversationContext = com.fifo.voicepipeline.data.AppGraph.instanceOrNull()?.conversationContext
+        graph = appGraph,
+        conversationContext = appGraph.conversationContext
     )
 
     // Parlante del celular (solo se crea si el camino legacy se usa)

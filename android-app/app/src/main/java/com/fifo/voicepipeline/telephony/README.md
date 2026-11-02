@@ -13,6 +13,7 @@ y **ADR-0009** (`docs/adr/0009-caller-context-provider.md`).
 | :--- | :--- |
 | [`TelephonyPort.kt`](TelephonyPort.kt) | **Costura de telefonía.** Define `TelephonyPort`, `CallSnapshot` (fase, nombre, número), `CallPhase` (`NONE`, `RINGING`, `ACTIVE`) e `InMemoryTelephonyPort` para pruebas. |
 | [`CallStateCoordinator.kt`](CallStateCoordinator.kt) | **Estado puro de la llamada entrante** (ADR-0030, ADR-0050): `incomingCall`, `lastActiveCall` y callbacks de contestar/colgar. Vive en `AppGraph.telephony`; `FifoDataRepository` lo delega. No contesta, no cuelga ni toca `AudioManager`. |
+| [`CallRemotePort.kt`](CallRemotePort.kt) | **Costura de red de la telefonía** (ADR-0051): `identifyContact` y `logCallEvent`. Producción usa `BackendCallRemote`, que absorbe el fallo; las pruebas usan `NoopCallRemote`. La acción de contestar/colgar sigue en `FifoCallManager`. |
 | [`AndroidTelephonyPort.kt`](AndroidTelephonyPort.kt) | Implementación Android. Es la **única clase del camino nuevo** que construye `FifoCallManager`; enlaza/desenlaza acciones del repositorio y expone `answer()`/`hangup()`. |
 | [`FifoCallManager.kt`](FifoCallManager.kt) | Gestor de llamadas `internal`. Resuelve el contacto local, anuncia el timbrado y ejecuta las acciones. No tiene efectos globales en el constructor: usa `bindRepositoryActions()`/`unbindRepositoryActions()`. |
 | [`FifoPhoneCallReceiver.kt`](FifoPhoneCallReceiver.kt) | `BroadcastReceiver` de `EXTRA_STATE_RINGING`/`OFFHOOK`/`IDLE`. Usa `FifoCallManager.resolveContactName()`; no construye un manager desechable por broadcast. |
@@ -55,3 +56,4 @@ AndroidTelephonyPort.callState ◄───────────────�
 7. **Anuncia local primero:** `CallerContextProvider.local()` es síncrono. Nunca esperar al backend para decir el nombre que ya conoce el teléfono.
 8. **Un desconocido sigue siendo desconocido:** un caller ID con nombre no se convierte en contacto conocido; no se inventan parentescos.
 9. **No leer temas recientes en el timbrado:** usa `CallerContext.announcementText()`. `recentTopics`, `contextualNotes` y `suggestedFollowup` quedan para cuando el usuario pregunte.
+10. **La red de llamadas va por `CallRemotePort`:** las skills piden identificación y registro por la costura; no llaman a `FifoBackendClient` ni construyen un manager (ADR-0051).

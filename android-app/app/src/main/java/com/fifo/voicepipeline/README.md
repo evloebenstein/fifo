@@ -80,6 +80,7 @@ adaptadores de audio, la telefonía y la memoria durable. En `LEGACY`,
 
 `FifoApplication` construye `AppGraph` al arrancar el proceso; la actividad, el
 servicio y los receivers comparten esa instancia. La UI lee state holders de
-`ui/state/` (`fifoStateHolder { graph -> ... }`) y `FifoDataRepository` sigue
-existiendo solo como accessor deprecado durante la migración (ADR-0049,
-ADR-0050).
+`ui/state/` (`fifoStateHolder { graph -> ... }`) y `FifoSkillRegistry` construye
+cada skill con los módulos que usa. `FifoDataRepository` sigue existiendo solo
+como accessor deprecado durante la migración (91 llamadas; ADR-0049, ADR-0050,
+ADR-0051).

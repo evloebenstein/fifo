@@ -1,7 +1,7 @@
 package com.fifo.voicepipeline.skills
 
 import android.util.Log
-import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.data.session.ContinuousListeningState
 import com.fifo.voicepipeline.location.FifoNavigationManager
 
 /**
@@ -15,11 +15,14 @@ import com.fifo.voicepipeline.location.FifoNavigationManager
  *   recetas médicas, vestimentas, búsquedas de lugares en el pasado, ubicación actual ni
  *   orientación de navegación. Todas retornan `null` para que Groq LPU componga la respuesta
  *   con el contexto enriquecido (espacial, temporal, episódico y GraphRAG).
- * - No depende de `Context`: el único estado que necesita es el [FifoNavigationManager]
- *   inyectado, así que es puro-JVM y testeable sin Android.
+ * - No depende de `Context`: el estado que necesita es el [FifoNavigationManager]
+ *   y la proyección de escucha, inyectados, así que es puro-JVM y testeable sin
+ *   Android. Sin proyección (pruebas JVM) los comandos de escucha solo devuelven
+ *   el resultado y no tocan estado global (ADR-0050).
  */
 class VoiceIntentRouter(
-    private val navigationManager: FifoNavigationManager
+    private val navigationManager: FifoNavigationManager,
+    private val listening: ContinuousListeningState? = null
 ) {
 
     companion object {
@@ -83,7 +86,7 @@ class VoiceIntentRouter(
             text.contains("quedate escuchando") || text.contains("modo continuo") ||
             text.contains("modo conversación") || text.contains("no te duermas") ||
             text.contains("sigue atento")) {
-            FifoDataRepository.setContinuousListening(true)
+            listening?.request(true)
             return SkillResult(
                 success = true,
                 spokenFeedback = "Modo continuo activado."
@@ -97,7 +100,7 @@ class VoiceIntentRouter(
             text.contains("no necesito nada") || text.contains("no quiero nada") || text.contains("eso es todo") ||
             text.contains("eso sería todo") || text.contains("listo fifo") || text.contains("chao fifo") ||
             text == "chao" || text == "adios" || text == "adiós" || text == "hasta luego") {
-            FifoDataRepository.setContinuousListening(false)
+            listening?.request(false)
             return SkillResult(
                 success = true,
                 spokenFeedback = "Fifo descansando.",

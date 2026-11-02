@@ -4,13 +4,18 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.util.Log
-import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.data.modules.RelationalGraphModule
+import com.fifo.voicepipeline.data.modules.UserIdentityModule
 
 /**
  * Skill para comunicación de emergencia y tranquilidad familiar:
  * llama a familiares o a servicios de urgencia mediante el marcador telefónico nativo.
  */
-class PhoneCommunicationSkill(private val context: Context) : FifoSkill {
+class PhoneCommunicationSkill(
+    private val context: Context,
+    private val identity: UserIdentityModule,
+    private val relationalGraph: RelationalGraphModule
+) : FifoSkill {
 
     companion object {
         private const val TAG = "PhoneSkill"
@@ -38,8 +43,8 @@ class PhoneCommunicationSkill(private val context: Context) : FifoSkill {
         val target = args["contact_name_or_role"]?.toString()?.trim() ?: "contacto de apoyo"
         val lower = target.lowercase()
 
-        val profile = FifoDataRepository.userProfile.value
-        val relContact = FifoDataRepository.findContactByRoleOrName(target)
+        val profile = identity.userProfile.value
+        val relContact = relationalGraph.findContactByRoleOrName(target)
         val resolvedName = relContact?.contactName ?: profile.emergencyContactName.ifBlank { target }
 
         val phoneNumber = when {
