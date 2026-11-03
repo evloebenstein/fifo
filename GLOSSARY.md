@@ -288,8 +288,8 @@ _Avoid_: DTO, UI model, Entity
 Guía del system prompt con cinco disparadores para invocar `recall_past_context`: pregunta abierta sin evidencia, detalle ausente, afirmación sobre el pasado, corrección o duda, y laguna o petición de precisión. Regla: buscar antes de afirmar; si no hay evidencia, decirlo; nunca inventar. Es prompt, no locución (ADR-0049).
 _Avoid_: Frase de memoria, Regla de recall, Prompt de búsqueda
 
-**Accessor deprecado**:
-`FifoDataRepository` durante la migración strangler: ya no posee estado, solo delega en `AppGraph`. Se borra cuando las llamadas lleguen a cero; tras ADR-0053 quedan 42, todas en el pipeline salvo el mensaje de `AppGraph`. No se le añade lógica nueva (ADR-0049, ADR-0051, ADR-0052, ADR-0053).
+**Accessor eliminado**:
+`FifoDataRepository` fue el accessor global de la migración strangler: no poseía estado, solo delegaba en `AppGraph`. Se borró al llegar a cero llamadas y cero archivos Kotlin lo mencionan como API (ADR-0049, ADR-0051, ADR-0052, ADR-0053, ADR-0054). No se reintroduce: el estado se pide a los módulos del grafo.
 _Avoid_: Repositorio central, Fachada, God object
 
 **Skill inyectada**:

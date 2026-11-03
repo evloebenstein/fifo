@@ -6,7 +6,7 @@ import com.fifo.voicepipeline.data.model.FifoDeviceLocation
  * Política de transición del estado del robot Fifo.
  *
  * Es una función pura sobre `FifoDeviceLocation`: no conoce SQLite, red ni
- * relojes. `FifoDataRepository` formatea la hora, aplica la transición,
+ * relojes. `DeviceState` formatea la hora, aplica la transición,
  * persiste el resultado y lo sincroniza con el backend.
  *
  * Reglas:

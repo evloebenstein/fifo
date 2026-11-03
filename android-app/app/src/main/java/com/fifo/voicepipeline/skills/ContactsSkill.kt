@@ -17,8 +17,8 @@ import com.fifo.voicepipeline.data.modules.UserIdentityModule
  * - Listar nombres de los contactos guardados en la libreta.
  * - Buscar el número de teléfono de una persona específica.
  *
- * Los módulos son la única vía de lectura/escritura: la skill no usa el
- * accessor `FifoDataRepository` ni conoce la red (ADR-0051).
+ * Los módulos son la única vía de lectura/escritura: la skill no usa estado
+ * global ni conoce la red (ADR-0051).
  */
 class ContactsSkill(
     private val context: Context,

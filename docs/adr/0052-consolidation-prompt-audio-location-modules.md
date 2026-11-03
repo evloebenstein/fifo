@@ -146,8 +146,8 @@ Tras esta pasada el accessor baja de **91 a 66** llamadas:
 | 5 | Ubicación con perfil inyectado | Hecho |
 | 6 | `VoiceSessionPipeline` recibe `AppGraph` | Hecho |
 | 7 | Telefonía fuera del accessor | Hecho (ADR-0053) |
-| 8 | `VoicePipelineManager` fuera del accessor | Pendiente |
-| 9 | Borrar el accessor a cero | Pendiente |
+| 8 | `VoicePipelineManager` fuera del accessor | Hecho (ADR-0054) |
+| 9 | Borrar el accessor a cero | Hecho (ADR-0054) |
 
 Contador al cerrar esta pasada: **66 llamadas** (antes 91).
 

@@ -144,8 +144,8 @@ La telefonía baja de **24 a 0** llamadas y el total de **66 a 42**:
 | 2 | `AndroidTelephonyPort` con coordinador | Hecho |
 | 3 | `FifoPhoneCallReceiver` sobre `AppGraph` | Hecho |
 | 4 | Facade legacy cablea `appGraph.telephony` | Hecho |
-| 5 | `VoicePipelineManager` fuera del accessor | Pendiente |
-| 6 | Borrar el accessor a cero | Pendiente |
+| 5 | `VoicePipelineManager` fuera del accessor | Hecho (ADR-0054) |
+| 6 | Borrar el accessor a cero | Hecho (ADR-0054) |
 
 Contador al cerrar esta pasada: **42 llamadas** (antes 66).
 

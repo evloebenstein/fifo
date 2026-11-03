@@ -3,7 +3,7 @@
 > **Filosofía Central de Producto:**  
 > **El adulto mayor nunca necesita ingresar a la app del celular.** Solo debe hablar con el robot físico Fifo (o mediante voz). Fifo actúa como su operador personal y asistente de bienestar: comprende sus necesidades, ejecuta *mutaciones en la base de datos* y activa *herramientas del sistema del teléfono* (recordatorios, calendario, mapas, llamadas). Toda la información se sincroniza automáticamente y se ve reflejada en tiempo real en la aplicación móvil para el usuario y su red familiar.
 
-> **Nota de arquitectura (ADR-0049, ADR-0050, ADR-0051, ADR-0052, ADR-0053):** las referencias a `FifoDataRepository` en este mapa describen la API histórica. Desde ADR-0049 el dueño del estado es `AppGraph` (construido por `FifoApplication`), y `FifoDataRepository` es un accessor deprecado que solo delega (42 llamadas restantes). La UI lee state holders, las skills reciben módulos por constructor, la ventana de contexto vive en `ConversationContext` y la escucha continua en `TurnOrchestrator`.
+> **Nota de arquitectura (ADR-0049, ADR-0050, ADR-0051, ADR-0052, ADR-0053, ADR-0054):** las referencias a `FifoDataRepository` en este mapa describen la API histórica. Desde ADR-0049 el dueño del estado es `AppGraph` (construido por `FifoApplication`); el accessor se borró al llegar a cero llamadas (ADR-0054). La UI lee state holders, las skills reciben módulos por constructor, la ventana de contexto vive en `ConversationContext` y la escucha continua en `TurnOrchestrator`.
 
 > **Nota de arquitectura (ADR-0050):** la UI ya no consume el accessor: cada pantalla usa un state holder de `ui/state/FifoStateHolders.kt`. La escritura local y su publicación en backend ocurren en el módulo dueño (`MemoryRemotePort` / `CommunityRemotePort`), y el estado visible de llamada vive en `AppGraph.telephony`.
 
@@ -568,19 +568,19 @@ Fifo cuenta con un sistema de **Skills (Herramientas / Function Calling)** que l
 
 ## 5. Guía de Implementación Técnica
 
-### 5.1. Repositorio Reactivo Local (`FifoDataRepository`)
-En la aplicación Android, la capa de datos expone flujos de estado (`StateFlow`) que las pantallas de Jetpack Compose observan con `collectAsState()`.
+### 5.1. Estado Reactivo Local (`AppGraph` y módulos)
+En la aplicación Android, los módulos del grafo exponen flujos de estado (`StateFlow`) que las pantallas de Jetpack Compose observan a través de los state holders de `ui/state/`.
 
 ```kotlin
-// Inyección en Compose
-val userProfile by FifoDataRepository.userProfile.collectAsState()
-val tastes by FifoDataRepository.tastes.collectAsState()
-val stories by FifoDataRepository.tasteStories.collectAsState()
+// Inyección en Compose vía state holder
+val userProfile by holder.userProfile.collectAsState()
+val tastes by holder.tastes.collectAsState()
+val stories by holder.tasteStories.collectAsState()
 ```
 
 Cuando Fifo ejecuta un Skill (por ejemplo `update_demographics`), llama a:
 ```kotlin
-FifoDataRepository.updateDemographics(
+AppGraph.session.updateDemographics(
     fullName = "Lucía González",
     birthDate = "14 de Mayo, 1958",
     birthYear = 1958,
@@ -767,7 +767,7 @@ data class ConversationFragment(
 )
 ```
 
-#### Ventana de Contexto Compacto Inyectada en el LLM (`FifoDataRepository.buildCompactContextWindow`):
+#### Ventana de Contexto Compacto Inyectada en el LLM (`EpisodicMemoryModule.buildCompactContextWindow`):
 ```text
 === CONTEXTO PREVIO DEL USUARIO (fragmentos compactos) ===
 Nombre: Lucía González | Edad: 68 | Ciudad: Santiago, Chile
@@ -894,7 +894,7 @@ Fifo integra el módulo de geolocalización y navegación nativa del teléfono p
 │  • Comandos completos: "Fifo contesta" / "Fifo cuelga"                     │
 │                                                                             │
 │  [2. MODO ESCUCHA CONTINUA ("Fifo sigue escuchando")]                      │
-│  • Estado reactivo: FifoDataRepository.isContinuousListening                │
+│  • Estado reactivo: AppGraph.listening (ContinuousListeningState)             │
 │  • Mantiene el micrófono abierto tras cada turno conversacional             │
 │  • Sin necesidad de repetir la palabra clave "Fifo" en cada frase           │
 │  • Ventana de silencio extendida a 120 segundos para pausas tranquilas     │
@@ -1017,9 +1017,9 @@ Permite registrar nuevos usuarios desde el flujo guiado de bienvenida u Onboardi
 
 ### 11.3 Conmutación Dinámica de Perfiles en Android
 
-- **Persistencia Activa:** `FifoDataRepository` almacena `active_user_id` en `SharedPreferences`.
+- **Persistencia Activa:** `UserSession` (`AppGraph.session`) almacena `active_user_id` en `SharedPreferences`.
 - **Selector de Perfiles:** La pantalla `LoginScreen` consulta en vivo `GET /users` y muestra un carrusel táctil de perfiles reales almacenados en la base de datos (con su nombre, edad, ciudad y tags de intereses).
-- **Conmutación Instantánea:** Al tocar un perfil o iniciar con Google, `FifoDataRepository.switchUserProfile(newUserId)`:
+- **Conmutación Instantánea:** Al tocar un perfil o iniciar con Google, `UserSession.switchUserProfile(newUserId)`:
   1. Actualiza el `userId` en memoria y persistencia local.
   2. Limpia la base de datos SQLite local para ese dispositivo.
   3. Ejecuta `FifoBackendClient.syncAll(newUserId)` descargando el perfil, gustos, recordatorios, comunidad y memorias del nuevo usuario.

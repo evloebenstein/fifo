@@ -42,8 +42,8 @@ import kotlinx.coroutines.SupervisorJob
  * - [telephony] → estado visible de la llamada (la acción vive en `FifoCallManager`).
  * - [listening] → proyección de la escucha continua; el dueño es `TurnOrchestrator`.
  *
- * `FifoDataRepository` queda como accessor `@Deprecated` que delega aquí
- * durante la migración strangler.
+ * Es la única puerta al estado del usuario: el accessor histórico se borró al
+ * cerrar la migración strangler (ADR-0054).
  */
 class AppGraph internal constructor(
     context: Context,
@@ -137,7 +137,7 @@ class AppGraph internal constructor(
             }
 
         fun requireInstance(): AppGraph =
-            instance ?: error("AppGraph no instalado: llama a FifoApplication o a FifoDataRepository.initialize()")
+            instance ?: error("AppGraph no instalado: llama a FifoApplication")
 
         fun instanceOrNull(): AppGraph? = instance
 

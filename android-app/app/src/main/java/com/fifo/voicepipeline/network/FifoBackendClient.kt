@@ -6,8 +6,8 @@ import com.fifo.voicepipeline.data.model.*
 /**
  * Fachada HTTP del backend propio (FastAPI/MySQL, `fifo-api` en el puerto 8090).
  *
- * Conserva la API pública que consumen la UI, los skills y `FifoDataRepository`,
- * pero delega cada dominio en un adaptador:
+ * Conserva la API pública que consumen la UI y los skills, pero delega cada
+ * dominio en un adaptador:
  *
  * - [BackendSyncAdapter]: salud y bundle completo;
  * - [BackendAccountAdapter]: autenticación, usuarios y perfil;

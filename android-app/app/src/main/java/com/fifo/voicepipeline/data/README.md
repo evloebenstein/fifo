@@ -4,9 +4,10 @@ Capa de datos de Fifo. Ver **ADR-0002**
 (`docs/adr/0002-data-repository-modularization.md`) para la descomposición modular,
 **ADR-0011** (`docs/adr/0011-durable-memory-journal.md`) para la memoria durable del
 camino `SESSION` y **ADR-0049** (`docs/adr/0049-single-owner-user-state.md`) para el
-composition root y la propiedad de cada estado, y **ADR-0050**
+composition root y la propiedad de cada estado, **ADR-0050**
 (`docs/adr/0050-screen-state-holders-and-module-publication.md`) para los state
-holders y la publicación en los módulos.
+holders y la publicación en los módulos, y **ADR-0054**
+(`docs/adr/0054-remove-the-accessor.md`) para el borrado del accessor.
 
 ---
 
@@ -14,8 +15,7 @@ holders y la publicación en los módulos.
 
 | Archivo / Carpeta | Rol |
 | :--- | :--- |
-| [`AppGraph.kt`](AppGraph.kt) | **Composition root (ADR-0049).** Construye una sola vez `identity`, `memory`, `community`, `relationalGraph`, `session`, `device`, `conversationContext`, `telephony` y `listening`. Lo instala `FifoApplication`; la actividad y el servicio lo consumen. |
-| [`FifoDataRepository.kt`](FifoDataRepository.kt) | **Accessor `@Deprecated` (ADR-0049).** Ya no posee estado: delega en `AppGraph` con la misma API pública para la migración strangler. `detachedListening` existe solo para pruebas JVM sin grafo. |
+| [`AppGraph.kt`](AppGraph.kt) | **Composition root (ADR-0049).** Construye una sola vez `identity`, `memory`, `community`, `relationalGraph`, `session`, `device`, `conversationContext`, `telephony` y `listening`. Lo instala `FifoApplication`; la actividad y el servicio lo consumen. Es la única puerta al estado: el accessor `FifoDataRepository` se borró (ADR-0054). |
 | [`model/FifoModels.kt`](model/FifoModels.kt) | **Modelos puros de dominio.** No conocen Android ni Compose; los consumen datos, red y pruebas. |
 | [`modules/ContentRemotePorts.kt`](modules/ContentRemotePorts.kt) | **Costuras de publicación (ADR-0050):** `MemoryRemotePort` y `CommunityRemotePort`, con `Noop*` para pruebas y `Backend*` para producción (absorbe el fallo de red). |
 | [`session/ContinuousListeningState.kt`](session/ContinuousListeningState.kt) | **Proyección de escucha continua (ADR-0050):** `request()` encamina al `TurnOrchestrator`, `mirror()` publica el estado del dueño. `handler` solo se instala en `SESSION`. |
@@ -87,28 +87,28 @@ UI (ui/state)
     └─► state holders ──► AppGraph.<módulo>   (proyección de solo lectura + comandos)
 
 pipeline / skills / telefonía
-    └─► FifoDataRepository        (accessor deprecado durante la migración)
+    └─► AppGraph.<módulo>        (sin accessor global desde ADR-0054)
 ```
 
 ---
 
 ## Invariantes
 
-1. **Telefonía fuera de la capa de datos:** `FifoDataRepository` conserva la API pública por compatibilidad, pero el estado mutable vive en `CallStateCoordinator` (`telephony/`), expuesto como `AppGraph.telephony` (ADR-0050). Sigue habiendo un único `FifoCallManager`. Ver ADR-0030.
+1. **Telefonía fuera de la capa de datos:** el estado mutable vive en `CallStateCoordinator` (`telephony/`), expuesto como `AppGraph.telephony` (ADR-0050, ADR-0053). Sigue habiendo un único `FifoCallManager`. Ver ADR-0030.
 2. **Actualizaciones atómicas:** insertar en SQLite antes de actualizar el `StateFlow`.
 3. **Tests sin Android:** los módulos de dominio son testables en JVM con los adaptadores `InMemory*`.
 4. **Un solo dueño de la memoria durable:** `VoiceSessionPipeline` compone `MemoryCoordinator`, el diario y el consolidador. `VoiceSession` solo ve `SessionMemory`; el facade legacy no crea otro coordinador.
 5. **El diario es la fuente de continuidad:** `CloudApiClient.conversationHistory` es solo una caché de contexto (últimos 8 mensajes); al arrancar se repuebla desde los últimos 4 turnos del diario.
-6. **Un solo dueño de la fusión relacional:** `RelationalGraphCoordinator` decide cómo se combinan libreta, FifoAmigos y menciones. `RelationalGraphModule` compone, persiste y publica; el accessor solo delega. La procedencia es local (`contact_appearances`), no viaja al backend y se lee con `getContactAppearancesByContact()`. Los teléfonos solo se aceptan si son explícitos (`PhoneHintExtractor`) y nunca reemplazan uno existente.
+6. **Un solo dueño de la fusión relacional:** `RelationalGraphCoordinator` decide cómo se combinan libreta, FifoAmigos y menciones. `RelationalGraphModule` compone, persiste y publica. La procedencia es local (`contact_appearances`), no viaja al backend y se lee con `getContactAppearancesByContact()`. Los teléfonos solo se aceptan si son explícitos (`PhoneHintExtractor`) y nunca reemplazan uno existente.
 7. **Un teléfono mencionado no es un teléfono confirmado:** la mención produce un `ContactPhoneHint` en `contact_phone_hints`; solo `confirmPhoneHint()` lo copia a `RelationalContact.phoneNumber` y lo sincroniza. `discardPhoneHint()` lo marca `DISCARDED` sin tocar el contacto (ADR-0032).
 8. **Un solo dueño del DDL:** tablas, columnas e índices locales viven en `local/FifoSchema.kt`; `conversation_journal` sigue en `ConversationJournalSchema`. El helper solo ejecuta sentencias y no declara SQL de esquema (ADR-0033).
-9. **Una sola resolución de personas:** `ContactMatcher` decide qué contacto corresponde a un nombre, rol, apodo o fragmento. Las skills y el pipeline no reimplementan normalización de acentos ni comparación de tokens; `FifoDataRepository.findContactByRoleOrName()` solo delega (ADR-0034).
+9. **Una sola resolución de personas:** `ContactMatcher` decide qué contacto corresponde a un nombre, rol, apodo o fragmento. Las skills y el pipeline no reimplementan normalización de acentos ni comparación de tokens; `RelationalGraphModule.findContactByRoleOrName()` es la puerta (ADR-0034).
 10. **Una sola recuperación episódica local:** `EpisodicContextSearch` posee stop words, puntuación, sesgo temporal y síntesis del fallback offline. `EpisodicMemoryModule` solo intenta el backend y compone la instantánea (ADR-0035).
-11. **Un solo borrador de actividad:** `ActivitySuggestionPolicy` decide categoría, gustos, título y descripción a partir de la idea y el perfil. `FifoDataRepository.suggestActivityWithFifo()` solo aporta `organizerId` y `organizerName` (ADR-0036).
+11. **Un solo borrador de actividad:** `ActivitySuggestionPolicy` decide categoría, gustos, título y descripción a partir de la idea y el perfil. `CommunityModule.suggestActivityWithFifo()` solo aporta `organizerId` y `organizerName` (ADR-0036).
 12. **Una sola transición del dispositivo:** `DeviceLocationPolicy` fusiona conexión, última ubicación y beeper. `DeviceState` posee el `StateFlow`, el reloj, la persistencia y la publicación por `DeviceRemotePort`; no vuelve a componer el `copy()` (ADR-0037, ADR-0049).
-13. **Un solo composition root:** `FifoApplication` instala `AppGraph` una vez. La actividad y el servicio no crean almacenamiento ni módulos paralelos. El accessor `FifoDataRepository` solo delega, queda en 42 llamadas y se borra al terminar la migración (ADR-0049, ADR-0051, ADR-0052, ADR-0053).
+13. **Un solo composition root:** `FifoApplication` instala `AppGraph` una vez. La actividad y el servicio no crean almacenamiento ni módulos paralelos. El accessor `FifoDataRepository` se borró al llegar a cero llamadas; toda lectura y escritura pasa por `AppGraph` y sus módulos (ADR-0049, ADR-0054).
 14. **Una sola ventana de contexto:** `ConversationContext` compone hora, ubicación, ruta y memoria compacta; `searchDeep()` es `suspend`, backend primero y respaldo local. Los cinco disparadores de recuperación son prompt, no locución, y el skill devuelve payload (ADR-0049).
 15. **Modelos puros:** `data/model` no conoce Android ni Compose; `ui/model` solo añade typealiases e iconos. Un modelo nuevo de dominio nace en `data/model` (ADR-0049).
 16. **La publicación es del módulo:** `EpisodicMemoryModule` y `CommunityModule` guardan local y publican por `MemoryRemotePort`/`CommunityRemotePort` (recuerdos, gustos, historias, recordatorios, rutinas, conversaciones, actividades y publicaciones sociales). El adaptador de producción absorbe el fallo; la UI y las skills no llaman a `FifoBackendClient` (ADR-0050, ADR-0051, ADR-0052).
-17. **Lo que llega del backend no se republica:** `addMemoryDirect()`, `addTasteStoryDirect()` y `addReminderDirect()` viven en `EpisodicMemoryModule`, deduplican y solo escriben local. `RepositorySessionMemoryConsolidator` recibe identidad, memoria, grafo relacional y sesión; no usa el accessor (ADR-0052).
-17. **La escucha continua tiene dueño fuera de datos:** `ContinuousListeningState` solo proyecta y encamina; `TurnOrchestrator` decide y publica con `mirror()` (ADR-0050). `detachedListening` del accessor existe únicamente para pruebas JVM sin grafo.
+17. **Lo que llega del backend no se republica:** `addMemoryDirect()`, `addTasteStoryDirect()` y `addReminderDirect()` viven en `EpisodicMemoryModule`, deduplican y solo escriben local. `RepositorySessionMemoryConsolidator` recibe identidad, memoria, grafo relacional y sesión (ADR-0052).
+18. **La escucha continua tiene dueño fuera de datos:** `ContinuousListeningState` solo proyecta y encamina; `TurnOrchestrator` decide y publica con `mirror()` (ADR-0050).

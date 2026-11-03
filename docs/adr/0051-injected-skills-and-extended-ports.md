@@ -150,8 +150,8 @@ el helper de ubicación. El accessor no se borra hasta llegar a cero.
 | 3 | `MemoryRemotePort`/`CommunityRemotePort` extendidos | Hecho |
 | 4 | `CallRemotePort` para identificación y eventos de llamada | Hecho |
 | 5 | `VoiceIntentRouter` con `ContinuousListeningState?` inyectado | Hecho |
-| 6 | Pipeline, telefonía y `data/memory` fuera del accessor | Parcial: `data/memory`, red, audio y ubicación fuera (ADR-0052); restan pipeline y telefonía |
-| 7 | Borrar el accessor a cero | Pendiente |
+| 6 | Pipeline, telefonía y `data/memory` fuera del accessor | Hecho: `data/memory`, red, audio y ubicación (ADR-0052), telefonía (ADR-0053) y pipeline (ADR-0054) |
+| 7 | Borrar el accessor a cero | Hecho (ADR-0054) |
 
 Contador al cerrar esta pasada: **91 llamadas** (antes 137). Tras ADR-0052:
 **66**.

@@ -191,7 +191,7 @@ detenido.
 | 5 | Pipeline: escucha continua al `TurnOrchestrator` y contexto al grafo | Hecho |
 | 6 | Skills: `ContextRecallSkill` por costura y payload | Hecho |
 | 7 | UI: state holders, publicación en módulos, telefonía y escucha en el grafo | Hecho |
-| 8 | Pipeline, skills y telefonía fuera del accessor; borrar el accessor a cero | Parcial: skills en cero (ADR-0051), memoria/red/audio/ubicación en cero (ADR-0052), telefonía en cero (ADR-0053); restan 42 llamadas en `VoicePipelineManager` y el mensaje de `AppGraph` |
+| 8 | Pipeline, skills y telefonía fuera del accessor; borrar el accessor a cero | Hecho: skills en cero (ADR-0051), memoria/red/audio/ubicación en cero (ADR-0052), telefonía en cero (ADR-0053), pipeline en cero y accessor borrado (ADR-0054) |
 
 Contador de llamadas al accessor al cerrar esta pasada: **137**; tras ADR-0051
 (skills fuera y puertos extendidos): **91**; tras ADR-0052 (consolidador, prompt,

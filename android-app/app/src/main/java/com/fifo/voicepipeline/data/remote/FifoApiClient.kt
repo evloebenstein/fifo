@@ -2,7 +2,6 @@ package com.fifo.voicepipeline.data.remote
 
 import android.content.Context
 import android.util.Log
-import com.fifo.voicepipeline.data.FifoDataRepository
 import com.fifo.voicepipeline.data.local.FifoDatabaseHelper
 import com.fifo.voicepipeline.data.model.*
 import com.google.gson.Gson

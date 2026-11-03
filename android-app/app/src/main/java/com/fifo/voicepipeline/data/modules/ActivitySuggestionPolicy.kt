@@ -7,7 +7,7 @@ import com.fifo.voicepipeline.data.model.CommunityActivityItem
  *
  * Es una función pura: recibe la idea dictada, los gustos del usuario y la
  * identidad del organizador, y devuelve la actividad propuesta. No conoce
- * `StateFlow`, SQLite ni red; `FifoDataRepository` solo aporta el perfil.
+ * `StateFlow`, SQLite ni red; `CommunityModule` solo aporta el perfil.
  *
  * Reglas:
  * - la categoría, el título y el lugar por defecto se eligen por la primera

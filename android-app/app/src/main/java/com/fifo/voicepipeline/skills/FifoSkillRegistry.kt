@@ -24,7 +24,7 @@ class FifoSkillRegistry(
     private val context: Context,
     /**
      * Composition root (ADR-0049). Las skills reciben solo el módulo que usan;
-     * el registro nunca consulta el accessor `FifoDataRepository` (ADR-0051).
+     * el registro nunca consulta un accessor global (ADR-0051, ADR-0054).
      */
     private val graph: AppGraph = AppGraph.requireInstance(),
     private val groqCatalog: GroqToolCatalog = GroqToolCatalog(),

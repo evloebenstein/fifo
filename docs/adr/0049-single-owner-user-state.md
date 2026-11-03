@@ -237,7 +237,7 @@ recupera bajo demanda.
 | 4 | Accessor `@Deprecated` y migración de datos/red | Hecho |
 | 5 | Pipeline: escucha continua al `TurnOrchestrator` y contexto al grafo | Hecho |
 | 6 | Skills: `ContextRecallSkill` por costura y payload | Hecho |
-| 7 | UI: state holders y borrado del accessor | Hecho (state holders en ADR-0050; el accessor se borra en el paso 8) |
+| 7 | UI: state holders y borrado del accessor | Hecho (state holders en ADR-0050; accessor borrado en ADR-0054) |
 
 ---
 

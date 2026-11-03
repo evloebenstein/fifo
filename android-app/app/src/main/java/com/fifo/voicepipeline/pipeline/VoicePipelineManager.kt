@@ -230,7 +230,7 @@ class VoicePipelineManager(
         }
 
         // El camino legacy conserva su propio estado; no hay puente al orquestador.
-        com.fifo.voicepipeline.data.FifoDataRepository.continuousListeningHandler = null
+        appGraph.listening.handler = null
 
         // Inicializar reproductor de audio del celular
         audioPlayer.initialize()
@@ -356,7 +356,7 @@ class VoicePipelineManager(
                     if (!_isMicMuted.value) {
                         ensureCallListeningActive()
                     }
-                    val userFirstName = com.fifo.voicepipeline.data.FifoDataRepository.userProfile.value.fullName.split(" ").firstOrNull { it.isNotBlank() } ?: ""
+                    val userFirstName = appGraph.identity.userProfile.value.fullName.split(" ").firstOrNull { it.isNotBlank() } ?: ""
                     val callerGreeting = if (userFirstName.isNotBlank()) "¡$userFirstName! " else ""
                     speakResponseChunk("${callerGreeting}Le está llamando $callerName. Diga 'Fifo contesta' o 'Fifo cuelga'.")
                 }
@@ -387,16 +387,16 @@ class VoicePipelineManager(
 
         // Observar solicitud de beep / alarma sonora para encontrar a Fifo
         scope.launch {
-            com.fifo.voicepipeline.data.FifoDataRepository.deviceLocation.collect { devLoc ->
+            appGraph.device.location.collect { devLoc ->
                 if (devLoc.isBeeping) {
                     if (bleClient.isConnected) {
                         updateEspDisplay(state = "FIND_ME", transcript = "¡AQUÍ ESTOY!", response = "BEEP", level = 1.0f)
                     }
-                    val userFirstName = com.fifo.voicepipeline.data.FifoDataRepository.userProfile.value.fullName.split(" ").firstOrNull { it.isNotBlank() } ?: ""
+                    val userFirstName = appGraph.identity.userProfile.value.fullName.split(" ").firstOrNull { it.isNotBlank() } ?: ""
                     val nameClause = if (userFirstName.isNotBlank()) " $userFirstName" else ""
                     androidTtsSpeaker?.speak("¡Aquí estoy$nameClause! Siga el sonido de mi voz.")
                     kotlinx.coroutines.delay(3500)
-                    com.fifo.voicepipeline.data.FifoDataRepository.triggerDeviceBeep(false)
+                    appGraph.device.triggerBeep(false)
                 }
             }
         }
@@ -411,7 +411,7 @@ class VoicePipelineManager(
                 if (!_isMicMuted.value) {
                     ensureCallListeningActive()
                 }
-                val userFirstName = com.fifo.voicepipeline.data.FifoDataRepository.userProfile.value.fullName.split(" ").firstOrNull { it.isNotBlank() } ?: ""
+                val userFirstName = appGraph.identity.userProfile.value.fullName.split(" ").firstOrNull { it.isNotBlank() } ?: ""
                 val callerGreeting = if (userFirstName.isNotBlank()) "¡$userFirstName! " else ""
                 speakResponseChunk("${callerGreeting}Le está llamando $callerName. Diga 'Fifo contesta' o 'Fifo cuelga'.")
             }
@@ -419,7 +419,7 @@ class VoicePipelineManager(
 
         // Observar cambios en llamadas entrantes o en curso para mantener captura con VOICE_COMMUNICATION
         scope.launch {
-            com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.collect { callInfo ->
+            appGraph.telephony.incomingCall.collect { callInfo ->
                 if (callInfo != null) {
                     if (callInfo.isRinging) {
                         ensureCallListeningActive()
@@ -463,12 +463,12 @@ class VoicePipelineManager(
 
         // El orquestador es el dueño del modo continuo. La UI sigue leyendo el
         // espejo del facade hasta que existan state holders (ADR-0049).
-        com.fifo.voicepipeline.data.FifoDataRepository.continuousListeningHandler = { active ->
+        appGraph.listening.handler = { active ->
             pipeline.session.setContinuousListening(active)
         }
         sessionMirrorJobs += scope.launch {
             pipeline.isContinuousListening.collect { active ->
-                com.fifo.voicepipeline.data.FifoDataRepository.mirrorContinuousListening(active)
+                appGraph.listening.mirror(active)
             }
         }
         // Fijar la ruta BLE antes de empezar la captura evita abrir el micrófono
@@ -594,7 +594,7 @@ class VoicePipelineManager(
                 context,
                 appGraph.identity.userProfile.value
             )
-            com.fifo.voicepipeline.data.FifoDataRepository.updateDeviceConnectionStatus(
+            appGraph.device.updateConnectionStatus(
                 connected = connected,
                 latitude = loc.latitude,
                 longitude = loc.longitude,
@@ -769,8 +769,8 @@ class VoicePipelineManager(
 
         // El puente al orquestador no sobrevive al pipeline: si queda colgado,
         // la UI seguiría pidiendo escucha continua a una sesión ya detenida.
-        com.fifo.voicepipeline.data.FifoDataRepository.continuousListeningHandler = null
-        com.fifo.voicepipeline.data.FifoDataRepository.mirrorContinuousListening(false)
+        appGraph.listening.handler = null
+        appGraph.listening.mirror(false)
 
         if (useVoiceSession) {
             sessionPipeline?.stop()
@@ -827,7 +827,7 @@ class VoicePipelineManager(
         }
 
         val isCallActive = callManager?.isCommunicationModeActive() == true ||
-                com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
+                appGraph.telephony.incomingCall.value != null
 
         if (isCallActive) {
             ensureCallListeningActive()
@@ -860,7 +860,7 @@ class VoicePipelineManager(
         }
 
         if (_isMicMuted.value) return
-        val isRinging = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value?.isRinging == true
+        val isRinging = appGraph.telephony.incomingCall.value?.isRinging == true
         if (expectFollowUpQuestion) {
             _isAwake.value = true
             if (_state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
@@ -886,7 +886,7 @@ class VoicePipelineManager(
     private fun onCallEnded() {
         expectFollowUpQuestion = false
         val isCommActive = callManager?.isCommunicationModeActive() == true ||
-                com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null
+                appGraph.telephony.incomingCall.value != null
         if (isCommActive) {
             ensureCallListeningActive()
             return
@@ -922,7 +922,7 @@ class VoicePipelineManager(
         // Si el micrófono está silenciado, ignorar cualquier audio entrante
         if (_isMicMuted.value) return
 
-        val isCallActive = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value != null ||
+        val isCallActive = appGraph.telephony.incomingCall.value != null ||
                 (callManager?.isCommunicationModeActive() == true)
         // Si no hay llamada activa y el robot BLE está conectado, respetar la fuente configurada.
         // Si hay llamada o el robot NO está conectado, procesar el mic del celular como fallback.
@@ -1067,13 +1067,13 @@ class VoicePipelineManager(
     private fun resetAutoSleepTimer() {
         autoSleepJob?.cancel()
         autoSleepJob = scope.launch {
-            val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
+            val isContinuous = appGraph.listening.active.value
             val timeoutMs = if (isContinuous) 120000L else 25000L
             delay(timeoutMs)
             if (_isAwake.value && _state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
-                if (com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value) {
+                if (appGraph.listening.active.value) {
                     Log.i(TAG, "2 minutos de silencio en modo continuo: Fifo descansa")
-                    com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
+                    appGraph.listening.request(false)
                 }
                 Log.i(TAG, "Inactividad: Fifo vuelve a dormir")
                 goToSleep()
@@ -1090,8 +1090,8 @@ class VoicePipelineManager(
         autoSleepJob = scope.launch {
             delay(timeoutMs)
             if (_isAwake.value && _state.value != PipelineState.SPEAKING && _state.value != PipelineState.PROCESSING) {
-                if (com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value) {
-                    com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
+                if (appGraph.listening.active.value) {
+                    appGraph.listening.request(false)
                 }
                 Log.i(TAG, "Ventana de respuesta expirada: Fifo vuelve a reposo silencioso")
                 goToSleep()
@@ -1162,7 +1162,7 @@ class VoicePipelineManager(
     private fun getDynamicGreeting(): String {
         val now = java.util.Calendar.getInstance()
         val hour = now.get(java.util.Calendar.HOUR_OF_DAY)
-        val userFirstName = com.fifo.voicepipeline.data.FifoDataRepository.userProfile.value.fullName.split(" ").firstOrNull { it.isNotBlank() } ?: ""
+        val userFirstName = appGraph.identity.userProfile.value.fullName.split(" ").firstOrNull { it.isNotBlank() } ?: ""
         val nameClause = if (userFirstName.isNotBlank()) " $userFirstName" else ""
         val hasSpokenRecently = activeSessionTurns.isNotEmpty() || cloudClient.hasRecentConversation()
         return when {
@@ -1285,8 +1285,8 @@ class VoicePipelineManager(
         }
 
         val isWaitingFollowUp = expectFollowUpQuestion || isWaitingForBargeInFollowUp
-        val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
-        val callInfo = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value
+        val isContinuous = appGraph.listening.active.value
+        val callInfo = appGraph.telephony.incomingCall.value
         val isCommActive = callManager?.isCommunicationModeActive() == true
         val isCallControl = (callInfo != null || isCommActive) && isCallActionCommand(textLower, isRinging = callInfo?.isRinging == true)
         val wasPushed = oneShotPushedToTalk
@@ -1335,7 +1335,7 @@ class VoicePipelineManager(
             try {
                 // Verificar comandos de dormir o parar la escucha continua
                 if (isSleepCommand(textLower)) {
-                    com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
+                    appGraph.listening.request(false)
                     expectFollowUpQuestion = false
                     speakResponseChunk("Entendido. Me quedo descansando. Si me necesita, solo diga Fifo.")
                     goToSleep()
@@ -1468,7 +1468,7 @@ class VoicePipelineManager(
             androidTtsSpeaker?.isSpeaking == true || audioPlayer.isPlaying
 
         scope.launch {
-            val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
+            val isContinuous = appGraph.listening.active.value
             val isCurrentlyAwake = _isAwake.value || oneShotPushedToTalk || isContinuous || expectFollowUpQuestion
             if (isCurrentlyAwake && !isSpeakingNow) {
                 _state.value = PipelineState.PROCESSING
@@ -1557,7 +1557,7 @@ class VoicePipelineManager(
                     }
                 }
 
-                val callInfo = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value
+                val callInfo = appGraph.telephony.incomingCall.value
                 val isCommActive = callManager?.isCommunicationModeActive() == true
                 val isCallControl = (callInfo != null || isCommActive) && isCallActionCommand(textLower, isRinging = callInfo?.isRinging == true)
                 val wasPushed = oneShotPushedToTalk
@@ -1591,7 +1591,7 @@ class VoicePipelineManager(
                 }
 
                 if (isSleepCommand(textLower)) {
-                    com.fifo.voicepipeline.data.FifoDataRepository.setContinuousListening(false)
+                    appGraph.listening.request(false)
                     expectFollowUpQuestion = false
                     speakResponseChunk("Entendido. Me quedo descansando. Si me necesita, solo diga Fifo.")
                     goToSleep()
@@ -1798,6 +1798,8 @@ class VoicePipelineManager(
                     timeZone = java.util.TimeZone.getTimeZone("UTC")
                 }.format(java.util.Date())
 
+                val userId = appGraph.identity.userProfile.value.id
+
                 // 1. Guardar fragmento compacto en SQLite (para contexto futuro en LLM)
                 val fragment = com.fifo.voicepipeline.ui.model.ConversationFragment(
                     id = "frag_${System.currentTimeMillis()}",
@@ -1810,7 +1812,7 @@ class VoicePipelineManager(
                     durationSeconds = (turns.size * 20).coerceAtLeast(30),
                     recordedAt = isoTimestamp
                 )
-                com.fifo.voicepipeline.data.FifoDataRepository.addConversationFragment(fragment)
+                appGraph.memory.addConversationFragment(userId, fragment)
 
                 // 2. Guardar en past_conversations (Charlas y Recuerdos)
                 val pastConv = com.fifo.voicepipeline.ui.model.PastConversationItem(
@@ -1828,11 +1830,12 @@ class VoicePipelineManager(
                         else -> "chat"
                     }
                 )
-                com.fifo.voicepipeline.data.FifoDataRepository.addConversation(pastConv)
+                appGraph.memory.addConversation(userId, pastConv)
 
                 // 3. Guardar en memories si se detectó un recuerdo valioso
                 if (!consolidation.memoryTitle.isNullOrBlank() && !consolidation.memoryDetail.isNullOrBlank()) {
-                    com.fifo.voicepipeline.data.FifoDataRepository.addMemory(
+                    appGraph.memory.addMemory(
+                        userId = userId,
                         emoji = consolidation.memoryEmoji ?: "⭐",
                         title = consolidation.memoryTitle,
                         detail = consolidation.memoryDetail
@@ -1841,16 +1844,15 @@ class VoicePipelineManager(
 
                 // 4. Guardar gusto si se descubrió un nuevo interés del usuario
                 if (!consolidation.newTaste.isNullOrBlank()) {
-                    com.fifo.voicepipeline.data.FifoDataRepository.addTaste(consolidation.newTaste.trim())
+                    appGraph.memory.addTaste(userId, consolidation.newTaste.trim())
                 }
 
                 // 5. Actualizar Grafo Relacional de Contactos Cercanos (Score de cercanía, menciones y memoria de personas)
                 if (consolidation.mentionedPersons.isNotEmpty()) {
-                    com.fifo.voicepipeline.data.FifoDataRepository.updateContactsFromSessionMentions(consolidation.mentionedPersons)
+                    appGraph.relationalGraph.ingestSessionMentions(consolidation.mentionedPersons)
                 }
 
                 // 6. Disparar consolidación profunda en el Backend Docker/MySQL (Grafo Relacional, Rutinas, Perfil y Doble Capa)
-                val userId = com.fifo.voicepipeline.data.FifoDataRepository.userProfile.value.id
                 val effectiveKey = if (::cloudClient.isInitialized) cloudClient.effectiveGroqKey.ifBlank { groqApiKey } else groqApiKey
                 val backendResult = com.fifo.voicepipeline.network.FifoBackendClient.analyzeAndConsolidateSession(
                     userId = userId,
@@ -1864,19 +1866,19 @@ class VoicePipelineManager(
                 // 7. Si el backend consolidó datos, inyectar inmediatamente en la memoria viva de celular (sin HTTP redundante)
                 if (backendResult != null) {
                     if (!backendResult.updatedBioAi.isNullOrBlank()) {
-                        com.fifo.voicepipeline.data.FifoDataRepository.updateBio(backendResult.updatedBioAi)
+                        appGraph.session.updateBio(backendResult.updatedBioAi)
                     }
                     if (backendResult.interestTags.isNotEmpty()) {
-                        com.fifo.voicepipeline.data.FifoDataRepository.updateInterestTags(backendResult.interestTags)
+                        appGraph.session.updateInterestTags(backendResult.interestTags)
                     }
                     backendResult.memoriesAdded.forEach { mem ->
-                        com.fifo.voicepipeline.data.FifoDataRepository.addMemoryDirect(mem)
+                        appGraph.memory.addMemoryDirect(userId, mem)
                     }
                     backendResult.tasteStoriesAdded.forEach { story ->
-                        com.fifo.voicepipeline.data.FifoDataRepository.addTasteStoryDirect(story)
+                        appGraph.memory.addTasteStoryDirect(userId, story)
                     }
                     backendResult.remindersAdded.forEach { rem ->
-                        com.fifo.voicepipeline.data.FifoDataRepository.addReminderDirect(rem)
+                        appGraph.memory.addReminderDirect(userId, rem)
                     }
                     Log.i(TAG, "Backend consolidó sesión: ${backendResult.contactsUpdated.size} contactos actualizados, ${backendResult.memoriesAdded.size} recuerdos vivos, ${backendResult.tasteStoriesAdded.size} gustos en detalle, ${backendResult.remindersAdded.size} recordatorios.")
                 }
@@ -1910,7 +1912,7 @@ class VoicePipelineManager(
             return
         }
 
-        val incomingCall = com.fifo.voicepipeline.data.FifoDataRepository.incomingCall.value
+        val incomingCall = appGraph.telephony.incomingCall.value
         val isCommActive = callManager?.isCommunicationModeActive() == true
         if (incomingCall != null || isCommActive) {
             _isAwake.value = true
@@ -1939,7 +1941,7 @@ class VoicePipelineManager(
             return
         }
 
-        val isContinuous = com.fifo.voicepipeline.data.FifoDataRepository.isContinuousListening.value
+        val isContinuous = appGraph.listening.active.value
         val isQuestion = isAskingQuestion(spokenText)
         // Permanecer en escucha activa si: Fifo hizo una pregunta, modo continuo, o el pipeline
         // ya había activado expectFollowUpQuestion antes de que el TTS terminara (ej. saludo inicial).

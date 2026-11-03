@@ -19,7 +19,7 @@ Capa de interfaz visual de usuario, construida íntegramente con **Jetpack Compo
 
 ## 🧭 Reglas de Estado en `ui/`
 1. **La pantalla proyecta, no posee:** lee el `StateFlow` del holder y llama a sus comandos. No crea `MutableStateFlow` de dominio ni copia datos del módulo (ADR-0050).
-2. **Nada de `FifoDataRepository`:** la UI no usa el accessor deprecado; el holder recibe solo los módulos que necesita.
+2. **Nada de estado global:** la UI no lee un accessor global; el holder recibe solo los módulos que necesita de `AppGraph` (ADR-0050, ADR-0054).
 3. **La publicación no es de la pantalla:** guardar y publicar ocurre en el módulo por su `*RemotePort` (ADR-0050).
 4. **La escucha continua se pide, no se decreta:** el comando llega a `graph.listening.request()`; el dueño real es `TurnOrchestrator`.
 
