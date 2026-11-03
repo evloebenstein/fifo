@@ -1,6 +1,6 @@
 #  FIFO Voice Pipeline (BLE + ESP32-S3 + Android + Groq LPU)
 
-Asistente robótico interactivo de compañía para adultos mayores con **enlace principal Bluetooth Low Energy (BLE)**, rostro expresivo en pantalla OLED 1.3", cerebro de IA ultra-rápido en **Groq LPU** (con soporte de Function Calling nativo), ejecución continua 24/7 en segundo plano y activación estricta por palabra clave (**"FIFO"**). También puede funcionar con el micrófono y parlante del teléfono.
+Asistente robótico interactivo de compañía para adultos mayores con **enlace principal Bluetooth Low Energy (BLE)**, rostro expresivo en pantalla OLED 0.96", cerebro de IA ultra-rápido en **Groq LPU** (con soporte de Function Calling nativo), ejecución continua 24/7 en segundo plano y activación estricta por palabra clave (**"FIFO"**). También puede funcionar con el micrófono y parlante del teléfono.
 
 ---
 
@@ -26,13 +26,15 @@ Asistente robótico interactivo de compañía para adultos mayores con **enlace 
   - Si el robot no está disponible, Fifo puede usar el micrófono y parlante del teléfono; `CaptureArbiter` decide la fuente y descarta tramas tardías.
 - **Ejecución 24/7 en Segundo Plano:**
   - Corre como *Foreground Service* en Android con *WakeLock* parcial y notificación persistente. No se desconecta al bloquear la pantalla o suspender el teléfono.
-- **Rostro Animado de Fifo en OLED 1.3" (SH1106 I2C):**
+- **Rostro Animado de Fifo en OLED 0.96" (SSD1306 I2C):**
   - **DURMIENDO:** Ojos cerrados (`- -`), animación de "Zzz" flotando y aviso *"Di 'Fifo'"*.
   - **ESCUCHANDO:** Ojos atentos y ondas sonoras activas `))) (((`.
   - **PENSANDO:** Burbujas de pensamiento sobre la cabeza.
   - **HABLANDO:** Boca animada sincronizada con ondas de voz en vivo.
-- **Filtro de Ruido Acústico en ESP32-S3:**
-  - Filtro IIR Pasa-Altos a 150 Hz y puerta de ruido (*Noise Gate*) para capturar voz nítida desde el micrófono analógico UCC.
+- **Audio Digital en la XIAO ESP32-S3:**
+  - Micrófono **INMP441** por I2S a 16 kHz con ranuras de 32 bits y bloqueador de continua; ya no hay ADC analógico ni puerta de ruido.
+  - Parlante **MAX98357A** por I2S: reproduce la voz del asistente que baja del teléfono por BLE a 8 kHz.
+  - Pulsador físico: una pulsación corta despierta a Fifo; una larga alterna el silencio del micrófono.
 - **Control Telefónico Manos Libres y Contexto de Llamante:**
   - `CallerContextProvider.local()` anuncia de inmediato el nombre que ya conoce el teléfono; el backend enriquece en paralelo con timeout de ~800 ms.
   - El anuncio usa `CallerContext.announcementText()`: nombre y parentesco, sin leer temas recientes. Un caller ID sin registro sigue siendo desconocido.
@@ -80,10 +82,12 @@ Asistente robótico interactivo de compañía para adultos mayores con **enlace 
 ##  Diagrama de Arquitectura
 
 ```
-ESP32-S3 (El Cuerpo)
-  ├─ Micrófono UCC + filtro IIR/noise gate
-  ├─ Pantalla OLED 1.3" (rostro animado)
-  └─ BLE ↔ Android (audio PCM y estado)
+XIAO ESP32-S3 (El Cuerpo)
+  ├─ Micrófono INMP441 (I2S0 RX, 16 kHz)
+  ├─ Parlante MAX98357A (I2S1 TX, 8 kHz)
+  ├─ Pantalla OLED 0.96" (rostro animado)
+  ├─ Pulsador (despertar / silenciar)
+  └─ BLE ↔ Android (audio PCM, estado y gestos)
                     │
                     ▼
 Android (El Cerebro)
@@ -103,35 +107,60 @@ Android (El Cerebro)
               ├─ FifoSkillRegistry → Function Calling
               ├─ AndroidTelephonyPort + CallerContextCoordinator
               ├─ MemoryCoordinator → SQLite conversation_journal
-              └─ Android TTS → parlante del celular
+              └─ Android TTS → parlante del robot (BLE) o del celular
 ```
 
 ---
 
-##  Conexiones de Hardware (ESP32-S3-N16R8)
+##  Conexiones de Hardware (Seeed XIAO ESP32-S3)
 
-### 1. Micrófono Analógico UCC
+La XIAO estándar tiene 8 MB de flash y **no** lleva PSRAM. Solo expone nueve
+GPIO utilizables: D0–D5 y D8–D10 (D6/D7 son UART y GPIO 19/20 son USB).
 
-| Pin Módulo UCC | Pin ESP32-S3 | Función |
+### 1. Micrófono I2S INMP441
+
+| Pin INMP441 | Pin XIAO | Función |
 | :--- | :--- | :--- |
-| **VCC** | **3.3V** | Alimentación |
+| **VDD** | **3V3** | Alimentación |
 | **GND** | **GND** | Tierra común |
-| **OUT** | **GPIO 4** | ADC1 Canal 3 (I2S DMA a 16 kHz) |
+| **L/R** | **GND** | Selecciona el canal izquierdo |
+| **SCK** | **D8 / GPIO 7** | Reloj I2S (BCLK) |
+| **WS** | **D9 / GPIO 8** | Selector de canal (LRCLK) |
+| **SD** | **D10 / GPIO 9** | Datos PCM hacia el ESP32 |
 
-### 2. Pantalla OLED 1.3" I2C (SH1106 128x64)
+### 2. Amplificador I2S MAX98357A + parlante de 8 Ω
 
-| Pin OLED | Pin ESP32-S3 | Función |
+| Pin MAX98357A | Pin XIAO | Función |
 | :--- | :--- | :--- |
-| **VCC** | **3.3V** | Alimentación |
+| **VIN** | **3V3 / 5V** | Alimentación |
 | **GND** | **GND** | Tierra común |
-| **SDA** | **GPIO 8** | Datos I2C |
-| **SCL** | **GPIO 9** | Reloj I2C |
+| **BCLK** | **D0 / GPIO 1** | Reloj de bits |
+| **LRC** | **D1 / GPIO 2** | Selector de canal |
+| **DIN** | **D3 / GPIO 4** | Datos PCM desde el ESP32 |
+| **OUT+ / OUT-** | Parlante 8 Ω 1 W | Salida diferencial |
+
+### 3. Pantalla OLED 0.96" I2C (SSD1306 128x64)
+
+| Pin OLED | Pin XIAO | Función |
+| :--- | :--- | :--- |
+| **VCC** | **3V3** | Alimentación |
+| **GND** | **GND** | Tierra común |
+| **SDA** | **D4 / GPIO 5** | Datos I2C |
+| **SCL** | **D5 / GPIO 6** | Reloj I2C |
+
+### 4. Pulsador, interruptor y batería
+
+| Elemento | Conexión | Función |
+| :--- | :--- | :--- |
+| **Pulsador 6×6** | **D2 / GPIO 3** → GND | Pull-up interno; corto despierta, largo silencia |
+| **Interruptor SS12D07** | En serie con la LiPo 902030 | Corte de alimentación |
+| **LiPo 500 mAh** | BAT+ / BAT- de la XIAO | Alimentación portátil |
 
 ---
 
 ##  Puesta en Marcha
 
-### 1. Grabar Firmware en ESP32-S3
+### 1. Grabar Firmware en la XIAO ESP32-S3
 
 Con [PlatformIO](https://platformio.org/):
 
@@ -227,6 +256,9 @@ Cada carpeta del proyecto cuenta con su propio archivo `README.md` detallando la
 - 🤖 **Firmware ESP32:**
   - [`esp32-firmware/`](esp32-firmware/README.md) - Proyecto PlatformIO, hardware, diagrama de pines (pinout) y compilación.
   - [`esp32-firmware/src/`](esp32-firmware/src/README.md) - Código fuente en C++ (I2S mic/speaker, display OLED SSD1306 y GATT BLE).
+- 📦 **Carcasa 3D (Hardware):**
+  - [`hardware/enclosure/`](hardware/enclosure/README.md) - Modelo paramétrico Blender, script generador y render.
+  - [`hardware/enclosure/ASSEMBLY.md`](hardware/enclosure/ASSEMBLY.md) - Guía completa de montaje con esquemas, wiring, vistas explotadas, slicer settings y troubleshooting.
 - 📱 **Aplicación Android (Kotlin + Jetpack Compose):**
   - [`android-app/`](android-app/README.md) - Configuración Gradle raíz, arquitectura de voz, SDK y comandos de terminal.
   - [`android-app/app/`](android-app/app/README.md) - Módulo Android, manifiesto de permisos, dependencias y pruebas.
