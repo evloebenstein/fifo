@@ -13,8 +13,9 @@ import kotlinx.coroutines.flow.asStateFlow
  * dueño real de la telefonía (`FifoCallManager` / `AndroidTelephonyPort`)
  * enlaza con `bindRepositoryActions()`.
  *
- * `FifoDataRepository` lo expone mediante delegación para no cambiar a sus
- * consumidores (UI, skills, receptor y puerto de telefonía).
+ * Es el único dueño del estado visible de la llamada (`AppGraph.telephony`).
+ * La UI, las skills, el receptor y el puerto lo reciben por el grafo; ya no hay
+ * un segundo `incomingCall` en el accessor deprecado.
  */
 class CallStateCoordinator {
 

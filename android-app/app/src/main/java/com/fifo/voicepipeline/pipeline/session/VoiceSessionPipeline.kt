@@ -39,7 +39,12 @@ internal class VoiceSessionPipeline(
         const val TAG = "VoiceSessionPipeline"
     }
 
-    val telephony = AndroidTelephonyPort(context, scope)
+    val telephony = AndroidTelephonyPort(
+        context = context,
+        scope = scope,
+        coordinator = graph.telephony,
+        profileProvider = { graph.identity.userProfile.value }
+    )
 
     private val callerContextProvider = CallerContextProvider(
         identitySource = BackendCallerIdentitySource(),

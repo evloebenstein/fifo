@@ -15,7 +15,7 @@ import android.telephony.TelephonyCallback
 import android.telephony.TelephonyManager
 import android.util.Log
 import androidx.core.content.ContextCompat
-import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.data.model.UserProfileData
 import com.fifo.voicepipeline.ui.model.IncomingCallInfo
 
 /**
@@ -27,6 +27,8 @@ import com.fifo.voicepipeline.ui.model.IncomingCallInfo
  */
 internal class FifoCallManager(
     private val context: Context,
+    private val callState: CallStateCoordinator,
+    private val profileProvider: () -> UserProfileData,
     private val onAnnounceCall: (callerName: String, phoneNumber: String) -> Unit = { _, _ -> },
     private val onCommunicationModeChanged: ((Boolean) -> Unit)? = null
 ) {
@@ -37,9 +39,14 @@ internal class FifoCallManager(
         /**
          * Resuelve un número contra la libreta de contactos sin construir un manager completo.
          * Lo usa `FifoPhoneCallReceiver` para no crear instancias desechables por broadcast.
+         * El perfil entra por parámetro para no leer el accessor deprecado.
          */
         @SuppressLint("Range")
-        fun resolveContactName(context: Context, phoneNumber: String): String {
+        fun resolveContactName(
+            context: Context,
+            phoneNumber: String,
+            profile: UserProfileData
+        ): String {
             if (phoneNumber.isBlank()) return "Llamada entrante"
 
             val hasContactsPermission = ContextCompat.checkSelfPermission(
@@ -49,7 +56,6 @@ internal class FifoCallManager(
 
             if (!hasContactsPermission) {
                 // Verificar si coincide con el contacto de emergencia del perfil
-                val profile = FifoDataRepository.userProfile.value
                 if (phoneNumber.contains(profile.emergencyContactPhone.takeLast(8))) {
                     return profile.emergencyContactName
                 }
@@ -72,7 +78,6 @@ internal class FifoCallManager(
                     if (it.moveToFirst()) {
                         it.getString(it.getColumnIndex(ContactsContract.PhoneLookup.DISPLAY_NAME))
                     } else {
-                        val profile = FifoDataRepository.userProfile.value
                         if (phoneNumber.contains(profile.emergencyContactPhone.takeLast(8))) {
                             profile.emergencyContactName
                         } else {
@@ -104,19 +109,19 @@ internal class FifoCallManager(
      * Es explícito para que el constructor no tenga efectos globales.
      */
     fun bindRepositoryActions() {
-        FifoDataRepository.onAnswerCallAction = repositoryAnswerAction
-        FifoDataRepository.onHangupCallAction = repositoryHangupAction
+        callState.onAnswerCallAction = repositoryAnswerAction
+        callState.onHangupCallAction = repositoryHangupAction
     }
 
     /**
      * Desenlaza solo si las acciones siguen siendo las de este manager.
      */
     fun unbindRepositoryActions() {
-        if (FifoDataRepository.onAnswerCallAction === repositoryAnswerAction) {
-            FifoDataRepository.onAnswerCallAction = null
+        if (callState.onAnswerCallAction === repositoryAnswerAction) {
+            callState.onAnswerCallAction = null
         }
-        if (FifoDataRepository.onHangupCallAction === repositoryHangupAction) {
-            FifoDataRepository.onHangupCallAction = null
+        if (callState.onHangupCallAction === repositoryHangupAction) {
+            callState.onHangupCallAction = null
         }
     }
 
@@ -129,7 +134,7 @@ internal class FifoCallManager(
      * Las llamadas en segundo plano de apps terceras (WeChat, Meet, etc.) no son tratadas como llamada de Fifo.
      */
     fun isCommunicationModeActive(): Boolean {
-        if (FifoDataRepository.incomingCall.value != null) return true
+        if (callState.incomingCall.value != null) return true
         val isCellularCall = try {
             telephonyManager?.callState != TelephonyManager.CALL_STATE_IDLE
         } catch (_: Exception) {
@@ -220,7 +225,7 @@ internal class FifoCallManager(
             }
             AudioManager.MODE_IN_COMMUNICATION -> {
                 // Solo notificar si ya existía una llamada registrada por Fifo (ej: llamada contestada vía Telecom)
-                if (FifoDataRepository.incomingCall.value != null) {
+                if (callState.incomingCall.value != null) {
                     Log.i(TAG, "Detectada comunicación activa con llamada registrada")
                     onCommunicationModeChanged?.invoke(true)
                 }
@@ -248,17 +253,17 @@ internal class FifoCallManager(
                     phoneNumber = number,
                     isRinging = true
                 )
-                FifoDataRepository.setIncomingCall(callInfo)
+                callState.setIncomingCall(callInfo)
                 onAnnounceCall(callerName, number)
             }
 
             TelephonyManager.CALL_STATE_OFFHOOK -> {
                 Log.i(TAG, "Llamada en curso (descolgado)")
-                val current = FifoDataRepository.incomingCall.value
+                val current = callState.incomingCall.value
                 if (current != null) {
-                    FifoDataRepository.setIncomingCall(current.copy(isRinging = false))
+                    callState.setIncomingCall(current.copy(isRinging = false))
                 } else {
-                    FifoDataRepository.setIncomingCall(
+                    callState.setIncomingCall(
                         IncomingCallInfo(
                             callerName = "Llamada en curso",
                             phoneNumber = "",
@@ -271,7 +276,7 @@ internal class FifoCallManager(
 
             TelephonyManager.CALL_STATE_IDLE -> {
                 Log.i(TAG, "Teléfono en reposo (llamada finalizada o colgada)")
-                FifoDataRepository.setIncomingCall(null)
+                callState.setIncomingCall(null)
                 resetCallAudioRouting()
                 onCommunicationModeChanged?.invoke(false)
             }
@@ -282,7 +287,7 @@ internal class FifoCallManager(
      * Resuelve el nombre del contacto a partir del número de teléfono.
      */
     fun resolveContactName(phoneNumber: String): String {
-        return resolveContactName(context, phoneNumber)
+        return resolveContactName(context, phoneNumber, profileProvider())
     }
 
     /**

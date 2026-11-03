@@ -289,7 +289,7 @@ Guía del system prompt con cinco disparadores para invocar `recall_past_context
 _Avoid_: Frase de memoria, Regla de recall, Prompt de búsqueda
 
 **Accessor deprecado**:
-`FifoDataRepository` durante la migración strangler: ya no posee estado, solo delega en `AppGraph`. Se borra cuando las llamadas lleguen a cero; tras ADR-0052 quedan 66, solo en pipeline y telefonía. No se le añade lógica nueva (ADR-0049, ADR-0051, ADR-0052).
+`FifoDataRepository` durante la migración strangler: ya no posee estado, solo delega en `AppGraph`. Se borra cuando las llamadas lleguen a cero; tras ADR-0053 quedan 42, todas en el pipeline salvo el mensaje de `AppGraph`. No se le añade lógica nueva (ADR-0049, ADR-0051, ADR-0052, ADR-0053).
 _Avoid_: Repositorio central, Fachada, God object
 
 **Skill inyectada**:
@@ -313,7 +313,7 @@ _Avoid_: CallApi, TelephonyClient, Backend de llamadas
 _Avoid_: Booleano de escucha, ListeningManager, Estado duplicado
 
 **Coordinador de llamada visible**:
-`CallStateCoordinator` en `AppGraph.telephony`: guarda la llamada entrante, la última activa y los callbacks que enlaza `FifoCallManager`. No contesta ni cuelga por su cuenta y no toca `AudioManager` (ADR-0030, ADR-0050).
+`CallStateCoordinator` en `AppGraph.telephony`: guarda la llamada entrante, la última activa y los callbacks que enlaza `FifoCallManager`. Es el único dueño de `incomingCall`; el manager, el puerto y el receptor lo reciben por constructor o grafo. No contesta ni cuelga por su cuenta y no toca `AudioManager` (ADR-0030, ADR-0050, ADR-0053).
 _Avoid_: CallManager, PhoneState, TelephonyService
 
 

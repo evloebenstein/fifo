@@ -82,5 +82,5 @@ adaptadores de audio, la telefonía y la memoria durable. En `LEGACY`,
 servicio y los receivers comparten esa instancia. La UI lee state holders de
 `ui/state/` (`fifoStateHolder { graph -> ... }`) y `FifoSkillRegistry` construye
 cada skill con los módulos que usa. `FifoDataRepository` sigue existiendo solo
-como accessor deprecado durante la migración (66 llamadas; ADR-0049, ADR-0050,
-ADR-0051, ADR-0052).
+como accessor deprecado durante la migración (42 llamadas; ADR-0049, ADR-0050,
+ADR-0051, ADR-0052, ADR-0053).

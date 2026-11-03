@@ -345,6 +345,8 @@ class VoicePipelineManager(
         // Inicializar gestor de telefonía inteligente tipo Alexa
         callManager = com.fifo.voicepipeline.telephony.FifoCallManager(
             context = context,
+            callState = appGraph.telephony,
+            profileProvider = { appGraph.identity.userProfile.value },
             onAnnounceCall = { callerName, _ ->
                 scope.launch {
                     _isAwake.value = true

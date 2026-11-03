@@ -1,7 +1,7 @@
 package com.fifo.voicepipeline.telephony
 
 import android.content.Context
-import com.fifo.voicepipeline.data.FifoDataRepository
+import com.fifo.voicepipeline.data.model.UserProfileData
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -21,7 +21,9 @@ import kotlinx.coroutines.launch
  */
 class AndroidTelephonyPort(
     context: Context,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val coordinator: CallStateCoordinator,
+    profileProvider: () -> UserProfileData
 ) : TelephonyPort {
 
     private val _callState = MutableStateFlow(CallSnapshot())
@@ -32,6 +34,8 @@ class AndroidTelephonyPort(
 
     private val callManager = FifoCallManager(
         context = context,
+        callState = coordinator,
+        profileProvider = profileProvider,
         onAnnounceCall = { callerName, phoneNumber ->
             publish(
                 CallSnapshot(
@@ -48,7 +52,7 @@ class AndroidTelephonyPort(
                 if (_callState.value.phase == CallPhase.NONE) {
                     publish(CallSnapshot(phase = CallPhase.ACTIVE))
                 }
-            } else if (FifoDataRepository.incomingCall.value == null) {
+            } else if (coordinator.incomingCall.value == null) {
                 publish(CallSnapshot())
             }
         }
@@ -60,7 +64,7 @@ class AndroidTelephonyPort(
         callManager.bindRepositoryActions()
         callManager.startListening()
         repositoryJob = scope.launch {
-            FifoDataRepository.incomingCall.collect { info ->
+            coordinator.incomingCall.collect { info ->
                 val next = info.toCallSnapshot()
                 if (next.phase == CallPhase.NONE && callManager.isCommunicationModeActive()) {
                     // Android puede estar en llamada antes de que el repositorio reciba OFFHOOK.
@@ -85,7 +89,7 @@ class AndroidTelephonyPort(
     }
 
     override fun refresh(): CallSnapshot {
-        val info = FifoDataRepository.incomingCall.value
+        val info = coordinator.incomingCall.value
         val next = when {
             info != null -> info.toCallSnapshot()
             callManager.isCommunicationModeActive() -> CallSnapshot(phase = CallPhase.ACTIVE)
@@ -96,13 +100,13 @@ class AndroidTelephonyPort(
     }
 
     override fun answer(): Boolean {
-        val handled = FifoDataRepository.answerCurrentCall()
+        val handled = coordinator.answerCurrentCall()
         refresh()
         return handled
     }
 
     override fun hangup(): Boolean {
-        val handled = FifoDataRepository.hangupCurrentCall()
+        val handled = coordinator.hangupCurrentCall()
         refresh()
         return handled
     }
