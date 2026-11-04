@@ -84,74 +84,70 @@ ACT_DY = 3.9                      # centro del area activa sobre el del PCB
 ACT_W, ACT_L = 21.74, 10.86
 SCREEN_C = (0.0, 16.0)            # centro del area activa
 MOD_C = (0.0, SCREEN_C[1] - ACT_DY)
-WIN_W, WIN_L, WIN_R = 23.4, 12.6, 4.6
+# La pantalla es rectangular: solo ligeramente redondeada como el concepto.
+WIN_W, WIN_L, WIN_R = 23.4, 12.6, 2.5
 LENS_W, LENS_L = WIN_W - 0.06, WIN_L - 0.06
 POCKET_W, POCKET_L, POCKET_R = 25.6, 28.2, 5.0
 POCKET_Z0 = INNER_TOP            # 20.00
 POCKET_Z1 = POCKET_Z0 + MOD_H + 0.15   # 21.35
 LENS_Z0, LENS_Z1 = POCKET_Z1, BODY_H
 
-SPK_C = (-14.0, -16.0)
+SPK_C = (-8.0, -7.0)
 # Altavoz plano real 16 x 9 x 3 mm (modulo 1609/1511/1508, 8R 1W).
 SPK_DW, SPK_DL, SPK_H = 16.0, 9.0, 3.0
 # La rejilla visible es redonda como el concepto; el driver rectangular va
-# detras.
-SPK_RING_R = 12.0          # aro metalico exterior O24
-SPK_MESH_R = 11.0          # malla interior O22
-SPK_POCKET_R = 12.2        # rebaje circular en la cara O24.4
-SPK_RING_POCKET = 20.8     # fondo del rebaje: aro sobresale 0.9
-SPK_PORT_R = 6.0           # paso de sonido O12
+# detras. La rejilla es mas pequena que el concepto: O19 con aro.
+SPK_RING_R = 9.5            # aro metalico exterior O19
+SPK_MESH_R = 8.0             # malla interior O16
+SPK_POCKET_R = 10.0          # rebaje circular en la cara O20
+SPK_RING_POCKET = 19.5       # fondo del rebaje: aro sobresale 0.5
+SPK_PORT_R = 5.0             # paso de sonido O10
 
-BTN_UP_C = (19.0, -8.0)
-BTN_DOWN_C = (19.0, -21.5)
-BTN_R = 6.2               # tapa O12.4
-BTN_WELL_R = 6.9          # rebaje donde se hunde la tapa
-BTN_TOP = 22.5            # 0.5 mm sobre la cara
+# Botones: pequenos, alineados verticalmente a la derecha del altavoz.
+BTN_UP_C = (22.5, -1.0)
+BTN_DOWN_C = (22.5, -9.0)
+BTN_R = 4.5                  # tapa O9
+BTN_WELL_R = 5.2             # rebaje donde se hunde la tapa O10.4
+BTN_TOP = 22.5               # 0.5 mm sobre la cara
 BTN_BOTTOM = 21.0
 
-MIC_PORT = (20.0, -10.0)         # taladro en el piso, debajo del INMP441
+MIC_PORT = (18.0, -20.0)         # taladro en el piso, debajo del INMP441
 
 # El XIAO va en el borde -Y con su propio USB-C hacia afuera; la pared luce
 # un solo corte para el conector de la placa, no un panel-mount separado.
 USB_X = 0.0
-USB_SLOT = (9.0, 2.2, 7.0)       # ancho, z0, z1 del corte en la pared -Y
+USB_SLOT = (9.0, 2.2, 7.0)    # ancho, z0, z1 del corte en la pared -Y
 
 SWITCH_X = 0.0
-SWITCH_Z = 3.0                   # el cuerpo apoya en el piso
-SWITCH_SLOT = (11.0, 4.8)        # largo en X, alto en Z (pared +Y)
+SWITCH_Z = 3.0                # el cuerpo apoya en el piso
+SWITCH_SLOT = (11.0, 4.8)     # largo en X, alto en Z (pared +Y)
 
-# Postes / tornillos: columnas de esquina. La manga corta vive en la contera
-# (Z 3..8) y el poste roscado cuelga de la tapa (Z 8..22); ningun componente
-# ocupa esas columnas, asi que el tornillo M2x10 entra desde el piso.
-BOSS_XY = ((-21.0, 28.0), (21.0, 28.0), (-21.0, -28.0), (21.0, -28.0))
-BOSS_R = 3.0
-BOSS_Z0 = 8.0
-SLEEVE_R = 3.0
-SCREW_R = 1.1
+# Sin tornillos: la tapa encaja a presion con labio y los componentes
+# rigidizan la estructura. No hay postes ni mangas.
 
 # Internos declarados: nombre, W, L, H, CX, CY, Z0, material
-# El XIAO vive en el borde -Y con su propio USB-C hacia afuera; el resto se
-# apila sobre el piso y la tapa, sin tocar las columnas de tornillo de esquina:
-#   frente  XIAO 3..7 (USB-C al aire) | INMP441 der 3..5
+# El XIAO (21x17.8x4 + USB-C 8.5x7.5x2.6) vive en el borde -Y con el conector
+# hacia afuera; el resto se apila en el centro sin tocar las paredes:
+#   frente  XIAO 3..7 (USB-C 4..6.6, asoma por la pared -Y) | INMP441 der 3..5
 #   centro  LiPo 3..12 -> MAX98357A 12..15
 #  trasera ATGM336H 3..7.5 -> parche 7.5..8.7
 #   tapa   OLED 20.05..21.25 | parlante 16.8..19.8 | tact 14.2..20
 LAYOUT = (
-    ("XIAO_ESP32S3", 21.0, 17.8, 4.0, 0.0, -26.0, 3.0, "pcb"),
-    ("USB_C_XIAO", 8.5, 3.2, 2.6, 0.0, -36.6, 4.0, "steel"),
-    ("LiPo_902030", 30.0, 20.0, 9.0, 0.0, -7.0, 3.0, "battery"),
-    ("MAX98357A", 25.0, 15.0, 3.0, 0.0, -7.0, 12.0, "pcb_amp"),
-    ("ATGM336H", 25.0, 25.0, 4.5, 0.0, 16.0, 3.0, "gps"),
-    ("GPS_Patch", 16.0, 16.0, 1.2, 0.0, 16.0, 7.5, "ceramic"),
-    ("INMP441", 10.0, 10.0, 2.0, 20.0, -10.0, 3.0, "pcb_mic"),
-    ("Switch_SS12D07", 10.5, 4.0, 4.5, SWITCH_X, 32.9, 3.0, "switch"),
-    ("Switch_Lever", 2.5, 3.6, 2.4, SWITCH_X, 36.2, 4.05, "print"),
+    ("XIAO_ESP32S3", 21.0, 17.8, 4.0, -14.5, -17.0, 3.0, "pcb"),
+    ("USB_C_XIAO", 8.5, 7.5, 2.6, -14.5, -30.5, 4.0, "steel"),
+    ("LiPo_902030", 30.0, 20.0, 9.0, 11.0, -3.0, 3.0, "battery"),
+    ("MAX98357A", 25.0, 15.0, 3.0, 6.5, -3.0, 12.0, "pcb_amp"),
+    ("ATGM336H", 25.0, 25.0, 4.5, -13.5, 20.0, 3.0, "gps"),
+    ("GPS_Patch", 16.0, 16.0, 1.2, -13.5, 20.0, 7.5, "ceramic"),
+    ("INMP441", 10.0, 10.0, 2.0, 18.0, -20.0, 3.0, "pcb_mic"),
+    ("Switch_SS12D07", 10.5, 4.0, 4.5, 10.0, 31.0, 3.0, "switch"),
+    ("Switch_Lever", 2.5, 3.6, 2.4, 10.0, 33.0, 4.05, "print"),
     ("Speaker_Driver", 16.0, 9.0, 3.0, SPK_C[0], SPK_C[1], 16.8, "driver"),
     ("Speaker_Gasket", 18.0, 11.0, 0.4, SPK_C[0], SPK_C[1], 19.8, "rubber"),
     ("OLED_SSD1306", MOD_W, MOD_L, MOD_H, MOD_C[0], MOD_C[1],
      POCKET_Z0 + 0.05, "pcb_oled"),
-    ("Tact_VolUp", 6.5, 6.5, 5.8, BTN_UP_C[0], BTN_UP_C[1], 14.2, "switch"),
-    ("Tact_VolDown", 6.5, 6.5, 5.8, BTN_DOWN_C[0], BTN_DOWN_C[1], 14.2, "switch"),
+    ("Tact_VolUp", 6.5, 6.5, 5.8, 22.5, -1.0, 14.2, "switch"),
+    ("Tact_VolDown", 6.5, 6.5, 5.8, 22.5, -9.0, 14.2, "switch"),
 )
 
 # Pares que se tocan a proposito (contacto, no interpenetracion)
@@ -486,24 +482,6 @@ def build_bottom(mats):
                   MIC_PORT[0], MIC_PORT[1], col, verts=32)
     cut(body, [mic, mic_cb], "micport")
 
-    # Alojamientos de los tornillos (cabeza embutida en el piso)
-    holes = []
-    for x, y in BOSS_XY:
-        holes.append(disc("hole", SCREW_R, -0.2, 3.2, x, y, col, verts=20))
-        holes.append(disc("cbore", 2.5, -0.2, 1.2, x, y, col, verts=24))
-    cut(body, holes, "screw")
-
-    # Mangas de esquina: guian el tornillo desde el piso hasta el poste de la
-    # tapa y rigidizan las cuatro esquinas (columnas libres de componentes).
-    for x, y in BOSS_XY:
-        sleeve = disc("Screw_Sleeve", SLEEVE_R, FLOOR, BOSS_Z0, x, y, col,
-                      "bottom", verts=32)
-        assign(sleeve, mats["bezel"])
-        bore = disc("sv_bore", SCREW_R, FLOOR - 0.4, BOSS_Z0 + 0.2, x, y, col,
-                    verts=20)
-        cut(sleeve, bore, "sv")
-        shade_smooth(sleeve)
-
     shade_smooth(body)
     return body
 
@@ -559,18 +537,7 @@ def build_lid(mats):
     PARTS["lid"].append(lip)
     assign(lip, mats["bezel"])
 
-    # Postes de tornillo de la tapa
-    bosses = []
-    for x, y in BOSS_XY:
-        b = disc("boss", BOSS_R, BOSS_Z0, INNER_TOP, x, y, col, "lid", verts=32)
-        assign(b, mats["shell"])
-        bosses.append(b)
-    boss_holes = [disc("bh", SCREW_R, BOSS_Z0 - 0.4, INNER_TOP - 1.0, x, y, col, verts=16)
-                  for x, y in BOSS_XY]
-    for b, h in zip(bosses, boss_holes):
-        cut(b, h, "bhole")
-
-    for ob in (lid, lip, *bosses):
+    for ob in (lid, lip):
         shade_smooth(ob)
     return lid
 
@@ -651,14 +618,15 @@ def build_screen(mats):
     for ob in face_objs:
         assign(ob, mats["lcd_off"])
 
-    # Pigtail I2C: de los pads del conector a la XIAO
+    # Pigtail I2C: de los pads del conector a la XIAO (en -14.5, -17, base)
     pad_y = MOD_C[1] + MOD_L / 2 - 1.5
     for k in range(4):
         x = -3.81 + 2.54 * k
         wire("OLED_Wire_%d" % k,
              [(x, pad_y - 0.6, POCKET_Z0 + 1.20), (x, pad_y - 0.8,
               POCKET_Z0 + 1.06), (x, 4.78, 21.9), (x, 4.78, 18.3),
-              (x, 5.4, 16.10)],
+              (-14.5, 4.78, 16.10), (-14.5, -10.0, 10.0),
+              (-14.5, -17.0, 7.0)],
              0.30, mats["wire_amber"] if k % 2 else mats["wire_black"],
              col, "lid")
     return lens, lcd
@@ -794,35 +762,38 @@ def build_internals(mats):
         parts[name] = ob
 
     # XIAO en el borde -Y: almohadillas en los bordes, LED y blindaje RF
+    # XIAO board 21x17.8x4 centrado en (-14.5,-17,3): X -25..-4, Y -25.9..-8.1
     for k in range(7):
-        y = -26.0 + (k - 3) * 2.3
+        y = -17.0 + (k - 3) * 2.3
         for sx in (-1, 1):
-            pad = block("pad", 0.9, 1.4, 0.2, sx * 10.2, y, 7.0,
+            pad = block("pad", 0.9, 1.4, 0.2, -14.5 + sx * 10.2, y, 7.0,
                         col, "internals")
             assign(pad, mats["gold"])
-    led = block("led", 1.4, 1.0, 0.3, 6.8, -31.0, 7.0, col, "internals")
+    led = block("led", 1.4, 1.0, 0.3, -7.7, -10.0, 7.0, col, "internals")
     assign(led, mats["btn_dn"])
-    shield = block("RF_Shield", 14.0, 12.0, 0.2, 0.0, -26.0, 7.0, col, "internals")
+    shield = block("RF_Shield", 14.0, 12.0, 0.2, -14.5, -17.0, 7.0, col, "internals")
     assign(shield, mats["foil"])
 
-    # Conector USB-C del propio XIAO, asomando por la pared -Y
-    usbc = block("USB_C_XIAO", 8.5, 3.2, 2.6, 0.0, -36.6, 4.0, col, "internals")
+    # Conector USB-C del propio XIAO: 8.5x7.5x2.6 en (-14.5,-30.5,4), asoma
+    # por la pared -Y. El cuerpo real es femenino; sobresale del borde del PCB
+    # (Y=-25.9) hasta Y=-34.25, cruzando la pared en Y=-33..-35.
+    usbc = block("USB_C_XIAO", 8.5, 7.5, 2.6, -14.5, -30.5, 4.0, col, "internals")
     assign(usbc, mats["steel"])
-    mouth = block("USB_C_Mouth", 7.0, 0.5, 2.0, 0.0, -38.3, 4.5, col, "internals")
+    mouth = block("USB_C_Mouth", 7.0, 0.6, 2.0, -14.5, -34.5, 4.5, col, "internals")
     assign(mouth, mats["rubber"])
 
     # GPS: PCB + antena ceramica + conector
-    patch = block("GPS_Patch", 16.0, 16.0, 1.2, 0.0, 16.0, 7.5, col, "internals")
+    patch = block("GPS_Patch", 16.0, 16.0, 1.2, -13.5, 20.0, 7.5, col, "internals")
     assign(patch, mats["ceramic"])
     parts["GPS_Patch"] = patch
-    gps_conn = block("GPS_Conn", 5.0, 3.0, 2.0, 0.0, 28.6, 3.0, col, "internals")
+    gps_conn = block("GPS_Conn", 5.0, 3.0, 2.0, -13.5, 33.0, 3.0, col, "internals")
     assign(gps_conn, mats["steel"])
 
     # Bateria: etiqueta plateada envolvente y conector JST
-    label = block("Battery_Label", 30.3, 5.0, 9.1, 0.0, -7.0, 3.0, col, "internals")
+    label = block("Battery_Label", 30.3, 5.0, 9.1, 11.0, -3.0, 3.0, col, "internals")
     label.location.z -= 0.05
     assign(label, mats["steel"])
-    jst = block("Battery_JST", 6.0, 4.0, 3.0, 9.0, -16.4, 3.0, col, "internals")
+    jst = block("Battery_JST", 6.0, 4.0, 3.0, 14.0, -13.0, 3.0, col, "internals")
     assign(jst, mats["print"])
 
     # INMP441 redondo: puerto sobre el taladro del piso y chip
@@ -834,9 +805,9 @@ def build_internals(mats):
     assign(mic_chip, mats["switch"])
 
     # MAX98357A apilado sobre la LiPo: chip y bornera de parlante
-    amp_chip = block("Amp_Chip", 7.0, 5.0, 0.6, -7.8, -7.0, 15.0, col, "internals")
+    amp_chip = block("Amp_Chip", 7.0, 5.0, 0.6, 1.0, -3.0, 15.0, col, "internals")
     assign(amp_chip, mats["switch"])
-    amp_term = block("Amp_Terminal", 5.0, 4.0, 2.6, 9.5, -7.0, 15.0, col, "internals")
+    amp_term = block("Amp_Terminal", 5.0, 4.0, 2.6, 10.0, -3.0, 15.0, col, "internals")
     assign(amp_term, mats["pcb_mic"])
 
     # Parlante (vive en la tapa, sobre la rejilla)
@@ -859,69 +830,71 @@ def build_internals(mats):
         assign(sw, mats["switch"])
 
     # Interruptor en la pared +Y: cuerpo + palanca
-    sw = block("Switch_SS12D07", 10.5, 4.0, 4.5, SWITCH_X, 32.9, 3.0, col, "internals")
+    sw = block("Switch_SS12D07", 10.5, 4.0, 4.5, 10.0, 31.0, 3.0, col, "internals")
     assign(sw, mats["switch"])
-    lever = block("Switch_Lever", 2.5, 3.6, 2.4, SWITCH_X, 36.2, 4.05, col, "internals")
+    lever = block("Switch_Lever", 2.5, 3.6, 2.4, 10.0, 33.0, 4.05, col, "internals")
     assign(lever, mats["print"])
-
-    # Tornillos M2 embutidos en el piso
-    for x, y in BOSS_XY:
-        screw = disc("Screw", 2.2, 0.4, 1.2, x, y, col, "internals", verts=24)
-        assign(screw, mats["gold"])
 
     # Cinta Kapton: fija la LiPo y aisla el parche del GPS
     for sx in (-1, 1):
         kap = block("Kapton_Battery", 4.0, 17.0, 0.07,
-                    sx * 12.6, -7.0, 12.0, col, "internals")
+                    11.0 + sx * 12.6, -3.0, 12.0, col, "internals")
         assign(kap, mats["kapton"])
-    kap = block("Kapton_GPS", 16.6, 3.6, 0.07, -16.0, 18.5, 8.70,
+    kap = block("Kapton_GPS", 16.6, 3.6, 0.07, -13.5, 20.0, 8.70,
                 col, "internals")
     assign(kap, mats["kapton"])
 
-    # Cableado del camino nuevo
-    # Alimentacion LiPo (JST) -> XIAO por el borde delantero
+    # Cableado: todos los cables corren por los bordes de la cavidad, sin
+    # atravesar componentes. El XIAO esta en X=-14.5, Y=-17 y recibe todo.
+    # PWR LiPo (JST en 14,-13,3) -> XIAO por el borde derecho (X=24)
     for dx, mat in ((-0.7, mats["wire_red"]), (0.7, mats["wire_black"])):
         wire(f"Wire_PWR_{dx:+.1f}",
-             [(9.0 + dx, -16.4, 4.0), (10.0 + dx, -22.0, 5.0),
-              (10.0 + dx, -32.0, 6.0), (10.0 + dx, -34.0, 6.5)],
+             [(14.0 + dx, -13.0, 4.0), (18.0 + dx, -13.0, 5.0),
+              (24.0 + dx, -13.0, 6.0), (24.0 + dx, -17.0, 6.5),
+              (-4.0 + dx, -17.0, 7.0)],
              0.5, mat, col)
-    # UART GPS -> XIAO por la pared izquierda
+    # GPS TX: GPS (-13.5,20,4) -> por pared +Y (Y=31) -> bajada por -X -> XIAO
     wire("Wire_GPS_TX",
-         [(0.0, 28.6, 4.0), (-8.0, 20.0, 5.0), (-12.0, -6.0, 6.0),
-          (-10.0, -26.0, 6.5)],
+         [(-13.5, 22.5, 4.0), (-13.5, 31.0, 5.0), (-24.0, 31.0, 5.5),
+          (-24.0, -17.0, 6.5), (-4.0, -17.0, 7.0)],
          0.42, mats["wire_amber"], col)
     wire("Wire_GPS_RX",
-         [(0.0, 28.6, 3.5), (-8.5, 20.0, 4.5), (-12.5, -6.0, 5.5),
-          (-10.5, -26.0, 6.0)],
+         [(-13.5, 22.5, 3.5), (-13.5, 31.0, 4.5), (-24.0, 31.0, 5.0),
+          (-24.0, -17.0, 6.0), (-4.0, -17.0, 6.5)],
          0.42, mats["wire_black"], col)
-    # I2S del INMP441 -> XIAO por el borde derecho
+    # I2S MIC: INMP441 (18,-20,4) -> por borde derecho (X=24) -> XIAO
     wire("Wire_I2S",
-         [(20.0, -10.0, 4.0), (18.0, -12.0, 5.0), (15.0, -15.0, 5.5),
-          (12.0, -16.0, 6.5), (10.5, -26.0, 6.5)],
+         [(18.0, -20.0, 4.0), (24.0, -20.0, 5.0), (24.0, -17.0, 6.0),
+          (-4.0, -17.0, 6.5)],
          0.42, mats["wire_blue"], col)
-    # Switch -> XIAO por el lado izquierdo
+    # Switch (10,31,5) -> por pared +Y -> bajada por -X -> XIAO
     wire("Wire_SW",
-         [(0.0, 32.9, 5.0), (-8.0, 15.0, 6.0), (-8.0, -17.0, 7.0),
-          (0.0, -34.0, 6.0)],
+         [(10.0, 31.0, 5.0), (-24.0, 31.0, 5.5), (-24.0, -17.0, 6.5),
+          (-4.0, -17.0, 7.0)],
          0.42, mats["wire_red"], col)
-
-    # Pigtails de la tapa: bajan hasta el plano de union y reaparecen en la
-    # vista explotada como cables entre grupos.
+    # Altavoz: driver en tapa (-8,-7,18) -> MAX98357A (6.5,-3,15) por el lado izq
+    wire("Wire_SPK",
+         [(-8.0, -7.0, 18.0), (-16.0, -7.0, 18.0), (-24.0, -7.0, 17.5),
+          (-24.0, -3.0, 16.5), (-1.5, -3.0, 15.5)],
+         0.42, mats["wire_black"], col)
+    # Pigtails de la tapa: bajan al plano de union para la vista explotada
     for sx, mat in ((-0.9, mats["wire_amber"]), (0.9, mats["wire_black"])):
         wire(f"Wire_SPK_{sx:+.1f}",
-             [(-16.4 + sx, -14.0, 17.8), (-18.0 + sx, -12.0, 17.4),
-              (-18.0 + sx, -8.0, 16.8), (-17.4 + sx, -6.0, 16.55)],
+             [(SPK_C[0] - 6.0 + sx, SPK_C[1] - 4.0, 17.8),
+              (SPK_C[0] - 8.0 + sx, SPK_C[1] - 6.0, 17.4),
+              (SPK_C[0] - 8.0 + sx, SPK_C[1] - 2.0, 16.8),
+              (SPK_C[0] - 6.0 + sx, SPK_C[1], 16.55)],
              0.45, mat, col, "lid")
     for sx, mat in ((-0.8, mats["wire_black"]), (0.8, mats["wire_red"])):
         wire(f"Wire_BTN_U_{sx:+.1f}",
-             [(BTN_UP_C[0] + sx, BTN_UP_C[1] - 2.4, 16.25),
-              (BTN_UP_C[0] - 1.0 + sx, BTN_UP_C[1] - 4.0, 16.4),
-              (BTN_UP_C[0] - 4.0 + sx, BTN_UP_C[1] - 5.0, 16.6)],
+             [(BTN_UP_C[0] - 2.0 + sx, BTN_UP_C[1] - 2.4, 16.25),
+              (BTN_UP_C[0] - 3.0 + sx, BTN_UP_C[1] - 4.0, 16.4),
+              (BTN_UP_C[0] - 6.0 + sx, BTN_UP_C[1] - 5.0, 16.6)],
              0.38, mat, col, "lid")
         wire(f"Wire_BTN_D_{sx:+.1f}",
-             [(BTN_DOWN_C[0] + sx, BTN_DOWN_C[1] - 2.4, 16.25),
-              (BTN_DOWN_C[0] - 1.0 + sx, BTN_DOWN_C[1] - 4.0, 16.4),
-              (BTN_DOWN_C[0] - 4.0 + sx, BTN_DOWN_C[1] - 5.0, 16.6)],
+             [(BTN_DOWN_C[0] - 2.0 + sx, BTN_DOWN_C[1] - 2.4, 16.25),
+              (BTN_DOWN_C[0] - 3.0 + sx, BTN_DOWN_C[1] - 4.0, 16.4),
+              (BTN_DOWN_C[0] - 6.0 + sx, BTN_DOWN_C[1] - 5.0, 16.6)],
              0.38, mat, col, "lid")
 
     return parts
@@ -1038,18 +1011,6 @@ def aabb(name, w, l, h, cx, cy, z0):
 
 def check_layout():
     boxes = [aabb(*row[:7]) for row in LAYOUT]
-    extra = [
-        # nombre, w, l, h, cx, cy, z0
-        ("Boss_%s_%s" % (int(x), int(y)), 2 * BOSS_R, 2 * BOSS_R,
-         INNER_TOP - BOSS_Z0, x, y, BOSS_Z0)
-        for x, y in BOSS_XY
-    ]
-    extra += [
-        ("Sleeve_%s_%s" % (int(x), int(y)), 2 * SLEEVE_R, 2 * SLEEVE_R,
-         BOSS_Z0 - FLOOR, x, y, FLOOR)
-        for x, y in BOSS_XY
-    ]
-    boxes += [aabb(*row[:7]) for row in extra]
     problems = []
     for i, a in enumerate(boxes):
         for b in boxes[i + 1:]:
@@ -1209,21 +1170,21 @@ def explode_wires(mats):
                         col, None))
 
     for sx, mat in ((-0.9, mats["wire_amber"]), (0.9, mats["wire_black"])):
-        a = (-16.4 + sx, -14.0, 17.8 + EXPLODE_DZ)
-        b = (9.5 + sx, -7.0, 16.0 + INTERNALS_DZ)
+        a = (SPK_C[0] - 6.0 + sx, SPK_C[1] - 4.0, 17.8 + EXPLODE_DZ)
+        b = (6.5 + sx, -3.0, 16.0 + INTERNALS_DZ)
         out.append(wire("EX_SPK_%+.1f" % sx,
-                        [a, (a[0] + 4, -8, a[2] - 8),
-                         (18.0, 8.0, a[2] - 20), (13.0, 15.0, b[2] + 6), b],
+                        [a, (a[0] - 4, a[1] - 2, a[2] - 8),
+                         (-18.0, -5.0, a[2] - 18), (-10.0, -3.0, b[2] + 6), b],
                         0.42, mat, col, None))
 
     for c, tag in ((BTN_UP_C, "U"), (BTN_DOWN_C, "D")):
         for sx, mat in ((-0.8, mats["wire_black"]), (0.8, mats["wire_red"])):
             a = (c[0] - 4.0 + sx, c[1] - 5.0, 16.0 + EXPLODE_DZ)
-            b = (10.0 + sx, -17.0, 7.0 + INTERNALS_DZ)
+            b = (-14.5 + sx, -17.0, 7.0 + INTERNALS_DZ)
             out.append(wire("EX_BTN_%s_%+.1f" % (tag, sx),
                             [a, (a[0] - 3, a[1] - 6, a[2] - 7),
-                             (-4.0 + sx, 2.0, (a[2] + b[2]) * 0.5),
-                             (-9.0 + sx, 8.0, b[2] + 5), b],
+                             (-14.5 + sx, 2.0, (a[2] + b[2]) * 0.5),
+                             (-14.5 + sx, -8.0, b[2] + 5), b],
                             0.34, mat, col, None))
 
     return out
