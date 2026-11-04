@@ -79,3 +79,7 @@ tools/wakeword/**/*.wav
 # Blender backups
 *.blend1
 **/*.blend1
+*.blend
+**/*.blend
+*.png
+**/*.png
