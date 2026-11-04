@@ -8,6 +8,7 @@ import com.fifo.voicepipeline.location.NavigationNotice
 import com.fifo.voicepipeline.network.BleConnectionState
 import com.fifo.voicepipeline.network.BleVoiceClient
 import com.fifo.voicepipeline.network.CloudApiClient
+import com.fifo.voicepipeline.network.FifoButtonEvent
 import com.fifo.voicepipeline.pipeline.session.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -128,8 +129,24 @@ class VoicePipelineManager(
         },
         onConnectionChanged = { connected ->
             handleBleConnectionChanged(connected)
+        },
+        onButtonEvent = { event ->
+            handleRobotButton(event)
         }
     )
+
+    /**
+     * Puente entre la salida de voz del pipeline y el parlante del robot
+     * (ADR-0055). El pipeline no conoce BLE: solo pide enviar PCM.
+     */
+    private val bleSpeakerRoute = object : RobotSpeakerRoute {
+        override val isAvailable: Boolean
+            get() = bleClient.isConnected
+        override fun sendPcm(pcm: ByteArray): Boolean = bleClient.sendSpeakerPcm(pcm)
+        override fun flush() {
+            bleClient.flushSpeaker()
+        }
+    }
 
     val bleConnectionState: StateFlow<BleConnectionState> = bleClient.connectionState
 
@@ -456,7 +473,8 @@ class VoicePipelineManager(
             cloudClient = cloudClient,
             skillRegistry = skillRegistry,
             graph = appGraph,
-            initialMicMuted = _isMicMuted.value
+            initialMicMuted = _isMicMuted.value,
+            speakerRoute = bleSpeakerRoute
         )
         sessionPipeline = pipeline
         mirrorSessionPipeline(pipeline)
@@ -539,6 +557,28 @@ class VoicePipelineManager(
         PipelineState.DISCONNECTED -> "DESCONECTADO"
         PipelineState.ERROR -> "ERROR"
         PipelineState.IDLE -> "LISTO"
+    }
+
+    /**
+     * Gestos del pulsador físico (ff14).
+     *
+     * El firmware solo clasifica el gesto; la acción es del camino nuevo, así
+     * que el camino legacy los ignora a propósito (ADR-0055).
+     */
+    private fun handleRobotButton(event: FifoButtonEvent) {
+        if (!useVoiceSession) return
+        val session = sessionPipeline?.session ?: return
+
+        when (event) {
+            FifoButtonEvent.SHORT_PRESS -> {
+                Log.i(TAG, "Pulsador: despertar a Fifo")
+                session.dispatchIntent(VoiceSessionIntent.PushToTalk)
+            }
+            FifoButtonEvent.LONG_PRESS -> {
+                Log.i(TAG, "Pulsador: alternar silencio del micrófono")
+                session.dispatchIntent(VoiceSessionIntent.ToggleMicMute)
+            }
+        }
     }
 
     private fun handleBleConnectionChanged(connected: Boolean) {

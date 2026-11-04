@@ -2,18 +2,18 @@
 #include <Arduino.h>
 
 Display::Display()
-    : _u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE) {}
+    : _u8g2(U8G2_R0, /* reset=*/ U8X8_PIN_NONE, /* clock=*/ OLED_SCL, /* data=*/ OLED_SDA) {}
 
 bool Display::begin() {
-    Wire.begin(OLED_SDA, OLED_SCL);
-
+    // U8g2 inicializa Wire con los pines del constructor.
     if (!_u8g2.begin()) {
         Serial.println("[OLED] Error inicializando pantalla");
         return false;
     }
 
     _u8g2.setContrast(200);
-    Serial.println("[OLED] Pantalla 1.3\" inicializada OK (SDA=8, SCL=9)");
+    Serial.printf("[OLED] Pantalla SSD1306 0.96 inicializada OK (SDA=%d, SCL=%d)\n",
+                  OLED_SDA, OLED_SCL);
     return true;
 }
 

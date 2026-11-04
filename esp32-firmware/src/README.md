@@ -1,6 +1,6 @@
-# ⚡ ESP32 Source Code Map (`esp32-firmware/src/`)
+# ⚡ Firmware Source Map (`esp32-firmware/src/`)
 
-Código fuente modular en C++ para el microcontrolador ESP32 de Fifo.
+Código fuente modular en C++ para la Seeed XIAO ESP32-S3 de Fifo.
 
 ---
 
@@ -8,12 +8,13 @@ Código fuente modular en C++ para el microcontrolador ESP32 de Fifo.
 
 | Archivo | Rol y Responsabilidad |
 | :--- | :--- |
-| [`config.h`](config.h) | **Configuración central del hardware**: Mapeo de pines GPIO (I2C para OLED, I2S para micrófono y parlante), parámetros de audio (16,000 Hz, 16-bit mono), UUIDs para el servicio GATT BLE de audio y display, y constantes de sincronización. |
-| [`main.cpp`](main.cpp) | **Punto de entrada (`setup` y `loop`)**: Inicializa el monitor serial, la pantalla OLED, el bus I2S y el servidor BLE. En el bucle principal orquesta la lectura de tramas de micrófono hacia el buffer BLE y la actualización de las expresiones faciales. |
-| [`ble_audio_service.h`](ble_audio_service.h) / [`.cpp`](ble_audio_service.cpp) | **Servidor Bluetooth Low Energy**: Gestiona el servicio GATT con características para streaming bidireccional de paquetes de voz hacia el celular Android y recepción de comandos de estado de la pantalla OLED (`ESCUCHANDO`, `HABLANDO`, `PENSANDO`, `DURMIENDO`). |
-| [`display.h`](display.h) / [`.cpp`](display.cpp) | **Controlador de Pantalla OLED SSD1306 (128x64)**: Dibuja los ojos animados y expresiones faciales de Fifo (parpadeo, mirada atenta, boca que habla con modulación de volumen) y renderiza subtítulos de texto para el usuario. |
-| [`i2s_mic.h`](i2s_mic.h) / [`.cpp`](i2s_mic.cpp) | **Driver de Micrófono I2S (INMP441)**: Lee muestras de audio PCM mono de 16 bits en tiempo real desde el puerto I2S0 utilizando DMA para no bloquear el CPU. |
-| [`i2s_speaker.h`](i2s_speaker.h) / [`.cpp`](i2s_speaker.cpp) | **Driver de Parlante I2S (MAX98357A)**: Escribe paquetes de audio decodificados al puerto I2S1 para reproducir la voz de Fifo a través del altavoz integrado del robot. |
+| [`config.h`](config.h) | **Configuración central del hardware**: pines de la OLED (I2C), del INMP441 (I2S0 RX) y del MAX98357A (I2S1 TX), pin y tiempos del pulsador, parámetros de audio (mic 16 kHz, parlante 8 kHz), UUIDs GATT y tamaños de cola. |
+| [`main.cpp`](main.cpp) | **Punto de entrada (`setup` y `loop`)**: inicializa pantalla, micrófono, parlante y servidor BLE, y crea las cuatro tareas FreeRTOS (micrófono, parlante, pulsador y rostro). |
+| [`ble_audio_service.h`](ble_audio_service.h) / [`.cpp`](ble_audio_service.cpp) | **Servidor BLE**: características de audio (notify), display (write), parlante (write) y pulsador (notify). No reproduce ni decide: encola el audio y publica el gesto. |
+| [`display.h`](display.h) / [`.cpp`](display.cpp) | **Rostro en OLED SSD1306 0.96"**: ojos animados, ondas de escucha, boca sincronizada y subtítulos. |
+| [`i2s_mic.h`](i2s_mic.h) / [`.cpp`](i2s_mic.cpp) | **Micrófono INMP441**: lee ranuras de 32 bits por DMA, las desplaza a PCM 16 bits y quita la deriva de continua. |
+| [`i2s_speaker.h`](i2s_speaker.h) / [`.cpp`](i2s_speaker.cpp) | **Parlante MAX98357A**: cola de 400 ms en un stream buffer y volcado al DMA. El callback de BLE nunca espera al hardware: si la cola está llena, descarta el bloque. |
+| [`button.h`](button.h) / [`.cpp`](button.cpp) | **Pulsador**: antirrebote y detección de pulsación corta o larga. Solo clasifica el gesto. |
 
 ---
 
@@ -21,15 +22,26 @@ Código fuente modular en C++ para el microcontrolador ESP32 de Fifo.
 
 ```
 [ INMP441 Mic ] ──► i2s_mic.cpp ──► ble_audio_service.cpp ──► (BLE) ──► [ Android App ]
-                                                                               │
+                                                                                │
 [ SSD1306 OLED] ◄── display.cpp ◄── ble_audio_service.cpp ◄── (BLE) ◄──────────┤
-                                                                               │
-[ MAX98357A Spk] ◄── i2s_speaker.cpp ◄── ble_audio_service.cpp ◄── (BLE) ◄─────┘
+                                                                                │
+[ MAX98357A Spk] ◄── i2s_speaker.cpp ◄── ble_audio_service.cpp ◄── (BLE) ◄─────┤
+                                                                                │
+[ Pulsador     ] ──► button.cpp ──► ble_audio_service.cpp ──► (BLE) ──►─────────┘
 ```
 
 ---
 
 ## 🧭 Reglas de Programación en `esp32-firmware/src/`
-1. **DMA y Buffers:** El tamaño de buffer en `i2s_mic.cpp` debe ser potencia de 2 y múltiplo de los paquetes MTU de BLE (típicamente 256 o 512 bytes).
-2. **Prioridad de Tareas:** Si se usa FreeRTOS, la tarea de audio I2S debe correr en Core 0 con alta prioridad, mientras el display y BLE corren en Core 1 para evitar cortes en el audio.
-3. **No bloquear el bucle:** Evitar `delay()` mayores a 10ms en `main.cpp`; utilizar `millis()` para las animaciones del display.
+
+1. **Un dueño por hardware.** Solo `i2s_mic.cpp` toca el I2S0 y solo
+   `i2s_speaker.cpp` el I2S1. `ble_audio_service.cpp` no configura pines.
+2. **El callback de BLE nunca se bloquea.** El audio que baja se encola con
+   `submit()` (sin espera). Si no cabe, se descarta el bloque completo: nunca se
+   recorta una muestra a la mitad.
+3. **Nada de `delay()` largos en `main.cpp`.** El trabajo vive en tareas; el
+   `loop()` solo duerme.
+4. **El pulsador no ejecuta acciones.** Clasifica el gesto y lo notifica; la
+   decisión (despertar, silenciar) es del celular.
+5. **Los buffers de audio son múltiplos de 512 bytes** para caber en un paquete
+   BLE con MTU 517 sin fragmentación.

@@ -1,33 +1,58 @@
 # Enclosure 3D · Fifo Robot
 
 Modelo paramétrico de la caja del robot Fifo (kit XIAO ESP32-S3).  
-Medidas: 62 × 74 × 24 mm, radios 12 mm, pared 2 mm, piso 3.5 mm.
+Medidas exactas: 62 × 74 × 24 mm, radios 12 mm, pared 2 mm, piso 3.5 mm.
 
-## Ejecutar
+## Ejecución
 
+### Opción 1: Vía MCP (Nexus-Blender-Bridge en `http://localhost:3000/sse`)
+Con Blender abierto y el puente MCP activo:
+
+```powershell
+python hardware/enclosure/build_enclosure.py
+```
+
+O usando el cliente MCP directamente:
+
+```powershell
+python hardware/enclosure/mcp_client.py
+```
+
+### Opción 2: Modo headless (CLI)
 ```powershell
 & "C:\Program Files\Blender Foundation\Blender 5.2\blender.exe" --background --factory-startup --python .\hardware\enclosure\build_enclosure.py
 ```
 
-Genera:
-- `hardware/enclosure/render_enclosure.png` (1920×1080, Cycles 256 samples)
-- `hardware/enclosure/enclosure.blend` (editable en Blender 4.0+)
+Genera y actualiza:
+- `hardware/enclosure/enclosure.blend` (archivo editable, con todos los componentes y materiales marcados como **Assets** en el Asset Browser)
+- `hardware/enclosure/render_enclosure.png` (render 1920×1080)
 
 ## Documentación
 
 - **[ASSEMBLY.md](ASSEMBLY.md)** — Guía completa de montaje con esquemas, wiring, vistas explotadas, slicer settings y troubleshooting.
-- **[build_enclosure.py](build_enclosure.py)** — Script generador (fuente de verdad, paramétrico).
+- **[build_enclosure.py](build_enclosure.py)** — Script generador paramétrico con soporte dual (MCP / CLI).
+- **[mcp_client.py](mcp_client.py)** — Cliente robusto para el protocolo MCP SSE JSON-RPC 2.0.
+
+## Integración de Assets en Blender & MCP
+
+Todos los objetos y materiales están registrados en el **Asset Browser** de Blender:
+- **Carcasa:** `Fifo_Case_Bottom`, `Fifo_Case_Top`
+- **Audio:** `Fifo_Acoustic_Grille`, `Fifo_Grille_Rim`, `Fifo_Speaker_Driver`
+- **Pantalla y UI:** `Fifo_Acrylic_Lens`, `Fifo_OLED_Screen`, `Fifo_OLED_PCB`, `Fifo_Face_Expression`
+- **Controles:** `Fifo_Button_VolUp` (Verde), `Fifo_Button_VolDown` (Rojo), `Fifo_Switch_SS12D07`
+- **Electrónica:** `Fifo_XIAO_ESP32S3`, `Fifo_LiPo_Battery`, `Fifo_GPS_Module`, `Fifo_Amp_MAX98357A`, `Fifo_Mic_INMP441`, `Fifo_USBC_Connector`
+- **Materiales PBR:** `Mat_Fifo_Navy`, `Mat_Fifo_OLED_Blue`, `Mat_Fifo_Accent_Green`, `Mat_Fifo_Accent_Red`, etc.
 
 ## Contenido del modelo (colecciones Blender)
 
 | Colección | Descripción |
 |-----------|-------------|
-| `00_Estudio` | Suelo + 3 áreas (key/fill/rim) + cámara 42 mm |
-| `01_Carcasa` | Contera + tapa (encaje a presión), ventana OLED, rejilla, botones, USB-C, switch |
-| `02_Rejilla` | Disco metamica Ø22 mm, agujeros Ø0.85 pitch 2.4 + aro |
-| `03_Pantalla` | Lente acrílico 2.6 mm + LCD azul emissive + rostro (2 ojos + sonrisa) |
-| `04_Botones` | 2× botón (vástago 6 mm + tapa verde/roja) + etiquetas |
-| `05_Internos` | XIAO, shield RF, OLED, INMP441, MAX98357A, parlante, LiPo, GPS+patch, switch, 2× pulsadores PCB, USB-C |
+| `00_Estudio` | Suelo ciclorama + 3 áreas (key/fill/rim) + cámara 45 mm |
+| `01_Carcasa` | Contera (Z=0..17) + tapa (Z=17..24), ventana OLED, rejilla, botones, USB-C, switch |
+| `02_Rejilla` | Disco metálico Ø22 mm, agujeros concéntricos + bisel + parlante planar Ø20 |
+| `03_Pantalla` | Lente acrílico 1.6 mm + LCD azul emissive + rostro (2 ojos + sonrisa) |
+| `04_Botones` | 2× botón (Vol+ verde con '+', Vol- rojo con '-') + 2× tact switch PCB |
+| `05_Internos` | XIAO ESP32-S3 con RF shield, LiPo 902030, GPS ATGM336H + patch, amp MAX98357A, mic INMP441, switch SS12D07, USB-C |
 
 ## Hardware mapeado
 
@@ -42,9 +67,3 @@ Genera:
 | GNSS | ATGM336H GPS+BeiDou | UART1 TX=D6, RX=D7 (GPIO43/44) |
 | Switch | SS12D07 slide | EN / GPIO libre + pull-up |
 | Pulsadores | 2× 6×6×5 mm | GPIO5/6 + INPUT_PULLUP |
-
-## Notas
-
-- No usa MCP for Blender; se ejecuta por línea de comandos para reproducibilidad.
-- Los archivos `.blend` y `.png` **no se commitean**; el script `build_enclosure.py` es la fuente de verdad.
-- Ver `ASSEMBLY.md` para secuencia de montaje paso a paso, wiring ASCII, slicer settings y troubleshooting.

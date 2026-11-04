@@ -1,113 +1,95 @@
 #include "i2s_mic.h"
 #include <Arduino.h>
-#include <driver/adc.h>
+#include <driver/i2s.h>
 
 bool I2SMic::begin() {
     // ═══════════════════════════════════════════════════
-    //  ESP32-S3 ADC Continuous (DMA) Mode
-    //  Muestreo continuo por hardware a 16 kHz vía DMA
+    //  INMP441: I2S maestro RX, ranura de 32 bits mono
+    //  El micrófono entrega 24 bits; el DMA los trae completos.
     // ═══════════════════════════════════════════════════
-    adc_digi_init_config_t adc_dma_config = {};
-    adc_dma_config.max_store_buf_size = 4096;
-    adc_dma_config.conv_num_each_intr = 512;
-    adc_dma_config.adc1_chan_mask = (1 << MIC_ADC_CHANNEL);
-    adc_dma_config.adc2_chan_mask = 0;
+    i2s_config_t config = {};
+    config.mode                 = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX);
+    config.sample_rate          = SAMPLE_RATE;
+    config.bits_per_sample      = MIC_BITS_PER_SAMPLE;
+    config.channel_format       = I2S_CHANNEL_FMT_ONLY_LEFT;
+    config.communication_format = I2S_COMM_FORMAT_STAND_I2S;
+    config.intr_alloc_flags     = ESP_INTR_FLAG_LEVEL1;
+    config.dma_buf_count        = 8;
+    config.dma_buf_len          = 256;
+    config.use_apll             = false;
+    config.tx_desc_auto_clear   = false;
+    config.fixed_mclk           = 0;
 
-    esp_err_t err = adc_digi_initialize(&adc_dma_config);
+    esp_err_t err = i2s_driver_install((i2s_port_t)MIC_I2S_PORT, &config, 0, NULL);
     if (err != ESP_OK) {
-        Serial.printf("[MIC] Error adc_digi_initialize: %s\n", esp_err_to_name(err));
+        Serial.printf("[MIC] Error instalando driver I2S: %s\n", esp_err_to_name(err));
         return false;
     }
 
-    adc_digi_pattern_config_t pattern = {};
-    pattern.atten = ADC_ATTEN_DB_12;
-    pattern.channel = (uint8_t)MIC_ADC_CHANNEL;
-    pattern.unit = ADC_UNIT_1;
-    pattern.bit_width = 12;
+    i2s_pin_config_t pins = {};
+    pins.mck_io_num   = I2S_PIN_NO_CHANGE;
+    pins.bck_io_num   = MIC_I2S_SCK;
+    pins.ws_io_num    = MIC_I2S_WS;
+    pins.data_out_num = I2S_PIN_NO_CHANGE;
+    pins.data_in_num  = MIC_I2S_SD;
 
-    adc_digi_configuration_t dig_cfg = {};
-    dig_cfg.conv_limit_en = false;
-    dig_cfg.conv_limit_num = 0;
-    dig_cfg.pattern_num = 1;
-    dig_cfg.adc_pattern = &pattern;
-    dig_cfg.sample_freq_hz = SAMPLE_RATE; // 16000 Hz
-    dig_cfg.conv_mode = ADC_CONV_SINGLE_UNIT_1;
-    dig_cfg.format = ADC_DIGI_OUTPUT_FORMAT_TYPE2;
-
-    err = adc_digi_controller_configure(&dig_cfg);
+    err = i2s_set_pin((i2s_port_t)MIC_I2S_PORT, &pins);
     if (err != ESP_OK) {
-        Serial.printf("[MIC] Error adc_digi_controller_configure: %s\n", esp_err_to_name(err));
-        adc_digi_deinitialize();
+        Serial.printf("[MIC] Error configurando pines: %s\n", esp_err_to_name(err));
+        i2s_driver_uninstall((i2s_port_t)MIC_I2S_PORT);
         return false;
     }
 
-    err = adc_digi_start();
-    if (err != ESP_OK) {
-        Serial.printf("[MIC] Error adc_digi_start: %s\n", esp_err_to_name(err));
-        adc_digi_deinitialize();
-        return false;
-    }
+    // Descartar el primer bloque evita arrancar con basura del DMA.
+    i2s_zero_dma_buffer((i2s_port_t)MIC_I2S_PORT);
 
     _initialized = true;
-    Serial.println("[MIC] Micrófono analógico UCC (ADC DMA) inicializado OK a 16kHz");
-    Serial.printf("[MIC] Pin: GPIO %d | ADC1 Canal %d | Sample rate: %d Hz\n",
-                  MIC_ADC_PIN, MIC_ADC_CHANNEL, SAMPLE_RATE);
+    Serial.println("[MIC] INMP441 (I2S DMA) inicializado OK a 16 kHz");
+    Serial.printf("[MIC] SCK=%d WS=%d SD=%d | Sample rate: %d Hz\n",
+                  MIC_I2S_SCK, MIC_I2S_WS, MIC_I2S_SD, SAMPLE_RATE);
     return true;
 }
 
 size_t I2SMic::read(int16_t* buffer, size_t maxSamples) {
     if (!_initialized || maxSamples == 0) return 0;
 
-    uint32_t toReadBytes = maxSamples * sizeof(adc_digi_output_data_t);
-    if (toReadBytes > sizeof(_dmaBuffer)) {
-        toReadBytes = sizeof(_dmaBuffer);
-    }
+    size_t samples = maxSamples > CHUNK_SAMPLES ? CHUNK_SAMPLES : maxSamples;
+    size_t bytesRequested = samples * sizeof(int32_t);
+    size_t bytesRead = 0;
 
-    uint32_t outLength = 0;
-    esp_err_t err = adc_digi_read_bytes((uint8_t*)_dmaBuffer, toReadBytes, &outLength, 50);
+    esp_err_t err = i2s_read(
+        (i2s_port_t)MIC_I2S_PORT,
+        _rawBuffer,
+        bytesRequested,
+        &bytesRead,
+        pdMS_TO_TICKS(50)
+    );
     if (err != ESP_OK && err != ESP_ERR_TIMEOUT) {
         return 0;
     }
 
-    size_t samplesCount = outLength / sizeof(adc_digi_output_data_t);
-    for (size_t i = 0; i < samplesCount; i++) {
-        float sampleRaw = (float)(_dmaBuffer[i].type2.data); // 12 bits: 0..4095
-        
-        // 1. Seguimiento adaptativo de la componente continua (DC Bias)
-        _dcBias = _dcBias * 0.999f + sampleRaw * 0.001f;
-        float centered = sampleRaw - _dcBias;
+    size_t samplesRead = bytesRead / sizeof(int32_t);
+    for (size_t i = 0; i < samplesRead; i++) {
+        // 24 bits alineados a la izquierda dentro de la ranura de 32.
+        float sample = (float)(_rawBuffer[i] >> MIC_SAMPLE_SHIFT);
 
-        // 2. Filtro paso-altos (~150 Hz a 16 kHz): elimina zumbidos graves y vibraciones
-        float hpOut = 0.942f * (_prevOut + centered - _prevIn);
-        _prevIn = centered;
-        _prevOut = hpOut;
+        // El INMP441 sale acoplado en alterna, pero conserva una deriva lenta
+        // de continua. Un bloqueador de una polo la quita sin tocar la voz.
+        _dcOffset = _dcOffset * 0.9995f + sample * 0.0005f;
+        int32_t centered = (int32_t)(sample - _dcOffset);
 
-        // 3. Puerta de ruido suave (Soft Noise Gate):
-        // Atenúa el murmullo lejano de baja amplitud (< 30 unidades ADC).
-        // Al hablar de cerca al micrófono UCC, la señal supera 100-500 unidades y pasa nítida
-        float absVal = fabsf(hpOut);
-        float gain = 16.0f;
-        if (absVal < 30.0f) {
-            gain = 4.0f; // Atenúa murmullo distante
-        } else if (absVal < 70.0f) {
-            gain = 4.0f + (absVal - 30.0f) * (12.0f / 40.0f);
-        }
-
-        int32_t scaled = (int32_t)(hpOut * gain);
-        if (scaled > 32767) scaled = 32767;
-        if (scaled < -32768) scaled = -32768;
-        buffer[i] = (int16_t)scaled;
+        if (centered > 32767) centered = 32767;
+        if (centered < -32768) centered = -32768;
+        buffer[i] = (int16_t)centered;
     }
 
-    return samplesCount;
+    return samplesRead;
 }
 
 void I2SMic::end() {
     if (_initialized) {
-        adc_digi_stop();
-        adc_digi_deinitialize();
+        i2s_driver_uninstall((i2s_port_t)MIC_I2S_PORT);
         _initialized = false;
-        Serial.println("[MIC] Driver ADC DMA desinstalado");
+        Serial.println("[MIC] Driver I2S desinstalado");
     }
 }
-

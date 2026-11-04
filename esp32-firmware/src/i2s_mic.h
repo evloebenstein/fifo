@@ -1,14 +1,17 @@
 #pragma once
 
 #include "config.h"
-#include <driver/adc.h>
+#include <cstddef>
+#include <cstdint>
 
-/// Wrapper para micrófono analógico (módulo UCC con ganancia ajustable)
-/// usando el controlador Digital ADC DMA (Continuous) del ESP32-S3.
-/// Muestrea a 16 kHz por hardware DMA sin consumir ciclos de CPU.
+/// Micrófono digital I2S INMP441.
+///
+/// Usa el controlador I2S0 en modo maestro RX con ranuras de 32 bits y solo el
+/// canal izquierdo (L/R a GND). El INMP441 entrega 24 bits alineados a la
+/// izquierda, así que se desplazan a PCM 16 bits.
 class I2SMic {
 public:
-    /// Inicializa el ADC continuo por DMA.
+    /// Inicializa el driver I2S de recepción.
     bool begin();
 
     /// Lee hasta `maxSamples` muestras PCM 16-bit convertidas.
@@ -20,9 +23,6 @@ public:
 
 private:
     bool _initialized = false;
-    adc_digi_output_data_t _dmaBuffer[CHUNK_SAMPLES];
-    float _dcBias = 2048.0f;
-    float _prevIn = 0.0f;
-    float _prevOut = 0.0f;
+    int32_t _rawBuffer[CHUNK_SAMPLES] = {};
+    float _dcOffset = 0.0f;
 };
-

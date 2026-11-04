@@ -75,3 +75,7 @@ tools/wakeword/corpus/
 tools/wakeword/models/
 tools/wakeword/**/*.pt
 tools/wakeword/**/*.wav
+
+# Blender backups
+*.blend1
+**/*.blend1

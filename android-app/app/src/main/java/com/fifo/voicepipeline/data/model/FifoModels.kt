@@ -244,6 +244,36 @@ data class FifoDeviceLocation(
 )
 
 /**
+ * Última posición conocida del GNSS del robot (ADR-0056).
+ *
+ * Es un hecho del hardware, no una frase: `DeviceState` lo guarda y quien lo
+ * necesita decide si sirve para guiar al usuario.
+ */
+data class RobotGpsFix(
+    val hasFix: Boolean = false,
+    val latitude: Double = 0.0,
+    val longitude: Double = 0.0,
+    val altitudeMeters: Double = 0.0,
+    val satellites: Int = 0,
+    val hdop: Double = 0.0,
+    /** Marca local del teléfono en milisegundos del reloj de sistema. */
+    val receivedAtMs: Long = 0L
+) {
+    /**
+     * `true` si la posición es útil para orientar al usuario: hay fix y el dato
+     * no es viejo. Un fix de hace media hora no dice dónde está el robot hoy.
+     */
+    fun isPreciseAt(nowMs: Long, maxAgeMs: Long = PRECISION_WINDOW_MS): Boolean =
+        hasFix && latitude != 0.0 && longitude != 0.0 &&
+            receivedAtMs in 1..nowMs && nowMs - receivedAtMs <= maxAgeMs
+
+    companion object {
+        /** Ventana de frescura del fix del robot: 90 segundos. */
+        const val PRECISION_WINDOW_MS = 90_000L
+    }
+}
+
+/**
  * Información de ubicación geográfica actual obtenida del GPS del celular.
  */
 data class CurrentLocationInfo(

@@ -4,7 +4,7 @@
 #include <Wire.h>
 #include "config.h"
 
-/// Driver para pantalla OLED 1.3" I2C (SH1106 128x64) en ESP32-S3.
+/// Driver para pantalla OLED 0.96" I2C (SSD1306 128x64) en la XIAO ESP32-S3.
 /// Muestra el rostro animado y expresivo de "Fifo" con animaciones
 /// de escucha (ondas reactivas) y habla (apertura y cierre de boca sincronizado).
 class Display {
@@ -24,7 +24,9 @@ public:
     void showBleWaiting();
 
 private:
-    U8G2_SH1106_128X64_NONAME_F_HW_I2C _u8g2;
+    // El constructor recibe clock y data para que U8g2 inicialice Wire en los
+    // pines de la XIAO (D4/D5) y no en los I2C por defecto del ESP32-S3.
+    U8G2_SSD1306_128X64_NONAME_F_HW_I2C _u8g2;
 
     void drawStatusBar(bool bleConnected, const char* state);
     void drawFifoFace(const char* state, float audioLevel, unsigned long nowMs);

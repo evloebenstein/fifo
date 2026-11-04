@@ -1,6 +1,7 @@
 package com.fifo.voicepipeline.pipeline.session
 
 import android.content.Context
+import com.fifo.voicepipeline.audio.RobotSpeakerRoute
 import com.fifo.voicepipeline.data.AppGraph
 import com.fifo.voicepipeline.data.local.SqliteConversationJournal
 import com.fifo.voicepipeline.data.memory.RepositorySessionMemoryConsolidator
@@ -33,7 +34,8 @@ internal class VoiceSessionPipeline(
     private val cloudClient: CloudApiClient,
     private val skillRegistry: FifoSkillRegistry,
     private val graph: AppGraph,
-    initialMicMuted: Boolean
+    initialMicMuted: Boolean,
+    private val speakerRoute: RobotSpeakerRoute? = null
 ) {
     private companion object {
         const val TAG = "VoiceSessionPipeline"
@@ -59,7 +61,7 @@ internal class VoiceSessionPipeline(
         userIdProvider = { graph.identity.userProfile.value.id }
     )
 
-    private val outbound = AndroidAudioHardwareAdapter(context, scope)
+    private val outbound = AndroidAudioHardwareAdapter(context, scope, speakerRoute)
     private val inbound = AndroidAudioHardwareInboundAdapter(
         context,
         callState = graph.telephony
