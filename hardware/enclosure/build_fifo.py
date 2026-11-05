@@ -1078,14 +1078,14 @@ def main():
     bpy.data.objects["Inspect"].hide_render = False
     move_group("face", EXPLODE_DZ)
     move_group("internals", INTERNALS_DZ)
-    render_view("render_fifo_exploded.png", cams["Cam_Exploded"], (1600, 1250), 160)
+    render_view("render_fifo_exploded.png", cams["Cam_Exploded"], (1200, 940), 96)
     move_group("face", -EXPLODE_DZ)
     move_group("internals", -INTERNALS_DZ)
 
     # Vista interna: sin frente, para juzgar el empaquetado.
     for ob in PARTS["face"]:
         ob.hide_render = True
-    render_view("render_fifo_internals.png", cams["Cam_Internals"], (1600, 1250), 160)
+    render_view("render_fifo_internals.png", cams["Cam_Internals"], (1200, 940), 96)
     bpy.data.objects["Inspect"].hide_render = True
     for ob in PARTS["face"]:
         ob.hide_render = False
