@@ -71,6 +71,16 @@ gradlew.bat assembleDebug       # En Windows
 
 El APK resultante se genera en `android-app/app/build/outputs/apk/debug/app-debug.apk`.
 
+### Verificación local de CI
+
+Para reproducir exactamente la comprobación de GitHub Actions, ejecuta desde la raíz del repositorio:
+
+```bash
+cd android-app && ./gradlew compileDebugKotlin testDebugUnitTest assembleDebug
+```
+
+El nombre estable de la comprobación es **`CI green`**. El workflow se ejecuta en pushes y pull requests a `main` cuando cambian `android-app/**` o `.github/workflows/android-ci.yml`, y compila Kotlin, ejecuta las pruebas JVM de debug y ensambla el APK debug.
+
 ### Claves de API y Variables de Entorno
 Fifo usa **Groq LPU** para STT (`whisper-large-v3-turbo`) y LLM (`qwen/qwen3.8-27b`). Opcionalmente, `OPENAI_API_KEY` habilita Whisper de OpenAI como alternativa de STT. No se requiere clave para el TTS nativo de Android.
 
@@ -137,8 +147,7 @@ Las pruebas de verdad incluyen `CaptureArbiterTest`, `SpeechSegmenterTest`, `Voi
    ```
 3. **Realiza tus cambios y verifica la compilación y las pruebas**:
    ```bash
-   cd android-app
-   ./gradlew compileDebugKotlin testDebugUnitTest
+   cd android-app && ./gradlew compileDebugKotlin testDebugUnitTest assembleDebug
    ./gradlew compileReleaseKotlin testReleaseUnitTest
    ```
 4. **Haz commit de tus cambios** respetando las convenciones:
