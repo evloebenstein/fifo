@@ -83,3 +83,6 @@ tools/wakeword/**/*.wav
 **/*.blend
 *.png
 **/*.png
+
+# STL imprimibles (se regeneran con build_fifo_round.py)
+hardware/enclosure/print/

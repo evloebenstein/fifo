@@ -28,6 +28,7 @@ Reglas de diseno:
 
 import math
 import os
+import struct
 
 import bpy
 import bmesh
@@ -66,8 +67,12 @@ STEM_Z0, STEM_H = 22.5, 2.0
 GPS_C = (0.0, 15.0)
 GPS_W, GPS_L = 25.0, 25.0
 ANT_W, ANT_L = 12.0, 12.0
+# XIAO ESP32-S3 (Seeed Studio): PCB 21 (Y) x 17.8 (X) x 1.5 mm.
+# El puerto USB-C nativo está en el borde corto superior (Y+) y sobresale
+# ~3 mm; el conector U.FL está en el borde opuesto (Y-).
 XIAO_C = (0.0, -16.5)
-XIAO_W, XIAO_L = 17.5, 21.0
+XIAO_W, XIAO_L = 17.8, 21.0
+XIAO_USB_PROTRUDE = 3.0
 USB_C = (0.0, -27.65)
 USB_CUT = (10.0, 5.0, 4.0)
 USB_CUT_C = (0.0, -29.5, 8.0)
@@ -86,12 +91,14 @@ ACRY_Z0, ACRY_Z1 = 23.30, 25.00
 ACRY_BEVEL = 0.35
 WIN_W, WIN_L, WIN_R = 22.5, 12.5, 3.0
 SPK_C = (-8.5, -9.5)
-SPK_W, SPK_L = 15.0, 9.0
-GRILLE_R = 7.5
-GRILLE_HOLE = 0.8
-MIC_C = (2.0, -3.0)
-MIC_W, MIC_L, MIC_H = 5.0, 7.0, 2.5
-MIC_PORT = MIC_C
+SPK_W, SPK_L = 16.0, 9.0
+SPK_R = 8.5
+GRILLE_R = 7.75
+GRILLE_HOLE = 1.5
+# INMP441 (módulo circular Ø14 mm) junto al parlante, hacia arriba-derecha.
+MIC_C = (-5.0, 4.5)
+MIC_W, MIC_L, MIC_H = 14.0, 14.0, 1.5
+MIC_PORT = (-8.5, 3.5)
 BTN1_C = (13.0, -7.0)
 BTN2_C = (13.0, -16.0)
 BTN_W, BTN_L = 6.0, 6.0
@@ -132,6 +139,19 @@ LAYOUT = (
     ("Tact_Btn2", BTN_W, BTN_L, BTN_H, BTN2_C[0], BTN2_C[1], BTN_Z0, "switch"),
     ("XIAO_FPC_Ant", 7.0, 4.0, 0.4, -5.0, -23.5, 11.5, "flex"),
 )
+
+SOLIDS_DIR = os.path.join(OUT_DIR, "step_solids")
+CLEAN_MODELS = {
+    # Component: (Indices de sólidos a incluir, Material, Rotación [X, Y, Z])
+    "XIAO_ESP32S3": ([30, 28, 18, 22, 29, 27, 24, 23, 21, 1, 2, 6, 14, 20, 13, 16, 17, 0, 4], 
+                     "pcb", (90.0, 0.0, 0.0)),
+    "MAX98357A": ([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 102], 
+                  "pcb_amp", (90.0, 0.0, 0.0)),
+    "INMP441": ([2, 4, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16], 
+                "pcb_mic", (90.0, 0.0, 0.0)),
+}
+# Filename prefix mapping (if different from name)
+STEP_PREFIX = {"XIAO_ESP32S3": "xiao"}
 TOUCHING = {
     frozenset(("GPS_ATGM336H", "GPS_Antenna")),
     frozenset(("OLED_096", "OLED_Glass")),
@@ -233,6 +253,75 @@ def tube_y(name, radius, y0, y1, cx, cy, cz, col, group=None, verts=32):
     bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=verts,
                           radius1=radius, radius2=radius, depth=(y1 - y0),
                           matrix=mat)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    return add(name, me, col, group)
+
+
+def tube_x(name, radius, x0, x1, cx, cy, cz, col, group=None, verts=32):
+    """Cilindro con el eje paralelo a X (para vastagos y cables)."""
+    bm = bmesh.new()
+    mat = (Matrix.Translation((cx, cy, cz)) @
+           Matrix.Rotation(math.radians(90), 4, "Y"))
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=verts,
+                          radius1=radius, radius2=radius, depth=(x1 - x0),
+                          matrix=mat)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    return add(name, me, col, group)
+
+
+def load_stl(stl_path, name, col, group=None):
+    """Carga un archivo STL binario y crea un objeto de malla en Blender."""
+    if not os.path.exists(stl_path):
+        return None
+    with open(stl_path, "rb") as f:
+        f.read(80)
+        tri_count = struct.unpack("<I", f.read(4))[0]
+        verts = []
+        faces = []
+        for _ in range(tri_count):
+            f.read(12)
+            v0 = struct.unpack("<3f", f.read(12))
+            v1 = struct.unpack("<3f", f.read(12))
+            v2 = struct.unpack("<3f", f.read(12))
+            f.read(2)
+            base = len(verts)
+            verts.extend([v0, v1, v2])
+            faces.append((base, base + 1, base + 2))
+    me = bpy.data.meshes.new(name)
+    me.from_pydata(verts, [], faces)
+    me.validate()
+    me.update()
+    ob = bpy.data.objects.new(name, me)
+    col.objects.link(ob)
+    for p in me.polygons:
+        p.use_smooth = True
+    if group:
+        PARTS[group].append(ob)
+    return ob
+
+
+def capsule(name, w, h, r, z0, z1, cx, cy, col, group=None, seg=12):
+    """Pastilla / stadium: rectangulo w x h con los bordes redondeados a r."""
+    bm = bmesh.new()
+    hw, hh = w / 2.0, h / 2.0
+    pts = []
+    # arriba izq -> arriba der -> abajo der -> abajo izq (CCW)
+    for sx, sy, a0 in ((-1, 1, 180), (1, 1, 270), (1, -1, 0), (-1, -1, 90)):
+        for i in range(seg + 1):
+            a = math.radians(a0 + 90.0 * i / seg)
+            pts.append((cx + sx * hw + r * math.cos(a),
+                        cy + sy * hh + r * math.sin(a)))
+    verts = [bm.verts.new((x, y, z0)) for x, y in pts]
+    face = bm.faces.new(verts)
+    res = bmesh.ops.extrude_face_region(bm, geom=[face])
+    top = [g for g in res["geom"] if isinstance(g, bmesh.types.BMVert)]
+    bmesh.ops.translate(bm, verts=top, vec=(0, 0, z1 - z0))
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     me = bpy.data.meshes.new(name)
     bm.to_mesh(me)
@@ -386,12 +475,7 @@ def build_body(mats):
                 IN_Z0, BODY_Z1 + 0.5, col, seg=12)
     cut(body, cav, "cav")
 
-    usb = prism("usb", USB_CUT[0], USB_CUT[1], 0.6,
-                USB_CUT_C[1] - USB_CUT[1] / 2,
-                USB_CUT_C[1] + USB_CUT[1] / 2, col)
-    usb.location = (USB_CUT_C[0], -EXT_Y, 0.0)
-    select_only(usb)
-    bpy.ops.object.transform_apply(location=True)
+    usb = capsule("usb_cut", 9.0, 3.5, 1.75, 8.0, 12.0, 0.0, -EXT_Y, col)
     cut(body, usb, "usb")
 
     sw = block("sw_cut", SW_CUT[0], SW_CUT[1], SW_CUT[2],
@@ -431,32 +515,25 @@ def build_face(mats):
     assign(bez, mats["glass"])
     shade_smooth(bez)
 
-    rim = prism("Spk_Rim", 18.0, 12.0, 2.5, 23.50, 24.90, col, "face", seg=12)
-    rim.location = (SPK_C[0], SPK_C[1], 0.0)
-    select_only(rim)
-    bpy.ops.object.transform_apply(location=True)
-    rhole = prism("rh_i", 15.2, 8.2, 1.5, 23.00, 25.00, col, seg=12)
-    rhole.location = (SPK_C[0], SPK_C[1], 0.0)
-    select_only(rhole)
-    bpy.ops.object.transform_apply(location=True)
-    cut(rim, rhole, "rim")
-    assign(rim, mats["shell"])
-    shade_smooth(rim)
+    # Aro circular biselado (Ø17 mm) sobre el parlante rectangular interior.
+    rim_o = disc("Spk_Rim_o", 8.50, 23.50, 24.90, SPK_C[0], SPK_C[1], col,
+                 "face", verts=48)
+    rim_i = disc("Spk_Rim_i", 7.25, 23.00, 25.00, SPK_C[0], SPK_C[1], col,
+                 verts=48)
+    cut(rim_o, rim_i, "rim")
+    assign(rim_o, mats["shell"])
+    shade_smooth(rim_o)
 
-    plate = prism("Spk_Grille", 15.0, 8.0, 1.5, 24.40, 24.85, col, "face", seg=10)
-    plate.location = (SPK_C[0], SPK_C[1], 0.0)
-    select_only(plate)
-    bpy.ops.object.transform_apply(location=True)
+    # Tapa perforada circular (Ø15.5 mm) con rejilla concéntrica.
+    plate = disc("Spk_Grille", 7.75, 24.40, 24.85, SPK_C[0], SPK_C[1], col,
+                 "face", verts=48)
     holes = []
-    pitch = 1.6
-    for j in range(-6, 7):
-        for i in range(-6, 7):
-            x = SPK_C[0] + i * pitch + (pitch / 2 if j % 2 else 0.0)
-            y = SPK_C[1] + j * pitch * 0.866
-            if math.hypot(x - SPK_C[0], y - SPK_C[1]) > 6.3:
-                continue
+    for ring, n in ((3.0, 6), (5.2, 12)):
+        for k in range(n):
+            a = 2 * math.pi * k / n
             holes.append(disc("gh", GRILLE_HOLE / 2, 23.00, 25.00,
-                              x, y, col, verts=8))
+                              SPK_C[0] + ring * math.cos(a),
+                              SPK_C[1] + ring * math.sin(a), col, verts=8))
     if holes:
         cut(plate, join(holes, "Grille_Holes", col), "gholes")
     assign(plate, mats["grille"])
@@ -467,9 +544,10 @@ def build_face(mats):
              for c in (BTN1_C, BTN2_C)]
     cut(face, bores, "btn")
 
-    mic = disc("mic_port", 0.30, FACE_Z0 - 0.5, FACE_Z1 + 1.0,
-               MIC_PORT[0], MIC_PORT[1], col, verts=24)
-    cut(face, mic, "micport")
+    # Puerto del micro integrado en el borde superior del aro del parlante.
+    mic = disc("mic_port", 0.50, 23.00, 25.00,
+               SPK_C[0], SPK_C[1] + 8.50, col, verts=24)
+    cut(rim_o, mic, "micport")
 
     text("ALTAVOZ", 1.20, (SPK_C[0], SPK_C[1] - 8.6, FACE_Z1 + 0.015),
          mats["print_dim"], col, "face", space=1.30)
@@ -581,27 +659,127 @@ def build_buttons(mats):
 
     cap("Button_Up", BTN1_C)
     cap("Button_Down", BTN2_C)
+# Definiciones de materiales por tipo de sólido
+COMPONENT_MATS = {
+    "XIAO_ESP32S3": {
+        "pcb": [30],
+        "steel": [18, 28],
+        "gold": [0, 1, 2, 4, 6, 13, 14, 16, 17, 20, 21, 23],
+        "switch": [22, 24, 27, 29]
+    },
+    "MAX98357A": {
+        "pcb_amp": [0],
+        "steel": [1, 4, 102],
+        "switch": [2, 3, 5, 6, 7, 8, 9, 10]
+    },
+    "INMP441": {
+        "pcb_mic": [7],
+        "steel": [15, 16],
+        "rubber": [2, 4, 8, 9, 10, 11, 12, 13, 14] # Excluimos 17-24 (pines)
+    }
+}
+
+def load_real_component(name, col, mats, cx, cy, z0, rot=(0,0,0)):
+    """Carga sólidos, aplica materiales específicos y posiciona el grupo correctamente."""
+    prefix = STEP_PREFIX.get(name, name.lower())
+    mapping = COMPONENT_MATS.get(name, {})
+    
+    imported_objs = []
+    
+    # Cargar cada tipo de material definido para el componente
+    for mat_key, indices in mapping.items():
+        for idx in indices:
+            fn = os.path.join(SOLIDS_DIR, f"{prefix}_solid_{idx:03d}.stl")
+            if not os.path.exists(fn):
+                continue
+            ob = load_stl(fn, f"{name}_{mat_key}_{idx}", col)
+            if ob:
+                assign(ob, mats[mat_key])
+                # Aplicar auto-smooth si está disponible (Blender < 5.2)
+                if hasattr(ob.data, "use_auto_smooth"):
+                    try:
+                        ob.data.use_auto_smooth = True
+                        ob.data.auto_smooth_angle = math.radians(30)
+                    except Exception:
+                        pass
+                imported_objs.append(ob)
+    
+    if not imported_objs:
+        return None
+
+    # Agrupar temporalmente para rotar y posicionar
+    # 1. Aplicar rotación base de cada objeto
+    for ob in imported_objs:
+        ob.rotation_euler = [math.radians(a) for a in rot]
+    
+    bpy.context.view_layer.update()
+    
+    # 2. Calcular caja delimitadora del grupo rotado
+    lo = Vector((1e9, 1e9, 1e9))
+    hi = Vector((-1e9, -1e9, -1e9))
+    for ob in imported_objs:
+        for corner in ob.bound_box:
+            wpos = ob.matrix_world @ Vector(corner)
+            lo.x = min(lo.x, wpos.x)
+            lo.y = min(lo.y, wpos.y)
+            lo.z = min(lo.z, wpos.z)
+            hi.x = max(hi.x, wpos.x)
+            hi.y = max(hi.y, wpos.y)
+            hi.z = max(hi.z, wpos.z)
+    
+    center = (lo + hi) / 2.0
+    size = hi - lo
+    
+    # 3. Mover todos los objetos para que el centro-base esté en (cx, cy, z0)
+    # El offset es desde el centro actual de la caja al destino deseado
+    offset = Vector((cx, cy, z0 - lo.z)) - center
+    # Queremos cx, cy en el centro XY, y lo.z (fondo) en z0.
+    # Así que el nuevo centro será (cx, cy, z0 + size.z/2)
+    target_center = Vector((cx, cy, z0 + size.z / 2.0))
+    shift = target_center - center
+    
+    for ob in imported_objs:
+        ob.location += shift
+        # Aplicar transformaciones para consolidar
+        select_only(ob)
+        bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)
+
+    print(f"[INFO] Posicionado {name} en {cx, cy, z0} con altura {size.z:.2f}mm")
+    return imported_objs[0] # Retornamos uno para el mapeo de partes
+
 def build_internals(mats):
     col = collection("06_Internos")
     parts = {}
+    USE_STEP = os.environ.get("FIFO_USE_STEP") != "0"
+
+    # 1. Crear partes paramétricas base (solo si no hay STEP)
     for name, w, l, h, cx, cy, z0, mat in LAYOUT:
         if name.startswith("Tact_"):
+            continue
+        if USE_STEP and name in COMPONENT_MATS:
             continue
         ob = block(name, w, l, h, cx, cy, z0, col, "internals")
         assign(ob, mats[mat])
         parts[name] = ob
 
-    lab = block("LiPo_Label", 17.0, 11.0, 0.15, 0.0, 1.0,
-                LIPO_Z0 + LIPO_H - 0.12, col, "internals")
-    assign(lab, mats["gps"])
-    jst = block("LiPo_JST", 5.0, 3.5, 2.0, 0.0, -13.5,
-                LIPO_Z0 + LIPO_H - 2.0, col, "internals")
-    assign(jst, mats["steel"])
+    # 2. Cargar componentes REALES desde STEP/STL
+    if USE_STEP:
+        for step_name in COMPONENT_MATS.keys():
+            layout_row = next((row for row in LAYOUT if row[0] == step_name), None)
+            if not layout_row: continue
+            
+            _, w, l, h, cx, cy, z0, mat = layout_row
+            rot = (90, 0, 0) if step_name == "XIAO_ESP32S3" else (90, 0, 0)
+            # Nota: Todos mis STL extraídos parecen necesitar rotación 90 en X para estar planos en este layout
+            
+            ob = load_real_component(step_name, col, mats, cx, cy, z0, rot=rot)
+            if ob:
+                parts[step_name] = ob
+                print(f"[INFO] Cargado componente real: {step_name}")
+    
+    # ... resto de detalles (cables, pads, etc.)
 
-    gps_conn = block("GPS_Conn", 5.0, 2.5, 1.5, 0.0, GPS_C[1] - 10.6,
-                     GPS_Z0 + 0.05, col, "internals")
-    assign(gps_conn, mats["steel"])
-
+    # XIAO-specific details (gold pads, RF shield, LED, USB-C connector)
     for k in range(6):
         x = XIAO_C[0] + (k - 2.5) * 2.6
         for sy in (-1, 1):
@@ -684,12 +862,13 @@ def build_internals(mats):
     assign(rim_o, mats["steel"])
     shade_smooth(rim_o)
 
-    mic = prism("INMP441", MIC_W, MIC_L, 0.6, MIC_Z0, MIC_Z0 + MIC_H,
-                col, "internals", seg=8)
-    assign(mic, mats["pcb_mic"])
-    port = disc("Mic_Port", 0.35, MIC_Z0 + MIC_H, MIC_Z0 + MIC_H + 0.05,
-                MIC_C[0], MIC_C[1], col, "internals", verts=24)
+    # INMP441: now using real STEP model, but still add the acoustic port
+    # The port is already integrated in the speaker rim in build_face()
+    # Just add a small rubber grommet for visual
+    port = disc("Mic_Port", 0.48, MIC_Z0 - 0.05, MIC_Z0, MIC_C[0],
+                MIC_C[1] - 0.8, col, "internals", verts=24)
     assign(port, mats["rubber"])
+
     for name, c in (("Tact_Btn1", BTN1_C), ("Tact_Btn2", BTN2_C)):
         sw = block(name, BTN_W, BTN_L, BTN_H, c[0], c[1],
                    BTN_Z0, col, "internals")

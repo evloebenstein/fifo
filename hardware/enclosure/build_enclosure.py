@@ -1,4 +1,4 @@
-﻿"""Caja del robot Fifo (kit XIAO ESP32-S3) en mm, paramÃ©trica y verificable.
+"""Caja del robot Fifo (kit XIAO ESP32-S3) en mm, paramÃ©trica y verificable.
 
     blender --background --factory-startup --python hardware/enclosure/build_enclosure.py
 
