@@ -1,0 +1,91 @@
+# Tablero de Fifo como código (SAFO). Validar: safo validate; crear/actualizar: safo bootstrap + reconcile.
+# El número de proyecto se escribe aquí después del bootstrap (aún no creado en GitHub).
+version: 1
+project:
+  owner: evloebenstein
+  owner_type: user
+  number: 4
+  title: Fifo
+repositories:
+  - owner: evloebenstein
+    name: fifo
+    default_area: App
+    area_rules:
+      - {match: hardware, area: Hardware}
+      - {match: android-app, area: App}
+      - {match: docs, area: Docs}
+      - {match: tools, area: Herramientas}
+fields:
+  - name: Status
+    type: single_select
+    options:
+      - {name: Backlog, color: GRAY, description: "Sin programar"}
+      - {name: Next, color: BLUE, description: "Programado"}
+      - {name: In progress, color: YELLOW, description: "En curso"}
+      - {name: Blocked, color: RED, description: "Espera una decisión del mantenedor"}
+      - {name: Done, color: GREEN, description: "Terminado y verificado"}
+  - name: Area
+    type: single_select
+    options:
+      - {name: App, color: BLUE, description: "android-app y backend"}
+      - {name: Hardware, color: ORANGE, description: "Carcasa, STL, Blender, montaje"}
+      - {name: Docs, color: PURPLE, description: "ADR, glosario, guías"}
+      - {name: Herramientas, color: GRAY, description: "tools/, arneses, scripts"}
+  - name: Kind
+    type: single_select
+    options:
+      - {name: Feature, color: GREEN, description: ""}
+      - {name: Bug, color: RED, description: ""}
+      - {name: Chore, color: GRAY, description: ""}
+      - {name: Docs, color: PURPLE, description: ""}
+      - {name: Research, color: BLUE, description: ""}
+  - name: Epic
+    type: text
+  - name: Effort
+    type: single_select
+    options:
+      - {name: S, color: GREEN, description: "Menos de una sesión"}
+      - {name: M, color: YELLOW, description: "Una sesión"}
+      - {name: L, color: ORANGE, description: "Varias sesiones"}
+      - {name: XL, color: RED, description: "Dividir antes de empezar"}
+  - name: Agent
+    type: single_select
+    options:
+      - {name: Qoder, color: ORANGE, description: ""}
+      - {name: OpenCode, color: BLUE, description: ""}
+      - {name: Claude Code, color: PURPLE, description: ""}
+      - {name: Codex, color: GREEN, description: ""}
+      - {name: Human, color: GRAY, description: "El mantenedor"}
+  - {name: Sprint, type: iteration, start: 2026-11-23, duration_days: 14, count: 6}
+  - {name: Done on, type: date}
+views:
+  - {name: Board, layout: board, filter: "-status:Done"}
+  - {name: Roadmap, layout: roadmap, filter: "-status:Done"}
+rules:
+  status:
+    opened: Backlog
+    opened_pr: In progress
+    draft_pr: Backlog
+    reopened: Backlog
+    closed: Done
+    merged: Done
+  done_date_field: Done on
+  add_closed_days: 7
+  new_item_defaults:
+    Effort: M
+  tracking:
+    kind_field: Kind
+    epic_field: Epic
+    effort_field: Effort
+  threat_model:
+    label: threat-model
+  # Sin CI ni protección de rama todavía: la regla de merge queda apagada hasta que existan.
+  # Encenderla (gate_check: "CI green") es parte del pendiente de CI, no de este archivo a solas.
+  gate_check: ""
+agents:
+  field: Agent
+  working: [In progress, Next]
+  waiting: [Blocked]
+ui_only:
+  - "Board: agrupar por Status; columna Agent visible"
+  - "Roadmap: Zoom = Month"

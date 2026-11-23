@@ -1,0 +1,114 @@
+# Equipo de Fifo para `safo route`: recomienda, nunca despacha. El lead (sesión que conduce el mantenedor) decide.
+# Los perfiles nacen `unmeasured`: ningún rasgo se afirma sin evidencia medida (ver docs/routing de SAFO).
+version: 1
+agents:
+  qoder:
+    name: Qoder (sesión lead habitual)
+    kind: claude
+    model: ""
+    role: "Lead de sesión y generalista: implementación, hardware (Blender/STL), documentación y coordinación de los roles DIA."
+    limits:
+      contexto: "La conversación se compacta al llenarse; el trabajo largo vive en tareas y archivos, no en la memoria de la sesión."
+    strengths:
+      - "Herramientas de escritorio completas: Blender headless, renders, WSL, navegador y edición multiarchivo."
+      - "Recupera trabajo de otras sesiones (p. ej. la base de datos de OpenCode) y lo termina."
+    constraints:
+      - "No hace push, merge ni acciones de pago sin aprobación fresca del mantenedor para ese trabajo."
+      - "Toda unidad de trabajo necesita issue y tarjeta antes de empezar (regla de no-hidden-work)."
+    profile:
+      status: unmeasured
+      brief:
+        inline: "Trabaja en español, verifica antes de afirmar terminado, respeta los invariantes de agents.md y deja cada cambio con su issue y su tarjeta."
+  opencode:
+    name: OpenCode (CLI multi-modelo)
+    kind: claude
+    model: ""
+    role: "Implementación en terminal: Kotlin/Android, Python de hardware y barridos de documentación."
+    limits:
+      creditos: "El nivel gratuito se agota a mitad de tarea; el estado queda en su base de datos local y otra sesión puede continuarlo."
+    strengths:
+      - "Autonomía larga en un solo árbol de trabajo sin supervisión continua."
+    constraints:
+      - "El modelo varía por sesión (multi-proveedor); no asumir un modelo fijo al enrutar."
+      - "Si se agotan los créditos, reporta el punto exacto y el pendiente; no simula trabajo terminado."
+    profile:
+      status: unmeasured
+      brief:
+        inline: "Implementa lo pedido con tests o checks del repo, en español, y reporta qué quedó verificado y qué no antes de que se acaben los créditos."
+  claude-code:
+    name: Claude Code (roles DIA)
+    kind: claude
+    model: ""
+    role: "Anfitrión de los roles DIA: implementer, reviewer, adversarial-reviewer, transcriber, researcher."
+    limits:
+      tiers: "El tier más capaz necesita el OK registrado del mantenedor, con razón y en sus palabras."
+    strengths:
+      - "Hooks de SAFO disponibles (solo Claude Code): guard de dispatch, lead-never-waits y disciplina de investigación."
+    constraints:
+      - "Un revisor nunca revisa su propio trabajo; el adversarial va después del reviewer, nunca en su lugar."
+    profile:
+      status: unmeasured
+      brief:
+        inline: "Sigue el brief del lead al pie de la letra, carga los packs nombrados y devuelve el reporte con GATE, TREE y MODEL; lo no verificado se lista, no se rellena."
+  codex:
+    name: Codex
+    kind: codex
+    model: ""
+    role: "Implementación y revisión alternativa; investigación web en sandbox de solo lectura."
+    limits:
+      sandbox: "Investigación en solo lectura y aprobaciones bajo petición."
+    strengths:
+      - "Segunda opinión independiente del equipo Claude para revisión y research."
+    constraints:
+      - "Los agentes DIA viven en .codex/agents y los packs en .agents/skills; mismo contenido que el layout claude."
+    profile:
+      status: unmeasured
+      brief:
+        inline: "Ejecuta el brief con el sandbox mínimo, cita fuentes en investigación y reporta resultados con su comando de puerta; no escala privilegios por su cuenta."
+  human:
+    name: El mantenedor
+    kind: human
+    role: "Decisiones, aprobaciones, hardware físico, merges y todo contacto con GitHub que escriba."
+    limits:
+      tiempo: "Agrupa las preguntas; una tanda por sesión cuando se pueda."
+    strengths:
+      - "Único que puede aprobar, pagar, hacer push y probar la carcasa impresa en la mano."
+    constraints:
+      - "El merge es la puerta que nunca se mueve."
+shapes:
+  implementacion:
+    description: "Cambio de código o docs con plan claro: implementar, verificar y reportar."
+    prefer: [qoder]
+    fallback: [opencode, claude-code]
+    reviewer: [claude-code, codex]
+  hardware:
+    description: "Carcasa, Blender, STL y montaje: geometría con checks numéricos y renders verificados a ojo."
+    prefer: [qoder]
+    fallback: [opencode]
+    reviewer: [claude-code]
+    note: "Los checks del build (holguras, packing, umbrales) son la puerta; el render se mira, no se supone."
+  android:
+    description: "Pipeline de voz y app Android respetando los invariantes de agents.md (ADR-0039 a 0054)."
+    prefer: [qoder]
+    fallback: [opencode, claude-code]
+    reviewer: [claude-code, codex]
+  revision:
+    description: "Revisión de un trabajo terminado: cumplimiento del brief y calidad, dos veredictos separados."
+    prefer: [claude-code]
+    fallback: [codex]
+    note: "Un diff que toque credenciales, parsers, red, CI o permisos también va al adversarial-reviewer, después."
+  investigacion:
+    description: "Averiguar cómo funciona algo o qué existe; sin código que mergear."
+    prefer: [qoder]
+    fallback: [claude-code, codex]
+  seguridad:
+    description: "Threat model, revisión adversarial y cualquier diff sensible según el pack threat-model."
+    prefer: [claude-code]
+    fallback: [codex]
+    note: "Material sensible solo a tiers con acceso cyber; nunca a niveles gratuitos que entrenan con prompts."
+rules_of_thumb:
+  - "Nada de trabajo oculto: cada unidad de trabajo tiene issue y tarjeta antes de empezar; los PR enlazan su issue."
+  - "El que implementa no revisa; el adversarial va después del reviewer, nunca en su lugar."
+  - "Una acción de pago necesita su propia aprobación fresca de un solo uso; ninguna se hereda."
+  - "Terminado significa observado por el camino que usará el usuario, en este turno y con la línea decisiva citada."
+  - "Si dos rondas fallan sobre la misma clase de hallazgo, se recomienda otro modelo; la tercera ronda no la inicia el lead."
