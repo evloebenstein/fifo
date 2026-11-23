@@ -1,0 +1,8 @@
+.claude/** text eol=lf
+.codex/** text eol=lf
+.agents/** text eol=lf
+AGENTS.md text eol=lf
+board.yaml text eol=lf
+agents.yaml text eol=lf
+templates/** text eol=lf
+evals/** text eol=lf
