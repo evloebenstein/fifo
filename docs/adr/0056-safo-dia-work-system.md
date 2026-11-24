@@ -89,7 +89,13 @@ Dos particularidades honestas:
   campo Agent.
 - `gate_check: "CI green"`: el check de CI ya existe y quedó mergeado
   mediante el PR #3. La regla de merge de SAFO queda activada en
-  `board.yaml`; la protección efectiva de `main` se gestiona en la
+  `board.yaml`. El workflow se ejecuta para todo push y pull request a
+  `main`, sin filtros de rutas: un detector exige Android siempre en
+  pushes a `main` y en PRs cuyo diff `base...head` toca `android-app/**`
+  o `.github/workflows/android-ci.yml`. El job final `CI green` usa
+  `if: always()` y falla si el detector o el harness fallan, si Android
+  requerido no termina en `success`, o si Android no requerido no queda
+  `skipped`. La protección efectiva de `main` se gestiona en la
   [issue #2](https://github.com/evloebenstein/fifo/issues/2).
 
 ### 5. Lo que queda gated por aprobación
@@ -127,9 +133,15 @@ la regla, sin sustituir la verificación de los permisos aplicados.
   lead; actualizar es re-ejecutar el instalador.
 - `safo validate` es la puerta offline de `board.yaml`/`agents.yaml`.
 - El check `CI green` ya está mergeado (PR #3) y `gate_check` lo exige en
-  SAFO. Verificar y aplicar la protección de rama sigue sujeto a la
-  aprobación fresca descrita en la
+  SAFO. El workflow tiene cobertura universal para pushes y PRs a `main`;
+  el build Android es condicional al detector y el job final agrega sus
+  resultados sin ocultar fallos. Un harness ejecuta los scripts reales
+  contra repositorios Git temporales, incluye mutaciones negativas con
+  reversión y comprueba que un fallo del detector o del build requerido
+  vuelve rojo a `CI green`. Verificar y aplicar la protección de rama
+  sigue sujeto a la aprobación fresca descrita en la
   [issue #2](https://github.com/evloebenstein/fifo/issues/2); declarar la
-  regla no demuestra que los permisos de GitHub estén activos.
+  regla o pasar el harness no demuestra que los permisos de GitHub estén
+  activos.
 - Pendiente con issue propio: bootstrap del Project (aprobación +
   scope `project`).

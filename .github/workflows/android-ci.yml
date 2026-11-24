@@ -4,22 +4,76 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'android-app/**'
-      - '.github/workflows/android-ci.yml'
   pull_request:
     branches:
       - main
-    paths:
-      - 'android-app/**'
-      - '.github/workflows/android-ci.yml'
 
 permissions:
   contents: read
 
 jobs:
-  ci-green:
-    name: CI green
+  changes:
+    name: Detect Android changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      android_required: ${{ steps.detect.outputs.android_required }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Detect Android requirement
+        id: detect
+        shell: bash
+        env:
+          CI_EVENT_NAME: ${{ github.event_name }}
+          CI_PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # >>> android-required-script
+          set -euo pipefail
+
+          case "$CI_EVENT_NAME" in
+            push)
+              printf 'android_required=true\n' >> "$GITHUB_OUTPUT"
+              exit 0
+              ;;
+            pull_request)
+              ;;
+            *)
+              echo "::error::Evento de CI no admitido: $CI_EVENT_NAME"
+              exit 1
+              ;;
+          esac
+
+          if [[ ! "$CI_PR_BASE_SHA" =~ ^[0-9a-f]{40}$ ]] ||
+             [[ ! "$CI_PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::El PR no proporciona los commits base y head completos"
+            exit 1
+          fi
+
+          git diff --no-renames --name-only -z \
+            "$CI_PR_BASE_SHA...$CI_PR_HEAD_SHA" \
+            > "$RUNNER_TEMP/android-ci-changed-paths"
+
+          android_required=false
+          while IFS= read -r -d '' path; do
+            case "$path" in
+              android-app/*|.github/workflows/android-ci.yml)
+                android_required=true
+                break
+                ;;
+            esac
+          done < "$RUNNER_TEMP/android-ci-changed-paths"
+
+          printf 'android_required=%s\n' "$android_required" >> "$GITHUB_OUTPUT"
+          # <<< android-required-script
+
+  android:
+    name: Android compile, test and assemble
+    needs: changes
+    if: needs.changes.outputs.android_required == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -33,3 +87,358 @@ jobs:
       - name: Compile, test and assemble debug
         working-directory: android-app
         run: ./gradlew compileDebugKotlin testDebugUnitTest assembleDebug
+
+  workflow-regression:
+    name: Workflow regression
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Run workflow regression harness
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import shutil
+          import subprocess
+          import tempfile
+          from pathlib import Path
+
+          workflow_path = Path(".github/workflows/android-ci.yml")
+          workflow = workflow_path.read_text(encoding="utf-8")
+          bash = shutil.which("bash")
+          if not bash:
+              raise AssertionError("No se encontro bash para ejecutar los scripts del workflow")
+
+          # La cobertura universal y las costuras de seguridad son parte del contrato.
+          header = workflow.split("\npermissions:", 1)[0]
+          expected_triggers = (
+              "  push:\n"
+              "    branches:\n"
+              "      - main\n"
+              "  pull_request:\n"
+              "    branches:\n"
+              "      - main\n"
+          )
+          if expected_triggers not in header:
+              raise AssertionError("Faltan los triggers universales push/PR a main")
+          if re.search(r"(?m)^    paths(?:-ignore)?:", header):
+              raise AssertionError("El workflow no debe filtrar rutas")
+          if workflow.count("\npermissions:") != 1 or "\npermissions:\n  contents: read\n" not in workflow:
+              raise AssertionError("El workflow debe mantener solo permissions: contents: read")
+          for token in (
+              "pull_request" + "_target:",
+              "workflow" + "_run:",
+              "continue" + "-on-error:",
+              "write" + "-all",
+          ):
+              if token in workflow:
+                  raise AssertionError(f"Costura prohibida presente: {token}")
+
+          expected_uses = {
+              "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
+              "actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00",
+          }
+          uses = set(re.findall(r"(?m)^\s*uses:\s*([^\s#]+)", workflow))
+          if uses != expected_uses:
+              raise AssertionError(f"Las acciones han cambiado: {sorted(uses)}")
+
+          def job_block(job_id):
+              match = re.search(
+                  rf"(?ms)^  {re.escape(job_id)}:\n(.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+                  workflow,
+              )
+              if not match:
+                  raise AssertionError(f"Falta el job {job_id}")
+              return match.group(1)
+
+          changes_job = job_block("changes")
+          android_job = job_block("android")
+          regression_job = job_block("workflow-regression")
+          green_job = job_block("ci-green")
+          required_fragments = (
+              (changes_job, "fetch-depth: 0"),
+              (changes_job, "steps.detect.outputs.android_required"),
+              (changes_job, "CI_EVENT_NAME:"),
+              (changes_job, "CI_PR_BASE_SHA:"),
+              (changes_job, "CI_PR_HEAD_SHA:"),
+              (android_job, "needs: changes"),
+              (android_job, "if: needs.changes.outputs.android_required == 'true'"),
+              (android_job, "java-version: '17'"),
+              (android_job, "run: ./gradlew compileDebugKotlin testDebugUnitTest assembleDebug"),
+              (regression_job, "Run workflow regression harness"),
+              (green_job, "name: CI green"),
+              (green_job, "needs: [changes, android, workflow-regression]"),
+              (green_job, "if: always()"),
+              (green_job, "CHANGES_RESULT:"),
+              (green_job, "ANDROID_REQUIRED:"),
+              (green_job, "ANDROID_RESULT:"),
+              (green_job, "REGRESSION_RESULT:"),
+          )
+          for block, fragment in required_fragments:
+              if fragment not in block:
+                  raise AssertionError(f"Falta la costura del workflow: {fragment}")
+
+          # GitHub sustituye expresiones incluso dentro de un heredoc: no deben aparecer en run.
+          in_run = False
+          run_indent = 0
+          expression = "$" + "{{"
+          for line in workflow.splitlines():
+              stripped = line.lstrip()
+              indent = len(line) - len(stripped)
+              if stripped.startswith("run:"):
+                  if expression in line:
+                      raise AssertionError("Hay una expresion de GitHub dentro de run")
+                  in_run = stripped == "run: |"
+                  run_indent = indent
+              elif in_run and stripped and indent <= run_indent:
+                  in_run = False
+              if in_run and expression in line:
+                  raise AssertionError("Hay una expresion de GitHub dentro de run")
+
+          def extract_script(marker):
+              lines = workflow.splitlines()
+              start_marker = f"# >>> {marker}"
+              end_marker = f"# <<< {marker}"
+              starts = [i for i, line in enumerate(lines) if line.strip() == start_marker]
+              ends = [i for i, line in enumerate(lines) if line.strip() == end_marker]
+              if len(starts) != 1 or len(ends) != 1 or ends[0] <= starts[0]:
+                  raise AssertionError(f"Marca de script no unica o incompleta: {marker}")
+              prefix = lines[starts[0]][:len(lines[starts[0]]) - len(lines[starts[0]].lstrip())]
+              body = []
+              for line in lines[starts[0] + 1:ends[0]]:
+                  body.append(line[len(prefix):] if line.startswith(prefix) else line)
+              script = "\n".join(body) + "\n"
+              if "set -euo pipefail" not in script:
+                  raise AssertionError(f"El script extraido no es el esperado: {marker}")
+              return script
+
+          detector = extract_script("android-required-script")
+          aggregator = extract_script("ci-green-script")
+
+          def git(repo, *args):
+              result = subprocess.run(
+                  ["git", *args], cwd=repo, text=True, capture_output=True, timeout=30
+              )
+              if result.returncode != 0:
+                  raise AssertionError(
+                      f"git {' '.join(args)} fallo ({result.returncode}): {result.stderr.strip()}"
+                  )
+              return result.stdout.strip()
+
+          def make_repo(root, name, changes):
+              repo = root / name
+              repo.mkdir()
+              git(repo, "init", "-q", "-b", "main")
+              git(repo, "config", "user.name", "Fifo CI regression")
+              git(repo, "config", "user.email", "fifo-ci@example.invalid")
+              git(repo, "config", "commit.gpgsign", "false")
+              (repo / "README.md").write_text("base\n", encoding="utf-8")
+              git(repo, "add", "README.md")
+              git(repo, "commit", "-q", "-m", "base")
+              base = git(repo, "rev-parse", "HEAD")
+              if changes:
+                  for relative, content in changes.items():
+                      path = repo / relative
+                      path.parent.mkdir(parents=True, exist_ok=True)
+                      path.write_text(content, encoding="utf-8")
+                  git(repo, "add", "-A")
+                  git(repo, "commit", "-q", "-m", "change")
+              return repo, base, git(repo, "rev-parse", "HEAD")
+
+          def detector_value(repo, base, head, event, script):
+              output = repo / "github-output"
+              output.write_text("", encoding="utf-8")
+              (repo / "runner-tmp").mkdir(exist_ok=True)
+              env = os.environ.copy()
+              env.update({
+                  "CI_EVENT_NAME": event,
+                  "CI_PR_BASE_SHA": base,
+                  "CI_PR_HEAD_SHA": head,
+                  "GITHUB_OUTPUT": "github-output",
+                  "RUNNER_TEMP": "runner-tmp",
+              })
+              result = subprocess.run(
+                  [bash, "-c", script], cwd=repo, env=env,
+                  text=True, capture_output=True, timeout=30
+              )
+              if result.returncode != 0:
+                  raise AssertionError(
+                      f"Detector termino en {result.returncode}: {result.stderr.strip()}"
+                  )
+              values = {}
+              for line in output.read_text(encoding="utf-8").splitlines():
+                  key, separator, value = line.partition("=")
+                  if separator:
+                      values[key] = value
+              return values.get("android_required")
+
+          def expect_detector(repo, base, head, event, script, label, expected):
+              actual = detector_value(repo, base, head, event, script)
+              if actual != expected:
+                  raise AssertionError(
+                      f"{label}: se esperaba android_required={expected}, se obtuvo {actual!r}"
+                  )
+              print(f"PASS caso={label} event={event} android_required={actual}")
+              return actual
+
+          def expect_aggregator(script, label, changes_result, required, android_result,
+                                regression_result, expected_success):
+              env = os.environ.copy()
+              env.update({
+                  "CHANGES_RESULT": changes_result,
+                  "ANDROID_REQUIRED": required,
+                  "ANDROID_RESULT": android_result,
+                  "REGRESSION_RESULT": regression_result,
+              })
+              result = subprocess.run(
+                  [bash, "-c", script], env=env,
+                  text=True, capture_output=True, timeout=30
+              )
+              actual_success = result.returncode == 0
+              if actual_success != expected_success:
+                  raise AssertionError(
+                      f"{label}: success esperado={expected_success}, exit={result.returncode}, "
+                      f"stdout={result.stdout.strip()!r}, stderr={result.stderr.strip()!r}"
+                  )
+              status = "success" if actual_success else "failure"
+              print(f"PASS agregador={label} resultado={status}")
+
+          cases = [
+              ("android", {"android-app/app/src/main/kotlin/Main.kt": "// cambio\n"}, "true"),
+              ("workflow-only", {".github/workflows/android-ci.yml": "name: cambio\n"}, "true"),
+              ("board", {"board.yaml": "rules: {}\n"}, "false"),
+              ("docs", {"CONTRIBUTING.md": "cambio\n"}, "false"),
+              ("adr", {"docs/adr/0056-safo-dia-work-system.md": "cambio\n"}, "false"),
+              ("hardware", {"hardware/enclosure/case.stl": "solid cambio\n"}, "false"),
+              ("backend", {"backend/app/main.py": "cambio = True\n"}, "false"),
+              ("esp32", {"esp32-firmware/src/main.cpp": "// cambio\n"}, "false"),
+              ("empty", {}, "false"),
+              ("other-workflow", {".github/workflows/other.yml": "name: otro\n"}, "false"),
+          ]
+
+          with tempfile.TemporaryDirectory(prefix="fifo-ci-regression-") as temporary:
+              root = Path(temporary)
+              repos = {}
+              for name, changes, expected in cases:
+                  repo, base, head = make_repo(root, name, changes)
+                  repos[name] = (repo, base, head)
+                  expect_detector(repo, base, head, "pull_request", detector, name, expected)
+
+              for name, changes in (("push-empty", {}), ("push-docs", {"README.md": "push\n"})):
+                  repo, base, head = make_repo(root, name, changes)
+                  expect_detector(repo, base, head, "push", detector, name, "true")
+
+              aggregate_cases = [
+                  ("required-success", "success", "true", "success", "success", True),
+                  ("required-failure", "success", "true", "failure", "success", False),
+                  ("required-skipped", "success", "true", "skipped", "success", False),
+                  ("required-cancelled", "success", "true", "cancelled", "success", False),
+                  ("not-required-skipped", "success", "false", "skipped", "success", True),
+                  ("not-required-success", "success", "false", "success", "success", False),
+                  ("not-required-failure", "success", "false", "failure", "success", False),
+                  ("not-required-cancelled", "success", "false", "cancelled", "success", False),
+                  ("detector-failure", "failure", "false", "skipped", "success", False),
+                  ("detector-cancelled", "cancelled", "true", "skipped", "success", False),
+                  ("detector-skipped", "skipped", "false", "skipped", "success", False),
+                  ("missing-required", "success", "", "skipped", "success", False),
+                  ("invalid-required", "success", "unexpected", "skipped", "success", False),
+                  ("regression-failure", "success", "false", "skipped", "failure", False),
+              ]
+              for case in aggregate_cases:
+                  expect_aggregator(aggregator, *case)
+
+              # Mutacion negativa: quitar el workflow del detector debe hacer fallar el caso.
+              repo, base, head = repos["workflow-only"]
+              target = "android-app/*|.github/workflows/android-ci.yml)"
+              if detector.count(target) != 1:
+                  raise AssertionError("No se encontro la mutacion negativa prevista")
+              mutated_detector = detector.replace(target, "android-app/*)", 1)
+              try:
+                  expect_detector(repo, base, head, "pull_request", mutated_detector,
+                                  "workflow-only", "true")
+              except AssertionError as error:
+                  if "se obtuvo 'false'" not in str(error):
+                      raise
+                  print("PASS mutacion negativa: el caso workflow-only detecta el detector mutado")
+              else:
+                  raise AssertionError("La mutacion negativa del detector no fue detectada")
+              expect_detector(repo, base, head, "pull_request", detector,
+                              "workflow-only", "true")
+              print("PASS reversion: el detector original vuelve a aprobar workflow-only")
+
+              # Mutacion negativa: ignorar el fallo del detector debe hacer fallar la tabla.
+              target = 'if [[ "$CHANGES_RESULT" != "success" ]]; then'
+              if aggregator.count(target) != 1:
+                  raise AssertionError("No se encontro la mutacion negativa del agregador")
+              mutated_aggregator = aggregator.replace(target, "if false; then", 1)
+              try:
+                  expect_aggregator(mutated_aggregator, "detector-failure",
+                                    "failure", "false", "skipped", "success", False)
+              except AssertionError as error:
+                  if "success esperado=False, exit=0" not in str(error):
+                      raise
+                  print("PASS mutacion negativa: la tabla detecta el agregador mutado")
+              else:
+                  raise AssertionError("La mutacion negativa del agregador no fue detectada")
+              expect_aggregator(aggregator, "detector-failure",
+                                "failure", "false", "skipped", "success", False)
+              print("PASS reversion: el agregador original vuelve a rechazar detector-failure")
+
+          print(
+              f"PASS harness completo: {len(cases)} clases PR, 2 pushes, "
+              f"{len(aggregate_cases)} casos del agregador, 2 mutaciones y 2 reversiones"
+          )
+          PY
+
+  ci-green:
+    name: CI green
+    needs: [changes, android, workflow-regression]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Aggregate required CI results
+        shell: bash
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          ANDROID_REQUIRED: ${{ needs.changes.outputs.android_required }}
+          ANDROID_RESULT: ${{ needs.android.result }}
+          REGRESSION_RESULT: ${{ needs.workflow-regression.result }}
+        run: |
+          # >>> ci-green-script
+          set -euo pipefail
+
+          if [[ "$CHANGES_RESULT" != "success" ]]; then
+            echo "::error::El detector no termino en success: $CHANGES_RESULT"
+            exit 1
+          fi
+
+          if [[ "$REGRESSION_RESULT" != "success" ]]; then
+            echo "::error::El harness de regresion no termino en success: $REGRESSION_RESULT"
+            exit 1
+          fi
+
+          case "$ANDROID_REQUIRED" in
+            true)
+              if [[ "$ANDROID_RESULT" != "success" ]]; then
+                echo "::error::Android era requerido y termino en: $ANDROID_RESULT"
+                exit 1
+              fi
+              ;;
+            false)
+              if [[ "$ANDROID_RESULT" != "skipped" ]]; then
+                echo "::error::Android no era requerido y termino en: $ANDROID_RESULT"
+                exit 1
+              fi
+              ;;
+            *)
+              echo "::error::Resultado de detector invalido: $ANDROID_REQUIRED"
+              exit 1
+              ;;
+          esac
+
+          echo "CI green: detector y resultados requeridos correctos"
+          # <<< ci-green-script

@@ -79,7 +79,9 @@ Para reproducir exactamente la comprobación de GitHub Actions, ejecuta desde la
 cd android-app && ./gradlew compileDebugKotlin testDebugUnitTest assembleDebug
 ```
 
-El nombre estable de la comprobación es **`CI green`**. El workflow se ejecuta en pushes y pull requests a `main` cuando cambian `android-app/**` o `.github/workflows/android-ci.yml`, y compila Kotlin, ejecuta las pruebas JVM de debug y ensambla el APK debug.
+El nombre estable de la comprobación es **`CI green`**. El workflow se ejecuta para todo push y pull request a `main`, sin filtros de rutas. Un detector previo exige el build Android en todos los pushes a `main` y, en pull requests, cuando el diff `base...head` toca `android-app/**` o `.github/workflows/android-ci.yml`. Cuando Android no es requerido, su job queda `skipped`; `CI green` sólo pasa si el detector y el harness tienen éxito y el resultado de Android coincide con esa decisión. El job Android conserva JDK 17 y ejecuta `./gradlew compileDebugKotlin testDebugUnitTest assembleDebug`.
+
+El job **Workflow regression** ejecuta los scripts reales del detector y del agregador contra repositorios Git temporales. Cubre cambios Android, del workflow, de tablero/docs/ADR, hardware, backend, ESP32, diffs vacíos y workflows ajenos, además de pushes a `main`, la tabla de resultados del agregador y mutaciones negativas con reversión. Esta comprobación no aplica ni demuestra protección de rama; ese estado se gestiona por separado en la [issue #2](https://github.com/evloebenstein/fifo/issues/2).
 
 ### Claves de API y Variables de Entorno
 Fifo usa **Groq LPU** para STT (`whisper-large-v3-turbo`) y LLM (`qwen/qwen3.8-27b`). Opcionalmente, `OPENAI_API_KEY` habilita Whisper de OpenAI como alternativa de STT. No se requiere clave para el TTS nativo de Android.
