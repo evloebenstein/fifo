@@ -80,6 +80,7 @@ rules:
   threat_model:
     label: threat-model
   gate_check: "CI green"
+  gate_require_admin_enforced: true
 agents:
   field: Agent
   working: [In progress, Next]
