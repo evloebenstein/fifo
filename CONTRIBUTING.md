@@ -79,7 +79,9 @@ Para reproducir exactamente la comprobación de GitHub Actions, ejecuta desde la
 cd android-app && ./gradlew compileDebugKotlin testDebugUnitTest assembleDebug
 ```
 
-El nombre estable de la comprobación es **`CI green`**. El workflow se ejecuta en pushes y pull requests a `main` cuando cambian `android-app/**` o `.github/workflows/android-ci.yml`, y compila Kotlin, ejecuta las pruebas JVM de debug y ensambla el APK debug.
+El nombre estable de la comprobación es **`CI green`**. El workflow se ejecuta para todo push y pull request a `main`, sin filtros de rutas. Su único job ejecuta siempre el gate Android completo con JDK 17: `./gradlew compileDebugKotlin testDebugUnitTest assembleDebug`. Todo PR, incluidos los cambios de workflow, tablero, documentación, hardware, backend o ESP32, ejecuta el mismo gate; cualquier fallo de compilación, pruebas o empaquetado deja el job rojo.
+
+Esta comprobación no aplica ni demuestra protección de rama; ese estado se gestiona por separado en la [issue #2](https://github.com/evloebenstein/fifo/issues/2).
 
 ### Claves de API y Variables de Entorno
 Fifo usa **Groq LPU** para STT (`whisper-large-v3-turbo`) y LLM (`qwen/qwen3.8-27b`). Opcionalmente, `OPENAI_API_KEY` habilita Whisper de OpenAI como alternativa de STT. No se requiere clave para el TTS nativo de Android.

@@ -4,15 +4,9 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'android-app/**'
-      - '.github/workflows/android-ci.yml'
   pull_request:
     branches:
       - main
-    paths:
-      - 'android-app/**'
-      - '.github/workflows/android-ci.yml'
 
 permissions:
   contents: read

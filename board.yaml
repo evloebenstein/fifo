@@ -79,9 +79,8 @@ rules:
     effort_field: Effort
   threat_model:
     label: threat-model
-  # Sin CI ni protección de rama todavía: la regla de merge queda apagada hasta que existan.
-  # Encenderla (gate_check: "CI green") es parte del pendiente de CI, no de este archivo a solas.
-  gate_check: ""
+  gate_check: "CI green"
+  gate_require_admin_enforced: true
 agents:
   field: Agent
   working: [In progress, Next]

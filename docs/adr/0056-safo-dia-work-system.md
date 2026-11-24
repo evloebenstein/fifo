@@ -52,7 +52,7 @@ marcadores de propiedad y toda la instalación aparece como deriva.
 AGENTS.md --apply`, y lo mismo con `--adapter codex` (sin `--lead`). Packs
 elegidos por el dominio real del repo: Python que carga YAML/JSON y llama
 APIs (SAFO, tools, backend), threat model del pipeline de voz, CI de GitHub
-Actions (pendiente) y assets shipped (renders, STL, iconos).
+Actions (ya mergeadas) y assets shipped (renders, STL, iconos).
 
 Los 22 archivos gestionados viven en `.claude/`, `.codex/` y `.agents/skills/`;
 Qoder y OpenCode cargan los packs desde `.agents/skills`. El bloque lead
@@ -87,9 +87,17 @@ Dos particularidades honestas:
   `claude` (familia de protocolo) con nota. La etiqueta que sugiere `route`
   para la tarjeta es la del kind; el lead la mapea a la opción real del
   campo Agent.
-- `gate_check: ""`: la puerta de merge por CI está apagada porque el repo
-  aún no tiene CI ni protección de rama. Encenderla es un pendiente con
-  issue propio, no un cambio silencioso de este archivo.
+- `gate_check: "CI green"` y `gate_require_admin_enforced: true`: el check
+  de CI ya existe y quedó mergeado mediante el PR #3. La regla de merge de
+  SAFO exige que la protección clásica aplique la puerta también a los
+  administradores; no se configura `gate_admin_exempt_repos` ni se acepta
+  bypass administrativo. El workflow se ejecuta para todo push y pull
+  request a `main`, sin filtros de rutas. Su único job, `CI green`, ejecuta
+  siempre el gate Android completo con JDK 17:
+  `./gradlew compileDebugKotlin testDebugUnitTest assembleDebug`. Cualquier
+  fallo de compilación, pruebas o empaquetado deja el job rojo. La
+  protección efectiva de `main` se gestiona en la
+  [issue #2](https://github.com/evloebenstein/fifo/issues/2).
 
 ### 5. Lo que queda gated por aprobación
 
@@ -97,6 +105,15 @@ El GitHub Project no se crea sin aprobación explícita del mantenedor:
 `gh auth refresh -s project` (interactivo, navegador) y `safo bootstrap`
 escriben en GitHub. Tras bootstrap, `project.number` entra en `board.yaml`
 y se corren `reconcile` y `audit`.
+
+El PR #3 ya mergeó el workflow de CI y su check `CI green`; ese hecho no
+autoriza aplicar permisos. Activar la protección de `main` cambia estado
+compartido y exige aprobación fresca del mantenedor en el momento de
+ejecutarla. La política aprobada es estricta: el check debe exigirse también
+a administradores y no se admite bypass administrativo. La
+[issue #2](https://github.com/evloebenstein/fifo/issues/2) registra ese
+trabajo; este ADR y `board.yaml` solo documentan y configuran la regla, sin
+sustituir la verificación de los permisos aplicados.
 
 ## Alternatives considered
 
@@ -117,7 +134,16 @@ y se corren `reconcile` y `audit`.
 - El que implementa no revisa; el adversarial va después del reviewer.
 - Las sesiones no editan los archivos gestionados por DIA ni el bloque
   lead; actualizar es re-ejecutar el instalador.
-- `safo validate` es la puerta offline de `board.yaml`/`agents.yaml`; hoy
-  pasa (`configuration valid`).
-- Pendientes con issue propio: bootstrap del Project (aprobación +
-  scope `project`), CI y protección de rama para encender `gate_check`.
+- `safo validate` es la puerta offline de `board.yaml`/`agents.yaml`.
+- El check `CI green` ya está mergeado (PR #3) y `gate_check` lo exige en
+  SAFO. Con `gate_require_admin_enforced: true`, la puerta debe aplicarse
+  también a administradores y no acepta bypass administrativo. El workflow
+  tiene cobertura universal para pushes y PRs a `main`: su único job ejecuta
+  siempre el gate Android completo con JDK 17, sin filtros de rutas ni
+  resultados condicionales. Verificar y aplicar la protección de rama sigue
+  sujeto a la aprobación fresca descrita en la
+  [issue #2](https://github.com/evloebenstein/fifo/issues/2); declarar la
+  regla o pasar `CI green` no demuestra que los permisos de GitHub estén
+  activos.
+- Pendiente con issue propio: bootstrap del Project (aprobación +
+  scope `project`).
