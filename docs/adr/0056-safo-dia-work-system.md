@@ -37,8 +37,8 @@ entorno del mantenedor es Windows con WSL (kali) disponible.
 
 | Herramienta | Ruta | Versión |
 | :--- | :--- | :--- |
-| SAFO | `C:\Users\evloe\tools\scrum-around-and-find-out` | main `75cabb7fcea2713a8039f95732eea67541babfd2` |
-| DIA | `C:\Users\evloe\tools\department-of-internal-arguments` | v0.4.0 `a9d434794869aaf167df8adc3f351ce27c12532d` |
+| SAFO | `%USERPROFILE%\tools\scrum-around-and-find-out` | main `75cabb7fcea2713a8039f95732eea67541babfd2` |
+| DIA | `%USERPROFILE%\tools\department-of-internal-arguments` | v0.4.0 `a9d434794869aaf167df8adc3f351ce27c12532d` |
 
 No se forkean ni se modifican: actualizar es `git fetch` + checkout de un tag
 o commit nuevo, y re-ejecutar el instalador de DIA. El clon de DIA lleva
@@ -65,7 +65,7 @@ el instalador. Las plantillas que el lead referencia se copiaron al repo:
 - `python3 -m safo` con `PYTHONPATH` al `src` del clon (PyYAML ya está en la
   kali). El intento de pip install en Windows se revirtió: `guardlog.py`
   importa `fcntl`.
-- El `gh` de WSL es un shim (`/home/evl/tools/bin/gh`) que exec
+- El `gh` de WSL es un shim (`$HOME/tools/bin/gh`) que exec
   `gh.exe` de Windows: reutiliza el keyring y no copia tokens.
 - `safo route` exige un archivo de confianza POSIX y rechaza `/mnt/c`
   (group-writable). La copia viva es `~/.config/safo/agents.yaml` (0600),
@@ -102,10 +102,12 @@ Dos particularidades honestas:
 
 ### 5. Protección verificada y trabajo gated por aprobación
 
-El GitHub Project no se crea sin aprobación explícita del mantenedor:
-`gh auth refresh -s project` (interactivo, navegador) y `safo bootstrap`
-escriben en GitHub. Tras bootstrap, `project.number` entra en `board.yaml`
-y se corren `reconcile` y `audit`.
+El GitHub Project Fifo (número 4) ya fue creado con aprobación explícita del
+mantenedor; `project.number` quedó registrado en `board.yaml` y se corrieron
+`reconcile` y `audit`. La creación de futuros proyectos y cualquier autorización
+nueva de scope `project` siguen requiriendo aprobación explícita y fresca del
+mantenedor: `gh auth refresh -s project` (interactivo, navegador) y
+`safo bootstrap` escriben en GitHub.
 
 El PR #3 mergeó el workflow de CI y su check `CI green`. El PR #4 mergeó
 en `main`, en el commit
@@ -159,5 +161,6 @@ la protección ya aplicada como un pendiente inicial.
   [issue #2](https://github.com/evloebenstein/fifo/issues/2) conserva la
   verificación continua y el trabajo restante. La sección 5 registra la
   evidencia live y la limitación residual del identificador del check.
-- Pendiente con issue propio: bootstrap del Project (aprobación +
-  scope `project`).
+- El GitHub Project Fifo ya está creado (número 4), con aprobación registrada,
+  `project.number` en `board.yaml` y `reconcile`/`audit` ejecutados. Los futuros
+  proyectos y nuevas autorizaciones de scope requieren aprobación fresca.
