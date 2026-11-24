@@ -37,8 +37,8 @@ entorno del mantenedor es Windows con WSL (kali) disponible.
 
 | Herramienta | Ruta | Versión |
 | :--- | :--- | :--- |
-| SAFO | `C:\Users\evloe\tools\scrum-around-and-find-out` | main `75cabb7fcea2713a8039f95732eea67541babfd2` |
-| DIA | `C:\Users\evloe\tools\department-of-internal-arguments` | v0.4.0 `a9d434794869aaf167df8adc3f351ce27c12532d` |
+| SAFO | `%USERPROFILE%\tools\scrum-around-and-find-out` | main `75cabb7fcea2713a8039f95732eea67541babfd2` |
+| DIA | `%USERPROFILE%\tools\department-of-internal-arguments` | v0.4.0 `a9d434794869aaf167df8adc3f351ce27c12532d` |
 
 No se forkean ni se modifican: actualizar es `git fetch` + checkout de un tag
 o commit nuevo, y re-ejecutar el instalador de DIA. El clon de DIA lleva
@@ -65,7 +65,7 @@ el instalador. Las plantillas que el lead referencia se copiaron al repo:
 - `python3 -m safo` con `PYTHONPATH` al `src` del clon (PyYAML ya está en la
   kali). El intento de pip install en Windows se revirtió: `guardlog.py`
   importa `fcntl`.
-- El `gh` de WSL es un shim (`/home/evl/tools/bin/gh`) que exec
+- El `gh` de WSL es un shim (`$HOME/tools/bin/gh`) que exec
   `gh.exe` de Windows: reutiliza el keyring y no copia tokens.
 - `safo route` exige un archivo de confianza POSIX y rechaza `/mnt/c`
   (group-writable). La copia viva es `~/.config/safo/agents.yaml` (0600),
@@ -96,24 +96,39 @@ Dos particularidades honestas:
   siempre el gate Android completo con JDK 17:
   `./gradlew compileDebugKotlin testDebugUnitTest assembleDebug`. Cualquier
   fallo de compilación, pruebas o empaquetado deja el job rojo. La
-  protección efectiva de `main` se gestiona en la
-  [issue #2](https://github.com/evloebenstein/fifo/issues/2).
+  protección efectiva de `main` se aplicó y verificó mediante el PR #4; la
+  [issue #2](https://github.com/evloebenstein/fifo/issues/2) conserva el
+  registro de verificación continua y restante.
 
-### 5. Lo que queda gated por aprobación
+### 5. Protección verificada y trabajo gated por aprobación
 
-El GitHub Project no se crea sin aprobación explícita del mantenedor:
-`gh auth refresh -s project` (interactivo, navegador) y `safo bootstrap`
-escriben en GitHub. Tras bootstrap, `project.number` entra en `board.yaml`
-y se corren `reconcile` y `audit`.
+El GitHub Project Fifo (número 4) ya fue creado con aprobación explícita del
+mantenedor; `project.number` quedó registrado en `board.yaml` y se corrieron
+`reconcile` y `audit`. La creación de futuros proyectos y cualquier autorización
+nueva de scope `project` siguen requiriendo aprobación explícita y fresca del
+mantenedor: `gh auth refresh -s project` (interactivo, navegador) y
+`safo bootstrap` escriben en GitHub.
 
-El PR #3 ya mergeó el workflow de CI y su check `CI green`; ese hecho no
-autoriza aplicar permisos. Activar la protección de `main` cambia estado
-compartido y exige aprobación fresca del mantenedor en el momento de
-ejecutarla. La política aprobada es estricta: el check debe exigirse también
-a administradores y no se admite bypass administrativo. La
-[issue #2](https://github.com/evloebenstein/fifo/issues/2) registra ese
-trabajo; este ADR y `board.yaml` solo documentan y configuran la regla, sin
-sustituir la verificación de los permisos aplicados.
+El PR #3 mergeó el workflow de CI y su check `CI green`. El PR #4 mergeó
+en `main`, en el commit
+`0ef98143caed42f1d0ae05ca9fd79138cb976811`, la protección clásica que
+exige ese check. La evidencia live observada por el lead mediante REST y
+GraphQL, fechada `2026-11-24T02:06:44Z`, confirmó:
+
+- check requerido `CI green`, publicado por la app GitHub Actions (`15368`);
+- `strict=true`, pull request obligatorio y `0` aprobaciones obligatorias;
+- administradores incluidos (`enforce_admins=true`) y conversaciones
+  resueltas exigidas;
+- force-push y borrado de rama desactivados, sin actores de bypass;
+- cero rulesets en conflicto.
+
+`safo audit` terminó clean y conservó su nota informativa `NO-GATE`: esa
+nota no significa que la protección básica sea inexistente. La limitación
+residual aceptada es que la protección clásica identifica el check por
+nombre y app, no por el archivo exacto del workflow. La
+[issue #2](https://github.com/evloebenstein/fifo/issues/2) sigue como
+registro de la verificación continua y del trabajo restante, sin presentar
+la protección ya aplicada como un pendiente inicial.
 
 ## Alternatives considered
 
@@ -136,14 +151,16 @@ sustituir la verificación de los permisos aplicados.
   lead; actualizar es re-ejecutar el instalador.
 - `safo validate` es la puerta offline de `board.yaml`/`agents.yaml`.
 - El check `CI green` ya está mergeado (PR #3) y `gate_check` lo exige en
-  SAFO. Con `gate_require_admin_enforced: true`, la puerta debe aplicarse
+  SAFO. Con `gate_require_admin_enforced: true`, la puerta se aplica
   también a administradores y no acepta bypass administrativo. El workflow
   tiene cobertura universal para pushes y PRs a `main`: su único job ejecuta
   siempre el gate Android completo con JDK 17, sin filtros de rutas ni
-  resultados condicionales. Verificar y aplicar la protección de rama sigue
-  sujeto a la aprobación fresca descrita en la
-  [issue #2](https://github.com/evloebenstein/fifo/issues/2); declarar la
-  regla o pasar `CI green` no demuestra que los permisos de GitHub estén
-  activos.
-- Pendiente con issue propio: bootstrap del Project (aprobación +
-  scope `project`).
+  resultados condicionales. La protección básica de `main` quedó aplicada y
+  verificada mediante el PR #4 (commit
+  `0ef98143caed42f1d0ae05ca9fd79138cb976811`); la
+  [issue #2](https://github.com/evloebenstein/fifo/issues/2) conserva la
+  verificación continua y el trabajo restante. La sección 5 registra la
+  evidencia live y la limitación residual del identificador del check.
+- El GitHub Project Fifo ya está creado (número 4), con aprobación registrada,
+  `project.number` en `board.yaml` y `reconcile`/`audit` ejecutados. Los futuros
+  proyectos y nuevas autorizaciones de scope requieren aprobación fresca.
